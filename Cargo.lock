@@ -105,6 +105,7 @@ name = "catchword"
 version = "0.0.1"
 dependencies = [
  "anyhow",
+ "catchword-embed",
  "catchword-engine",
  "catchword-store",
  "catchword-test-support",

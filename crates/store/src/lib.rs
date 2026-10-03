@@ -264,6 +264,13 @@ impl Store {
         hits.collect()
     }
 
+    /// The model the stored vectors come from, if one was chosen. Search
+    /// must embed the query with the same model.
+    pub fn embedding_model(&self) -> rusqlite::Result<Option<String>> {
+        Ok(meta_get(&self.conn, "model")?
+            .and_then(|model| model.rsplit_once(' ').map(|(name, _)| name.to_string())))
+    }
+
     /// The vector size of the chosen model, if one was chosen.
     fn model_dimensions(&self) -> rusqlite::Result<Option<usize>> {
         Ok(meta_get(&self.conn, "model")?.and_then(|model| model.rsplit(' ').next()?.parse().ok()))
@@ -830,6 +837,17 @@ mod tests {
         // Vectors of the old size are now refused.
         let id = store.passages_without_vectors(1).unwrap()[0].0;
         assert!(store.put_vectors(&[(id, toward(0))]).is_err());
+    }
+
+    #[test]
+    fn the_index_remembers_its_model() {
+        let mut store = Store::open_in_memory().unwrap();
+        assert_eq!(store.embedding_model().unwrap(), None);
+        store.use_model("model-a@1234", 3).unwrap();
+        assert_eq!(
+            store.embedding_model().unwrap().as_deref(),
+            Some("model-a@1234")
+        );
     }
 
     #[test]

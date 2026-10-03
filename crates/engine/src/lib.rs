@@ -11,6 +11,7 @@ use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 
 pub mod extract;
+pub mod fuse;
 
 use extract::Reason;
 

@@ -9,14 +9,15 @@ A free, open-source desktop app for Windows that searches a person's own documen
 ## Where things stand
 
 - **Planning is complete.** The full specification is `docs/specification.md`. Section 26 lists every decision, section 21 is the backlog, section 20 is the roadmap.
-- **Code so far** is a Rust workspace with five crates:
-  - `crates/engine`: scan a folder, read text files, hash content, split text into passages (with page numbers for PDFs), and run the extraction worker under limits (`extract`: protocol and supervisor).
+- **Code so far** is a Rust workspace with six crates:
+  - `crates/engine`: scan a folder, read text files, hash content, split text into passages sized in model tokens (with page numbers for PDFs), run the extraction worker under limits (`extract`), and combine keyword and meaning results (`fuse`, reciprocal rank fusion).
   - `crates/worker`: the extraction worker. Reads one PDF with PDFium and returns the text of each page, or a reason code.
-  - `crates/store`: the SQLite index, with FTS5 keyword search. Identical files are stored once. Layout version 2.
+  - `crates/embed`: the embedding runtime. ONNX Runtime and the provisional model, granite-embedding-97m-multilingual-r2 in 8-bit form, loaded by full path after a checksum check.
+  - `crates/store`: the SQLite index, with FTS5 keyword search and sqlite-vec vectors. Identical files are stored once. Layout version 3.
   - `crates/cli`: the commands `index`, `search` and `status`.
   - `crates/test-support`: test PDFs written by code, never shipped.
-- **Verified on Windows 11 with Rust 1.99.0** (pinned in `rust-toolchain.toml`): 55 tests pass, and format, lint and the privacy check are clean. PDFium comes from `scripts/fetch-pdfium.sh` (ADR-14).
-- **Not built yet:** embeddings and meaning-based search, the Tauri desktop app, OCR, the installer and the Store package. Skipped and failed files are reported but not yet recorded in the index, so they are tried again on every run (CORE-6).
+- **Verified on Windows 11 with Rust 1.99.0** (pinned in `rust-toolchain.toml`): 80 tests pass, and format, lint and the privacy check are clean. PDFium, ONNX Runtime and the model come from `scripts/fetch-pdfium.sh` and `scripts/fetch-embedding.sh` (ADR-14, ADR-18).
+- **Not built yet:** the evaluation set and benchmark, the Tauri desktop app, OCR, the installer and the Store package. Skipped and failed files are reported but not yet recorded in the index, so they are tried again on every run (CORE-6).
 
 ## Decisions already made
 
@@ -46,7 +47,7 @@ Do not reopen these without asking the owner.
 
 1. ~~**Build and test on Windows.**~~ Done, 3 October 2026.
 2. ~~**PDF extraction** (backlog CORE-2, CORE-3).~~ Done, 3 October 2026. See ADR-14 to ADR-17.
-3. **Embeddings and combined search** (CORE-4, CORE-5, CORE-7, DB-2). Passages sized in model tokens, vectors stored in SQLite, keyword and vector results fused.
+3. ~~**Embeddings and combined search** (CORE-4, CORE-5, CORE-7, DB-2).~~ Done, 3 October 2026. Passages are 350 tokens with 50 shared, provisionally. Embedding runs at about 13 passages a second on the owner's laptop; see ADR-18 before choosing the model.
 4. **Evaluation set and benchmark** (TST-1, ARC-5).
 5. **Only then** the Tauri desktop shell (UI-1 onward).
 

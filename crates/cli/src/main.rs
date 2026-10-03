@@ -1,30 +1,43 @@
 //! Catchword command-line tool: the first working slice.
 //!
-//! It indexes text, Markdown and PDF files and searches them by keyword.
-//! PDFs are read by the extraction worker, `catchword-worker`, which must sit
-//! next to this program. Meaning-based search is the next step.
+//! It indexes text, Markdown and PDF files and searches them by their words
+//! and by their meaning. PDFs are read by the extraction worker,
+//! `catchword-worker`, which must sit next to this program. Meaning search
+//! needs ONNX Runtime and the embedding model (scripts/fetch-embedding.sh);
+//! without them, keyword search still works.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf, MAIN_SEPARATOR};
 use std::process::ExitCode;
 
 use anyhow::{bail, Context, Result};
+use catchword_embed::{Embedder, GRANITE_97M};
 use catchword_engine::extract::{self, Limits, Outcome, Reason};
+use catchword_engine::fuse::{fuse, Found};
 use catchword_engine::{
     chunk, chunk_pages, document_kind, hash_file, read_text, resolve_folder, scan,
-    without_controls, DocumentKind, FileMeta, Passage, WordTokenizer,
+    without_controls, DocumentKind, FileMeta, Passage, Tokenizer, WordTokenizer,
 };
-use catchword_store::Store;
+use catchword_store::{Hit, Store};
 
-/// Passage size in words. Replaced by a token limit once a model is chosen.
+/// Passage size in the model's tokens, and the overlap between neighbours.
+/// Provisional: the Phase 0 benchmark compares 200, 350 and 500 (ARC-5).
+const MAX_TOKENS: usize = 350;
+const OVERLAP_TOKENS: usize = 50;
+/// Without a model, passages are sized in words.
 const MAX_WORDS: usize = 200;
 const OVERLAP_WORDS: usize = 30;
+/// Passages embedded between two saves, so an interrupted run loses little.
+const EMBED_BATCH: usize = 32;
+/// Results each kind of search contributes before they are combined.
+const CANDIDATES: usize = 50;
 const DEFAULT_INDEX: &str = "catchword-index.db";
 
 const USAGE: &str = "Catchword: search your own files. Nothing leaves this computer.
 
 Usage:
   catchword index <folder>     Index the text, Markdown and PDF files in a folder
-  catchword search <words>     Find passages containing all the words
+  catchword search <words>     Find passages by their words and their meaning
   catchword status             Show what the index holds
 
 Options:
@@ -84,13 +97,44 @@ fn take_option(args: &mut Vec<String>, name: &str) -> Option<String> {
     Some(value)
 }
 
+/// How passages are cut: in the model's tokens, or in words without a model.
+struct Cutter<'a> {
+    tokenizer: &'a dyn Tokenizer,
+    max: usize,
+    overlap: usize,
+}
+
 fn index(index_file: &Path, folder: &Path) -> Result<()> {
     let root = resolve_folder(folder)
         .with_context(|| format!("cannot open folder {}", folder.display()))?;
     let mut store = open_store(index_file)?;
+    let mut model = load_model();
     let limits = Limits::default();
     // Found when the first PDF needs it, so text-only folders work without it.
     let mut worker = None;
+
+    let cutter = match &model {
+        Some(model) => Cutter {
+            tokenizer: model,
+            max: MAX_TOKENS,
+            overlap: OVERLAP_TOKENS,
+        },
+        None => Cutter {
+            tokenizer: &WordTokenizer,
+            max: MAX_WORDS,
+            overlap: OVERLAP_WORDS,
+        },
+    };
+    let pipeline = match &model {
+        Some(model) => format!(
+            "{} tokens {MAX_TOKENS}/{OVERLAP_TOKENS}",
+            model.manifest().id()
+        ),
+        None => format!("words {MAX_WORDS}/{OVERLAP_WORDS}"),
+    };
+    if store.use_pipeline(&pipeline)? {
+        println!("Note: passages are now cut differently, so the index is rebuilt from the start.");
+    }
 
     let (mut added, mut reused, mut unchanged, mut unsupported) = (0, 0, 0, 0);
     let mut not_indexed: Vec<(String, Reason)> = Vec::new();
@@ -110,7 +154,8 @@ fn index(index_file: &Path, folder: &Path) -> Result<()> {
             unchanged += 1;
             continue;
         }
-        let (hash, passages) = match read_document(&store, &file, kind, &mut worker, &limits)? {
+        let read = read_document(&store, &file, kind, &mut worker, &limits, &cutter)?;
+        let (hash, passages) = match read {
             Ok(read) => read,
             Err(reason) => {
                 not_indexed.push((path, reason));
@@ -145,6 +190,63 @@ fn index(index_file: &Path, folder: &Path) -> Result<()> {
             println!("  {}: {}", without_controls(path), reason.describe());
         }
     }
+
+    // Keyword search works from here on. Meaning search follows.
+    if let Some(model) = model.as_mut() {
+        embed_missing(&mut store, model)?;
+    }
+    let counts = store.counts()?;
+    println!(
+        "  searchable by meaning: {} of {} passages",
+        counts.vectors, counts.passages
+    );
+    Ok(())
+}
+
+/// Load the embedding model, or say why meaning search is off.
+fn load_model() -> Option<Embedder> {
+    let Some(paths) = catchword_embed::find(&GRANITE_97M) else {
+        println!(
+            "Note: meaning search is off: the embedding model or ONNX Runtime was not found. \
+             Run `sh scripts/fetch-embedding.sh`."
+        );
+        return None;
+    };
+    match Embedder::load(&paths, &GRANITE_97M) {
+        Ok(model) => Some(model),
+        Err(error) => {
+            println!("Note: meaning search is off: {error}.");
+            None
+        }
+    }
+}
+
+/// The meaning stage: embed every passage that has no vector yet, saving
+/// after each batch, so an interrupted run carries on where it stopped.
+fn embed_missing(store: &mut Store, model: &mut Embedder) -> Result<()> {
+    let manifest = *model.manifest();
+    if store.use_model(&manifest.id(), manifest.dimensions)? {
+        println!("Note: the embedding model changed, so every passage is embedded again.");
+    }
+    let counts = store.counts()?;
+    let mut done = counts.vectors;
+    loop {
+        let batch = store.passages_without_vectors(EMBED_BATCH)?;
+        if batch.is_empty() {
+            break;
+        }
+        let texts: Vec<&str> = batch.iter().map(|(_, text)| text.as_str()).collect();
+        let vectors = model
+            .embed_passages(&texts)
+            .context("cannot embed passages")?;
+        let vectors: Vec<(i64, Vec<f32>)> = batch.iter().map(|(id, _)| *id).zip(vectors).collect();
+        store.put_vectors(&vectors)?;
+        done += vectors.len() as i64;
+        eprint!("\rEmbedding: {done} of {} passages", counts.passages);
+    }
+    if done > counts.vectors {
+        eprintln!();
+    }
     Ok(())
 }
 
@@ -157,6 +259,7 @@ fn read_document(
     kind: DocumentKind,
     worker: &mut Option<PathBuf>,
     limits: &Limits,
+    cutter: &Cutter,
 ) -> Result<std::result::Result<(String, Vec<Passage>), Reason>> {
     if file.size > limits.max_file_bytes {
         return Ok(Err(Reason::TooLarge));
@@ -171,7 +274,7 @@ fn read_document(
             let passages = if store.has_content(&hash)? {
                 Vec::new()
             } else {
-                chunk(&text, MAX_WORDS, OVERLAP_WORDS, &WordTokenizer)
+                chunk(&text, cutter.max, cutter.overlap, cutter.tokenizer)
             };
             Ok(Ok((hash, passages)))
         }
@@ -191,7 +294,7 @@ fn read_document(
             Ok(match outcome {
                 Outcome::Pages(pages) => Ok((
                     hash,
-                    chunk_pages(&pages, MAX_WORDS, OVERLAP_WORDS, &WordTokenizer),
+                    chunk_pages(&pages, cutter.max, cutter.overlap, cutter.tokenizer),
                 )),
                 Outcome::NotIndexed(reason) => Err(reason),
             })
@@ -223,14 +326,26 @@ fn open_store(index_file: &Path) -> Result<Store> {
     Ok(store)
 }
 
+/// Search by words and by meaning, and combine both lists by rank (ADR-5).
 fn search(index_file: &Path, query: &str, limit: usize) -> Result<()> {
     let store = open_store(index_file)?;
-    let hits = store.search_keyword(query, limit)?;
-    if hits.is_empty() {
-        println!("No passage contains all of: {query}");
+    let by_words = store.search_keyword(query, CANDIDATES)?;
+    let by_meaning = search_meaning(&store, query)?;
+
+    // Keyword hits go in last, so their highlighted snippet is the one shown.
+    let mut hits: HashMap<i64, &Hit> = HashMap::new();
+    for hit in by_meaning.iter().chain(&by_words) {
+        hits.insert(hit.passage_id, hit);
+    }
+    let ids = |list: &[Hit]| list.iter().map(|hit| hit.passage_id).collect::<Vec<_>>();
+    let results = fuse(&ids(&by_words), &ids(&by_meaning));
+    if results.is_empty() {
+        println!("Nothing found for: {query}");
         return Ok(());
     }
-    for (number, hit) in hits.iter().enumerate() {
+
+    for (number, result) in results.iter().take(limit).enumerate() {
+        let hit = hits[&result.item];
         let copies = if hit.copies > 1 {
             format!("  (+{} identical)", hit.copies - 1)
         } else {
@@ -240,8 +355,13 @@ fn search(index_file: &Path, query: &str, limit: usize) -> Result<()> {
             Some(page) => format!("page {page}"),
             None => format!("lines {}-{}", hit.start_line, hit.end_line),
         };
+        let found = match result.found {
+            Found::Keyword => "words",
+            Found::Meaning => "meaning",
+            Found::Both => "words and meaning",
+        };
         println!(
-            "{}. {}{}  {location}",
+            "{}. {}{}  {location}  ({found})",
             number + 1,
             without_controls(&hit.path),
             copies
@@ -251,6 +371,34 @@ fn search(index_file: &Path, query: &str, limit: usize) -> Result<()> {
     Ok(())
 }
 
+/// Passages near the query in meaning. Empty, with a note, when this index
+/// has no vectors from the installed model.
+fn search_meaning(store: &Store, query: &str) -> Result<Vec<Hit>> {
+    let Some(mut model) = load_model() else {
+        return Ok(Vec::new());
+    };
+    let Some(indexed_with) = store.embedding_model()? else {
+        println!("Note: this index is not searchable by meaning yet. Run `catchword index` again.");
+        return Ok(Vec::new());
+    };
+    if model.manifest().id() != indexed_with {
+        println!(
+            "Note: this index was embedded with another model ({indexed_with}). \
+             Run `catchword index` again to update it. Showing matches by words only."
+        );
+        return Ok(Vec::new());
+    }
+    let counts = store.counts()?;
+    if counts.vectors < counts.passages {
+        println!(
+            "Note: {} of {} passages are searchable by meaning so far.",
+            counts.vectors, counts.passages
+        );
+    }
+    let query = model.embed_query(query).context("cannot embed the query")?;
+    Ok(store.search_vector(&query, CANDIDATES)?)
+}
+
 fn status(index_file: &Path) -> Result<()> {
     let store = open_store(index_file)?;
     let counts = store.counts()?;
@@ -258,5 +406,12 @@ fn status(index_file: &Path) -> Result<()> {
     println!("  files: {}", counts.files);
     println!("  distinct contents: {}", counts.contents);
     println!("  passages: {}", counts.passages);
+    println!(
+        "  searchable by meaning: {} of {} passages",
+        counts.vectors, counts.passages
+    );
+    if let Some(model) = store.embedding_model()? {
+        println!("  embedding model: {model}");
+    }
     Ok(())
 }

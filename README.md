@@ -6,27 +6,32 @@ Catchword finds passages in your own documents, by meaning as well as by exact w
 
 ## What works today
 
-A command-line tool that indexes text, Markdown and PDF files and searches them by keyword:
+A command-line tool that indexes text, Markdown and PDF files and searches them by their words and by their meaning:
 
 ```
 sh scripts/fetch-pdfium.sh
+sh scripts/fetch-embedding.sh
 cargo build --workspace
 cargo run -p catchword -- index  path/to/folder
 cargo run -p catchword -- search tax refund
 cargo run -p catchword -- status
 ```
 
-On Windows, run the first line from Git Bash. It downloads the PDFium library and checks it against a pinned checksum.
+On Windows, run the two scripts from Git Bash. They download the PDFium library, ONNX Runtime and the embedding model (about 200 MB together) and check each file against a pinned checksum.
 
+- Search combines matches by words and by meaning, and says how each result was found. A query in one language finds passages in another.
+- Indexing is in two stages: everything is searchable by words first, then by meaning as passages are embedded on your computer. An interrupted run carries on where it stopped.
 - PDFs are read in a separate worker process with time and memory limits. Results show the page.
 - Every file that was not indexed is listed with the reason: a scan with no text, a password, a size limit, or damage.
 - Identical copies of a file are stored once.
 - Moved, changed and deleted files are picked up on the next `index` run.
 - Hidden folders are skipped, and links are never followed out of the folder you chose.
 
+Meaning search is slow to build: on a 2023 laptop about 13 passages a second, so several hours for a large library. The model choice and passage size are still provisional.
+
 ## What comes next
 
-1. Meaning-based search with a local embedding model.
+1. An evaluation set and benchmark, to choose the model and passage size by measurement.
 2. The desktop app for Windows, distributed through the Microsoft Store.
 
 Scanned documents need OCR, which is planned for a later version. Until then they are listed as skipped, not searched.
