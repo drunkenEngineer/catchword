@@ -21,6 +21,7 @@ use std::sync::mpsc::{self, RecvTimeoutError};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use crate::without_controls;
 #[cfg(windows)]
 use job_windows::Containment;
 use protocol::{ProtocolError, Refusal, Request, Response};
@@ -255,15 +256,6 @@ fn accept(response: Response) -> Outcome {
             Refusal::LibraryMissing => Reason::LibraryMissing,
         }),
     }
-}
-
-/// Drop control characters other than tab and line breaks. They carry no
-/// searchable text, and some (such as terminal escape codes) could act on the
-/// screen that later shows the passage.
-fn without_controls(text: &str) -> String {
-    text.chars()
-        .filter(|c| !c.is_control() || matches!(c, '\t' | '\n' | '\r'))
-        .collect()
 }
 
 /// Outside Windows there is no job object yet: only the timeout and the

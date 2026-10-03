@@ -6,25 +6,30 @@ Catchword finds passages in your own documents, by meaning as well as by exact w
 
 ## What works today
 
-A command-line tool that indexes text and Markdown files and searches them by keyword:
+A command-line tool that indexes text, Markdown and PDF files and searches them by keyword:
 
 ```
-cargo run --release -p catchword -- index  path/to/folder
-cargo run --release -p catchword -- search tax refund
-cargo run --release -p catchword -- status
+sh scripts/fetch-pdfium.sh
+cargo build --workspace
+cargo run -p catchword -- index  path/to/folder
+cargo run -p catchword -- search tax refund
+cargo run -p catchword -- status
 ```
 
+On Windows, run the first line from Git Bash. It downloads the PDFium library and checks it against a pinned checksum.
+
+- PDFs are read in a separate worker process with time and memory limits. Results show the page.
+- Every file that was not indexed is listed with the reason: a scan with no text, a password, a size limit, or damage.
 - Identical copies of a file are stored once.
 - Moved, changed and deleted files are picked up on the next `index` run.
 - Hidden folders are skipped, and links are never followed out of the folder you chose.
 
 ## What comes next
 
-1. Text extraction from PDF files, in a separate worker process.
-2. Meaning-based search with a local embedding model.
-3. The desktop app for Windows, distributed through the Microsoft Store.
+1. Meaning-based search with a local embedding model.
+2. The desktop app for Windows, distributed through the Microsoft Store.
 
-Scanned documents need OCR, which is planned for a later version. Until then they are counted and reported, not searched.
+Scanned documents need OCR, which is planned for a later version. Until then they are listed as skipped, not searched.
 
 ## Privacy
 

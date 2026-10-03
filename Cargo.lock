@@ -81,6 +81,7 @@ dependencies = [
  "anyhow",
  "catchword-engine",
  "catchword-store",
+ "catchword-test-support",
 ]
 
 [[package]]

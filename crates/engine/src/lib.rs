@@ -3,7 +3,7 @@
 //! Privacy rule: this crate must never contain network code.
 
 use std::fs;
-use std::io;
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
@@ -12,16 +12,30 @@ use walkdir::WalkDir;
 
 pub mod extract;
 
+use extract::Reason;
+
 /// A piece of a document, small enough to index and later to embed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Passage {
     /// Position of the passage within its document, starting at 0.
     pub ordinal: u32,
-    /// First line the passage touches, starting at 1.
+    /// The page the passage is on, starting at 1. None for plain text.
+    pub page: Option<u32>,
+    /// First line the passage touches, starting at 1. On a page, counted
+    /// from the top of that page.
     pub start_line: u32,
     /// Last line the passage touches.
     pub end_line: u32,
     pub text: String,
+}
+
+/// The kinds of document this version can read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DocumentKind {
+    /// Plain text and Markdown, read by the engine itself (ADR-17).
+    Text,
+    /// PDF, read only by the extraction worker.
+    Pdf,
 }
 
 /// What the scanner learns about a file without opening it.
@@ -32,13 +46,18 @@ pub struct FileMeta {
     pub modified_secs: i64,
 }
 
-/// File types this slice can read. PDF arrives with the extraction worker.
-pub fn is_supported(path: &Path) -> bool {
+/// The kind of document a file is, judged by its extension, or None when
+/// this version cannot read it.
+pub fn document_kind(path: &Path) -> Option<DocumentKind> {
     let extension = path
         .extension()
         .and_then(|e| e.to_str())
         .map(str::to_ascii_lowercase);
-    matches!(extension.as_deref(), Some("txt" | "md" | "markdown"))
+    match extension.as_deref() {
+        Some("txt" | "md" | "markdown") => Some(DocumentKind::Text),
+        Some("pdf") => Some(DocumentKind::Pdf),
+        _ => None,
+    }
 }
 
 /// Turn a folder the user chose into the absolute, real path that a scan starts from.
@@ -83,27 +102,55 @@ pub fn scan(root: &Path) -> Vec<FileMeta> {
     found
 }
 
-/// Read a text file and return its text with the hash of its bytes.
+/// Read a plain-text or Markdown file and return its text with the hash of
+/// its bytes. Files over `max_bytes` are refused.
 ///
-/// Invalid UTF-8 is replaced, not rejected. Proper encoding detection comes later.
-pub fn read_text(path: &Path) -> io::Result<(String, String)> {
-    let bytes = fs::read(path)?;
+/// Invalid UTF-8 is replaced, not rejected, and control characters are
+/// dropped. Proper encoding detection comes later.
+pub fn read_text(path: &Path, max_bytes: u64) -> Result<(String, String), Reason> {
+    let file = fs::File::open(path).map_err(|_| Reason::CannotOpen)?;
+    // One byte past the limit is enough to know it is too large, even if the
+    // file grew after the scan.
+    let mut bytes = Vec::new();
+    file.take(max_bytes.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .map_err(|_| Reason::CannotOpen)?;
+    if bytes.len() as u64 > max_bytes {
+        return Err(Reason::TooLarge);
+    }
     let hash = content_hash(&bytes);
     let decoded = String::from_utf8_lossy(&bytes);
-    let text = decoded
-        .strip_prefix('\u{feff}')
-        .unwrap_or(&decoded[..])
-        .to_string();
+    let text = without_controls(decoded.strip_prefix('\u{feff}').unwrap_or(&decoded));
     Ok((text, hash))
+}
+
+/// Remove control characters other than tab and line breaks. Document text
+/// is untrusted: some control characters, such as terminal escape codes,
+/// could act on the screen that shows them.
+pub fn without_controls(text: &str) -> String {
+    text.chars()
+        .filter(|c| !c.is_control() || matches!(c, '\t' | '\n' | '\r'))
+        .collect()
 }
 
 /// SHA-256 of the file bytes, as lowercase hex. Identical files share one hash.
 pub fn content_hash(bytes: &[u8]) -> String {
+    to_hex(&Sha256::digest(bytes))
+}
+
+/// Like `content_hash`, but reads the file in pieces, so a large file is
+/// never held in memory whole.
+pub fn hash_file(path: &Path) -> io::Result<String> {
+    let mut hasher = Sha256::new();
+    io::copy(&mut fs::File::open(path)?, &mut hasher)?;
+    Ok(to_hex(&hasher.finalize()))
+}
+
+fn to_hex(digest: &[u8]) -> String {
     use std::fmt::Write;
 
-    let digest = Sha256::digest(bytes);
     let mut hex = String::with_capacity(digest.len() * 2);
-    for byte in digest.iter() {
+    for byte in digest {
         // Writing to a String cannot fail.
         let _ = write!(hex, "{byte:02x}");
     }
@@ -136,6 +183,7 @@ pub fn chunk(text: &str, max_words: usize, overlap_words: usize) -> Vec<Passage>
         let slice = &words[start..end];
         passages.push(Passage {
             ordinal: passages.len() as u32,
+            page: None,
             start_line: slice[0].0,
             end_line: slice[slice.len() - 1].0,
             text: slice.iter().map(|(_, w)| *w).collect::<Vec<_>>().join(" "),
@@ -144,6 +192,22 @@ pub fn chunk(text: &str, max_words: usize, overlap_words: usize) -> Vec<Passage>
             break;
         }
         start = end - overlap_words;
+    }
+    passages
+}
+
+/// Split each page into passages on its own, so every passage lies on one
+/// page and carries its number. Ordinals run on across pages.
+pub fn chunk_pages(pages: &[String], max_words: usize, overlap_words: usize) -> Vec<Passage> {
+    let mut passages = Vec::new();
+    for (index, text) in pages.iter().enumerate() {
+        for passage in chunk(text, max_words, overlap_words) {
+            passages.push(Passage {
+                ordinal: passages.len() as u32,
+                page: Some(index as u32 + 1),
+                ..passage
+            });
+        }
     }
     passages
 }
@@ -228,20 +292,82 @@ mod tests {
         let found = scan(&resolve_folder(&folder).unwrap());
         assert_eq!(found.len(), 1);
         assert!(found[0].path.as_os_str().len() > 260);
-        assert_eq!(read_text(&found[0].path).unwrap().0, "deep inside");
+        assert_eq!(read_text(&found[0].path, 100).unwrap().0, "deep inside");
 
         // A folder whose own path is long.
         let found = scan(&resolve_folder(&deep).unwrap());
         assert_eq!(found.len(), 1);
-        assert_eq!(read_text(&found[0].path).unwrap().0, "deep inside");
+        assert_eq!(read_text(&found[0].path, 100).unwrap().0, "deep inside");
         fs::remove_dir_all(&folder).unwrap();
     }
 
     #[test]
-    fn only_text_and_markdown_are_supported() {
-        assert!(is_supported(Path::new("notes/Plan.MD")));
-        assert!(is_supported(Path::new("a.txt")));
-        assert!(!is_supported(Path::new("scan_0042.pdf")));
-        assert!(!is_supported(Path::new("no_extension")));
+    fn text_markdown_and_pdf_are_supported() {
+        let kind = |name: &str| document_kind(Path::new(name));
+        assert_eq!(kind("notes/Plan.MD"), Some(DocumentKind::Text));
+        assert_eq!(kind("a.txt"), Some(DocumentKind::Text));
+        assert_eq!(kind("scan_0042.PDF"), Some(DocumentKind::Pdf));
+        assert_eq!(kind("report.docx"), None);
+        assert_eq!(kind("no_extension"), None);
+    }
+
+    #[test]
+    fn read_text_refuses_files_over_the_limit() {
+        let folder = test_folder("text-limit");
+        let file = folder.join("big.txt");
+        fs::write(&file, "0123456789").unwrap();
+        assert!(read_text(&file, 10).is_ok());
+        assert_eq!(read_text(&file, 9), Err(Reason::TooLarge));
+        assert_eq!(
+            read_text(&folder.join("missing.txt"), 10),
+            Err(Reason::CannotOpen)
+        );
+        fs::remove_dir_all(&folder).unwrap();
+    }
+
+    #[test]
+    fn read_text_drops_control_characters_and_the_byte_order_mark() {
+        let folder = test_folder("text-controls");
+        let file = folder.join("note.txt");
+        let bytes = "\u{feff}line one\r\n\u{1b}[31mred\u{7}\tend".as_bytes();
+        fs::write(&file, bytes).unwrap();
+        let (text, hash) = read_text(&file, 100).unwrap();
+        assert_eq!(text, "line one\r\n[31mred\tend");
+        // The hash is of the bytes on disk, not of the cleaned text.
+        assert_eq!(hash, content_hash(bytes));
+        fs::remove_dir_all(&folder).unwrap();
+    }
+
+    #[test]
+    fn hashing_a_file_matches_hashing_its_bytes() {
+        let folder = test_folder("hash-file");
+        let file = folder.join("data.bin");
+        let bytes: Vec<u8> = (0..200_000u32).map(|i| (i % 251) as u8).collect();
+        fs::write(&file, &bytes).unwrap();
+        assert_eq!(hash_file(&file).unwrap(), content_hash(&bytes));
+        fs::remove_dir_all(&folder).unwrap();
+    }
+
+    #[test]
+    fn chunk_pages_numbers_pages_and_keeps_ordinals_running() {
+        let pages = vec![
+            "one two three".to_string(),
+            String::new(),
+            "four five".to_string(),
+        ];
+        let passages = chunk_pages(&pages, 2, 1);
+        let found: Vec<(u32, Option<u32>, &str)> = passages
+            .iter()
+            .map(|p| (p.ordinal, p.page, p.text.as_str()))
+            .collect();
+        assert_eq!(
+            found,
+            vec![
+                (0, Some(1), "one two"),
+                (1, Some(1), "two three"),
+                (2, Some(3), "four five"),
+            ]
+        );
+        assert!(chunk("plain text", 5, 1).iter().all(|p| p.page.is_none()));
     }
 }

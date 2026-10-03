@@ -9,3 +9,6 @@ license.workspace = true
 anyhow.workspace = true
 catchword-engine = { path = "../engine" }
 catchword-store = { path = "../store" }
+
+[dev-dependencies]
+catchword-test-support = { path = "../test-support" }
