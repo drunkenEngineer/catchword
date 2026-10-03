@@ -1,0 +1,6 @@
+Contrat de location d'un logement vide
+Bailleur : SCI Les Tilleuls. Locataire : Mme Claire Fontaine.
+Adresse du logement : 12 rue des Lilas, 2e étage.
+Le loyer mensuel est de 940 euros, charges comprises.
+Le locataire peut résilier le bail à tout moment avec un préavis de trois mois.
+Le dépôt de garantie s'élève à un mois de loyer hors charges.

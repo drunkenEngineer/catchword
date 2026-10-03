@@ -1,0 +1,5 @@
+Facture d'électricité
+Facture n° FAC-2026-11873 du 1er octobre 2026.
+Consommation de la période : 412 kWh.
+Montant TTC à payer : 87,35 €.
+Le prélèvement aura lieu le 15 octobre.

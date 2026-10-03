@@ -1,1 +1,46 @@
-# kind	language	document	answer	query
+# Written for Catchword (Apache-2.0). Columns: kind, language, document, answer, query.
+# Names, companies and numbers are invented. See eval/README.md.
+descriptive	en	en-tax-refund-letter.txt	within 10 working days	when will my tax refund be paid
+descriptive	en	en-tenancy-agreement.txt	two months' written notice	how much notice do I need to give to end my tenancy
+descriptive	en	en-employment-contract.txt	25 days a year	how many days of annual leave do I get at work
+descriptive	en	en-car-insurance-renewal.txt	£250	how much is the excess on my car insurance
+descriptive	en	en-medical-appointment.txt	14 November 2026	when is my skin doctor appointment
+descriptive	en	en-school-trip-letter.txt	by 1 March	deadline to return the school trip permission slip
+descriptive	en	en-invoice-plumbing.txt	£286.40	how much did the plumber charge for the boiler repair
+descriptive	fr	fr-bail-appartement.txt	préavis de trois mois	quel préavis pour quitter l'appartement
+descriptive	fr	fr-avis-impot.txt	318 euros	combien l'administration fiscale me rembourse
+descriptive	fr	fr-contrat-travail.txt	deux mois	durée de la période d'essai
+descriptive	fr	fr-assurance-habitation.txt	150 euros	franchise en cas de fuite d'eau dans le logement
+descriptive	fr	fr-pret-immobilier.txt	3,15 %	taux d'intérêt du crédit pour la maison
+descriptive	fr	fr-devis-renovation.txt	30 %	acompte à verser pour les travaux de la salle de bain
+descriptive	ar	ar-tax-refund.txt	خمسة عشر يوماً	متى سيتم تحويل مبلغ استرداد الضريبة
+descriptive	ar	ar-lease.txt	مدته شهران	كم مدة الإشعار لإنهاء عقد الإيجار
+descriptive	ar	ar-employment-contract.txt	9,800 درهم	كم هو الراتب في عقد العمل
+descriptive	ar	ar-medical-appointment.txt	9 ديسمبر	متى موعدي مع طبيبة القلب
+descriptive	ar	ar-school-registration.txt	30 سبتمبر	آخر موعد لتسجيل الأطفال في المدرسة
+exact	en	en-invoice-plumbing.txt	INV-2026-0042	INV-2026-0042
+exact	en	en-car-insurance-renewal.txt	MTR-55-90821	MTR-55-90821
+exact	en	en-tenancy-agreement.txt	DPS-4471-220	DPS-4471-220
+exact	en	en-tenancy-agreement.txt	Okafor	Okafor
+exact	en	en-tax-refund-letter.txt	TR-88213-K	TR-88213-K
+exact	fr	fr-facture-electricite.txt	FAC-2026-11873	FAC-2026-11873
+exact	fr	fr-assurance-habitation.txt	MRH-778-2041	MRH-778-2041
+exact	fr	fr-devis-renovation.txt	D-2026-0310	devis D-2026-0310
+exact	fr	fr-rendez-vous-medical.txt	Lefèvre	Dr Lefèvre
+exact	fr	fr-avis-impot.txt	26A7781540	26A7781540
+exact	ar	ar-tax-refund.txt	TX-7745-AR	TX-7745-AR
+exact	ar	ar-electricity-bill.txt	ELC-2026-5512	ELC-2026-5512
+exact	ar	ar-car-insurance.txt	VH-2031-447	VH-2031-447
+exact	ar	ar-medical-appointment.txt	سلمى العلوي	سلمى العلوي
+cross-language	en	fr-bail-appartement.txt	préavis de trois mois	notice period to terminate the apartment lease
+cross-language	en	fr-facture-electricite.txt	87,35 €	amount due on the electricity bill
+cross-language	en	fr-devis-renovation.txt	6 480 euros	total price of the bathroom renovation quote
+cross-language	en	fr-pret-immobilier.txt	1 087,42 €	monthly mortgage repayment
+cross-language	en	ar-lease.txt	4,500 درهم	monthly rent for the flat
+cross-language	en	ar-bank-loan.txt	5.4%	interest rate on the personal loan
+cross-language	en	ar-school-registration.txt	1,200 درهم	school registration fee
+cross-language	en	ar-employment-contract.txt	ثلاثة أشهر	how long is the probation period in the job contract
+cross-language	fr	en-employment-contract.txt	six months	durée de la période d'essai du contrat de travail
+cross-language	fr	en-washing-machine-warranty.txt	three years	durée de la garantie de la machine à laver
+cross-language	ar	en-tax-refund-letter.txt	£412.50	كم هو مبلغ استرداد ضريبة الدخل
+cross-language	fr	ar-car-insurance.txt	3,200 درهم	prime annuelle de l'assurance automobile
