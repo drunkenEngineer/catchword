@@ -26,6 +26,11 @@ export interface Engine {
   finishFirstLaunch(): Promise<void>;
   /** Deletes the index and the settings. The user's files stay. */
   deleteAllData(): Promise<void>;
+  setDetailedLogs(on: boolean): Promise<void>;
+  /** The diagnostics report, as plain text, for the user to read. */
+  diagnostics(includePaths: boolean): Promise<string>;
+  /** Saves the report last shown; the file's name, or null if cancelled. */
+  saveDiagnostics(): Promise<string | null>;
   /** The full text of a passage. */
   preview(id: number): Promise<string | null>;
   openFile(id: number): Promise<void>;
@@ -48,6 +53,9 @@ export const tauriEngine: Engine = {
   setPatterns: (patterns) => invoke("set_patterns", { patterns }),
   finishFirstLaunch: () => invoke("finish_first_launch"),
   deleteAllData: () => invoke("delete_all_data"),
+  setDetailedLogs: (on) => invoke("set_detailed_logs", { on }),
+  diagnostics: (includePaths) => invoke("diagnostics", { includePaths }),
+  saveDiagnostics: () => invoke("save_diagnostics"),
   preview: (id) => invoke("preview", { id }),
   openFile: (id) => invoke("open_file", { id }),
   revealFile: (id) => invoke("reveal_file", { id }),

@@ -336,6 +336,25 @@ mark {
   margin: 20px 0 12px;
 }
 
+.check {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 8px 0;
+}
+
+.report {
+  max-height: 320px;
+  overflow: auto;
+  padding: 10px;
+  white-space: pre-wrap;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
 /* Contrast themes: let Windows choose every colour. */
 @media (forced-colors: active) {
   .passage[aria-selected="true"],

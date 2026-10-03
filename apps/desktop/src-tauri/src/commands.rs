@@ -18,7 +18,9 @@ use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::contract::{Folder, Meaning, SearchResponse, SettingsView, Status};
+use crate::diagnostics::{self, Facts};
 use crate::indexing::{Indexer, Notify};
+use crate::log::{self, Logger, Value};
 use crate::settings::{self, FolderEntry, Settings};
 use crate::{open, views};
 
@@ -36,6 +38,9 @@ pub struct AppState {
     reader: Mutex<Store>,
     /// Said once, then cleared: why the settings were restored.
     notice: Mutex<Option<String>>,
+    log: Arc<Logger>,
+    /// The diagnostics report the user last read, which is what is saved.
+    report: Mutex<Option<String>>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -49,15 +54,43 @@ impl AppState {
         let index = data.join("data").join("index.db");
         std::fs::create_dir_all(index.parent().unwrap_or(data))?;
         let (settings, notice) = Settings::load(&config_dir);
+        let log = Arc::new(Logger::new(data.join("logs"), settings.detailed_logs));
+        log.info(
+            "app.started",
+            &[
+                ("version", Value::Code(env!("CARGO_PKG_VERSION"))),
+                ("detailed", Value::Flag(settings.detailed_logs)),
+            ],
+        );
+        if notice.is_some() {
+            log.warn("settings.damaged", &[]);
+        }
         let reader = Store::open(&index).context("cannot open the index")?;
         Ok(Self {
-            indexer: Indexer::new(index.clone(), worker),
+            indexer: Indexer::new(index.clone(), worker, Arc::clone(&log)),
             settings: Mutex::new(settings),
             config_dir,
             index,
             reader: Mutex::new(reader),
             notice: Mutex::new(notice),
+            log,
+            report: Mutex::new(None),
         })
+    }
+
+    pub fn log(&self) -> Arc<Logger> {
+        Arc::clone(&self.log)
+    }
+
+    /// The model has loaded, or failed to.
+    pub fn set_model(&self, model: Model) {
+        match &model {
+            Model::Ready(_) => self.log.info("model.ready", &[]),
+            Model::Unavailable(why) => self
+                .log
+                .warn("model.off", &[("reason", Value::Private(why.clone()))]),
+        }
+        self.indexer.set_model(model);
     }
 
     fn folders(&self) -> Vec<PathBuf> {
@@ -90,15 +123,19 @@ impl AppState {
         Ok(result)
     }
 
-    pub fn settings(&self) -> Result<SettingsView> {
-        let settings = lock(&self.settings);
-        let index_bytes = ["", "-wal"]
+    fn index_bytes(&self) -> u64 {
+        ["", "-wal"]
             .iter()
             .filter_map(|suffix| {
                 std::fs::metadata(format!("{}{suffix}", self.index.display())).ok()
             })
             .map(|meta| meta.len())
-            .sum();
+            .sum()
+    }
+
+    pub fn settings(&self) -> Result<SettingsView> {
+        let index_bytes = self.index_bytes();
+        let settings = lock(&self.settings);
         Ok(SettingsView {
             excluded_folders: settings.excluded_folders.iter().map(folder_view).collect(),
             patterns: settings.patterns.clone(),
@@ -110,7 +147,60 @@ impl AppState {
                 .to_string_lossy()
                 .to_string(),
             index_bytes,
+            detailed_logs: settings.detailed_logs,
+            version: env!("CARGO_PKG_VERSION").to_string(),
         })
+    }
+
+    pub fn set_detailed_logs(&self, on: bool) -> Result<()> {
+        let mut settings = lock(&self.settings);
+        settings.detailed_logs = on;
+        settings.save(&self.config_dir)?;
+        self.log.set_detailed(on);
+        self.log.info("logs.detailed", &[("on", Value::Flag(on))]);
+        Ok(())
+    }
+
+    /// Make the diagnostics report, and keep it: what the user reads is
+    /// exactly what is saved.
+    pub fn diagnostics(&self, include_paths: bool) -> Result<String> {
+        let (meaning, meaning_detail) = match self.indexer.model().as_deref() {
+            None => ("starting", None),
+            Some(Model::Ready(_)) => ("ready", None),
+            Some(Model::Unavailable(why)) => ("off", Some(why.clone())),
+        };
+        let (counts, model, problems) = {
+            let reader = lock(&self.reader);
+            (
+                reader.counts()?,
+                reader.embedding_model()?,
+                reader.problems()?,
+            )
+        };
+        let facts = Facts {
+            made: std::time::SystemTime::now(),
+            version: env!("CARGO_PKG_VERSION"),
+            windows: diagnostics::windows_version(),
+            meaning,
+            meaning_detail,
+            layout_version: catchword_store::SCHEMA_VERSION,
+            counts,
+            model,
+            index_bytes: self.index_bytes(),
+            problems,
+            settings: lock(&self.settings).clone(),
+            default_patterns: DEFAULT_PATTERNS.iter().map(|p| p.to_string()).collect(),
+            detailed_logs: self.log.detailed(),
+            log_lines: self.log.last_lines(diagnostics::LOG_LINES),
+        };
+        let text = diagnostics::report(&facts, include_paths);
+        *lock(&self.report) = Some(text.clone());
+        Ok(text)
+    }
+
+    /// The report last made, if any.
+    fn prepared_report(&self) -> Option<String> {
+        lock(&self.report).clone()
     }
 
     /// Leave out a folder the user chose in the native dialog. Its text
@@ -151,6 +241,13 @@ impl AppState {
     /// The user's own files are not touched.
     pub fn delete_all_data(&self) -> Result<()> {
         self.indexer.stop_and_wait();
+        // The logs go too: detailed ones may name files.
+        self.log.close();
+        for name in log::FILES {
+            remove_if_there(&self.log.folder().join(name))?;
+        }
+        self.log.set_detailed(false);
+        *lock(&self.report) = None;
         // The settings first: with no folders left, nothing is indexed again.
         {
             let mut settings = lock(&self.settings);
@@ -166,6 +263,7 @@ impl AppState {
             remove_if_there(Path::new(&format!("{}{suffix}", self.index.display())))?;
         }
         *reader = Store::open(&self.index).context("cannot create a new index")?;
+        self.log.info("data.deleted", &[]);
         Ok(())
     }
 
@@ -213,11 +311,20 @@ impl AppState {
             model.as_deref().unwrap_or(&loading),
             query,
         )?;
-        Ok(SearchResponse {
+        let response = SearchResponse {
             notes: answer.notes.iter().map(|note| note.describe()).collect(),
             files: views::file_hits(group_by_file(answer.results)),
             elapsed_ms: started.elapsed().as_millis().min(u32::MAX as u128) as u32,
-        })
+        };
+        // How long, and how much was found; never what was searched for.
+        self.log.info(
+            "search",
+            &[
+                ("millis", Value::Number(u64::from(response.elapsed_ms))),
+                ("files", Value::Number(response.files.len() as u64)),
+            ],
+        );
+        Ok(response)
     }
 
     /// Add a folder the user chose in the native dialog, and index it.
@@ -291,13 +398,26 @@ fn remove_if_there(path: &Path) -> std::io::Result<()> {
 }
 
 /// Run `work` with the app's state on a blocking thread.
+/// A failure is logged with the command's name; its details only in
+/// detailed logs, as they may name a file.
 async fn on_state<T: Send + 'static>(
     app: AppHandle,
+    command: &'static str,
     work: impl FnOnce(&AppHandle, &AppState) -> Result<T> + Send + 'static,
 ) -> Result<T, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
-        work(&app, &state).map_err(|error| format!("{error:#}"))
+        work(&app, &state).map_err(|error| {
+            let message = format!("{error:#}");
+            state.log.warn(
+                "command.failed",
+                &[
+                    ("command", Value::Code(command)),
+                    ("error", Value::Private(message.clone())),
+                ],
+            );
+            message
+        })
     })
     .await
     .map_err(|error| error.to_string())?
@@ -313,19 +433,19 @@ pub fn notifier(app: &AppHandle) -> Notify {
 
 #[tauri::command]
 pub async fn status(app: AppHandle) -> Result<Status, String> {
-    on_state(app, |_, state| state.status()).await
+    on_state(app, "status", |_, state| state.status()).await
 }
 
 #[tauri::command]
 pub async fn search(app: AppHandle, query: String) -> Result<SearchResponse, String> {
-    on_state(app, move |_, state| state.search(&query)).await
+    on_state(app, "search", move |_, state| state.search(&query)).await
 }
 
 /// Opens the native folder dialog here, in the shell: the interface never
 /// sends a path (section 9, rule 7).
 #[tauri::command]
 pub async fn add_folder(app: AppHandle) -> Result<Option<Folder>, String> {
-    on_state(app, |app, state| {
+    on_state(app, "add_folder", |app, state| {
         let Some(chosen) = app
             .dialog()
             .file()
@@ -342,7 +462,7 @@ pub async fn add_folder(app: AppHandle) -> Result<Option<Folder>, String> {
 
 #[tauri::command]
 pub async fn remove_folder(app: AppHandle, id: u32) -> Result<(), String> {
-    on_state(app, move |app, state| {
+    on_state(app, "remove_folder", move |app, state| {
         state.remove_folder(id, notifier(app))
     })
     .await
@@ -350,7 +470,7 @@ pub async fn remove_folder(app: AppHandle, id: u32) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn index_now(app: AppHandle) -> Result<(), String> {
-    on_state(app, |app, state| {
+    on_state(app, "index_now", |app, state| {
         state.start_indexing(notifier(app));
         Ok(())
     })
@@ -359,18 +479,21 @@ pub async fn index_now(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn retry_failed(app: AppHandle) -> Result<(), String> {
-    on_state(app, |app, state| state.retry_failed(notifier(app))).await
+    on_state(app, "retry_failed", |app, state| {
+        state.retry_failed(notifier(app))
+    })
+    .await
 }
 
 #[tauri::command]
 pub async fn settings(app: AppHandle) -> Result<SettingsView, String> {
-    on_state(app, |_, state| state.settings()).await
+    on_state(app, "settings", |_, state| state.settings()).await
 }
 
 /// Opens the native folder dialog here, as add_folder does.
 #[tauri::command]
 pub async fn exclude_folder(app: AppHandle) -> Result<Option<Folder>, String> {
-    on_state(app, |app, state| {
+    on_state(app, "exclude_folder", |app, state| {
         let Some(chosen) = app
             .dialog()
             .file()
@@ -387,7 +510,7 @@ pub async fn exclude_folder(app: AppHandle) -> Result<Option<Folder>, String> {
 
 #[tauri::command]
 pub async fn include_folder(app: AppHandle, id: u32) -> Result<(), String> {
-    on_state(app, move |app, state| {
+    on_state(app, "include_folder", move |app, state| {
         state.include_folder(id, notifier(app))
     })
     .await
@@ -396,7 +519,7 @@ pub async fn include_folder(app: AppHandle, id: u32) -> Result<(), String> {
 /// Patterns are names, not paths: they are checked, and never opened.
 #[tauri::command]
 pub async fn set_patterns(app: AppHandle, patterns: Vec<String>) -> Result<(), String> {
-    on_state(app, move |app, state| {
+    on_state(app, "set_patterns", move |app, state| {
         state.set_patterns(&patterns, notifier(app))
     })
     .await
@@ -404,7 +527,7 @@ pub async fn set_patterns(app: AppHandle, patterns: Vec<String>) -> Result<(), S
 
 #[tauri::command]
 pub async fn finish_first_launch(app: AppHandle) -> Result<(), String> {
-    on_state(app, |app, state| {
+    on_state(app, "finish_first_launch", |app, state| {
         state.finish_first_launch()?;
         notifier(app)();
         Ok(())
@@ -414,7 +537,7 @@ pub async fn finish_first_launch(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn delete_all_data(app: AppHandle) -> Result<(), String> {
-    on_state(app, |app, state| {
+    on_state(app, "delete_all_data", |app, state| {
         state.delete_all_data()?;
         notifier(app)();
         Ok(())
@@ -423,18 +546,64 @@ pub async fn delete_all_data(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub async fn set_detailed_logs(app: AppHandle, on: bool) -> Result<(), String> {
+    on_state(app, "set_detailed_logs", move |_, state| {
+        state.set_detailed_logs(on)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn diagnostics(app: AppHandle, include_paths: bool) -> Result<String, String> {
+    on_state(app, "diagnostics", move |_, state| {
+        state.diagnostics(include_paths)
+    })
+    .await
+}
+
+/// Saves the report the user last read, where they choose in the native
+/// dialog. Returns the file's name, or None if they cancelled.
+#[tauri::command]
+pub async fn save_diagnostics(app: AppHandle) -> Result<Option<String>, String> {
+    on_state(app, "save_diagnostics", |app, state| {
+        let text = state
+            .prepared_report()
+            .ok_or_else(|| anyhow!("Prepare the report first."))?;
+        let Some(chosen) = app
+            .dialog()
+            .file()
+            .set_title("Save the diagnostics report")
+            .set_file_name("catchword-diagnostics.txt")
+            .add_filter("Text", &["txt"])
+            .blocking_save_file()
+        else {
+            return Ok(None);
+        };
+        let path = chosen.into_path().map_err(|error| anyhow!("{error}"))?;
+        std::fs::write(&path, text)?;
+        Ok(path
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string()))
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn preview(app: AppHandle, id: i64) -> Result<Option<String>, String> {
-    on_state(app, move |_, state| state.preview(id)).await
+    on_state(app, "preview", move |_, state| state.preview(id)).await
 }
 
 #[tauri::command]
 pub async fn open_file(app: AppHandle, id: i64) -> Result<(), String> {
-    on_state(app, move |_, state| Ok(open::open_file(&state.file(id)?)?)).await
+    on_state(app, "open_file", move |_, state| {
+        Ok(open::open_file(&state.file(id)?)?)
+    })
+    .await
 }
 
 #[tauri::command]
 pub async fn reveal_file(app: AppHandle, id: i64) -> Result<(), String> {
-    on_state(app, move |_, state| {
+    on_state(app, "reveal_file", move |_, state| {
         Ok(open::reveal_file(&state.file(id)?)?)
     })
     .await
@@ -614,6 +783,69 @@ mod tests {
         let again = AppState::open(&data, built_worker()).unwrap();
         assert!(again.folders().is_empty());
         assert_eq!(again.status().unwrap().files, 0);
+    }
+
+    #[test]
+    fn logs_never_hold_searches_document_text_or_paths() {
+        let (state, docs) = state("logs-private");
+        std::fs::write(docs.join("broken.pdf"), b"%PDF-1.7 and then nothing").unwrap();
+        state.add_folder(&docs, Arc::new(|| {})).unwrap();
+        wait(&state);
+        state.search("notice period").unwrap();
+        // A failing command is logged too.
+        assert!(state.include_folder(999, Arc::new(|| {})).is_err());
+        state.log.warn(
+            "command.failed",
+            &[("error", Value::Private(docs.display().to_string()))],
+        );
+
+        let logs = state.log.last_lines(1000).join("\n");
+        for secret in [
+            "notice",
+            "three months",
+            "invoice",
+            "broken.pdf",
+            "lease",
+            "catchword-app-test",
+        ] {
+            assert!(!logs.contains(secret), "{secret} in:\n{logs}");
+        }
+        assert!(logs.contains(r#""event":"index.folder""#), "{logs}");
+        assert!(logs.contains(r#""event":"search""#), "{logs}");
+    }
+
+    #[test]
+    fn detailed_logs_name_files_and_the_report_leaves_them_out_unless_asked() {
+        let (state, docs) = state("logs-detailed");
+        std::fs::write(docs.join("broken.pdf"), b"%PDF-1.7 and then nothing").unwrap();
+        state.set_detailed_logs(true).unwrap();
+        state.add_folder(&docs, Arc::new(|| {})).unwrap();
+        wait(&state);
+        assert!(state.log.last_lines(1000).join("\n").contains("broken.pdf"));
+
+        let report = state.diagnostics(false).unwrap();
+        assert!(!report.contains("broken.pdf"), "{report}");
+        assert!(!report.contains("catchword-app-test"), "{report}");
+        assert!(report.contains("Files: 2"), "{report}");
+        assert!(report.contains("Detailed logs: on"), "{report}");
+        assert_eq!(state.prepared_report(), Some(report));
+
+        let with_paths = state.diagnostics(true).unwrap();
+        assert!(with_paths.contains("broken.pdf"), "{with_paths}");
+        assert!(state.settings().unwrap().detailed_logs);
+    }
+
+    #[test]
+    fn deleting_all_data_deletes_the_logs_too() {
+        let (state, docs) = state("logs-deleted");
+        state.set_detailed_logs(true).unwrap();
+        state.add_folder(&docs, Arc::new(|| {})).unwrap();
+        wait(&state);
+        state.delete_all_data().unwrap();
+        let logs = state.log.last_lines(1000);
+        assert_eq!(logs.len(), 1, "{logs:?}");
+        assert!(logs[0].contains("data.deleted"));
+        assert!(!state.log.detailed());
     }
 
     #[test]

@@ -45,6 +45,9 @@ pub struct SettingsView {
     /// The size of the index on disk, in bytes.
     #[ts(type = "number")]
     pub index_bytes: u64,
+    /// Logs also record file paths and error details.
+    pub detailed_logs: bool,
+    pub version: String,
 }
 
 /// A folder the user chose. The path is shown, never sent back.

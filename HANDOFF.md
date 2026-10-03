@@ -16,11 +16,11 @@ A free, open-source desktop app for Windows that searches a person's own documen
   - `crates/store`: the SQLite index, with FTS5 keyword search and sqlite-vec vectors. Identical files are stored once. Layout version 4, which also records the files that were not indexed.
   - `crates/service`: the use cases both front ends share: index a folder, embed what is new, search, group by file.
   - `crates/cli`: the commands `index`, `search` and `status`.
-  - `apps/desktop/src-tauri`: the Tauri 2 shell: typed command contract, command handlers, background indexing, settings (version 2: folders, exclusions, first-launch flag).
+  - `apps/desktop/src-tauri`: the Tauri 2 shell: typed command contract, command handlers, background indexing, settings (version 2: folders, exclusions, first-launch flag), local logs (`log`) and the diagnostics report (`diagnostics`).
   - `apps/desktop/ui`: the React and TypeScript interface: first launch, Search, Library and Settings.
   - `crates/eval`: the retrieval evaluation and benchmark tool (`catchword-eval`), never shipped. The evaluation set is in `eval/` (ADR-19).
   - `crates/test-support`: test PDFs written by code, never shipped.
-- **Verified on Windows 11 with Rust 1.99.0** (pinned in `rust-toolchain.toml`): 155 Rust tests and 29 interface tests pass, and format, lint, type check and the privacy check are clean. PDFium, ONNX Runtime and the model come from `scripts/fetch-pdfium.sh` and `scripts/fetch-embedding.sh` (ADR-14, ADR-18).
+- **Verified on Windows 11 with Rust 1.99.0** (pinned in `rust-toolchain.toml`): 165 Rust tests and 31 interface tests pass, and format, lint, type check and the privacy check are clean. PDFium, ONNX Runtime and the model come from `scripts/fetch-pdfium.sh` and `scripts/fetch-embedding.sh` (ADR-14, ADR-18).
 - **Not built yet:** pause and resource modes, appearance settings, cloud-placeholder handling (SRC-4), OCR, the updater (and so the first launch's update-check step), the GitHub installer, notices for the Rust libraries, and the Store listing. An MSIX package builds (`docs/packaging.md`).
 
 ## Decisions already made
@@ -60,7 +60,7 @@ Next, in the order of the spec's Phase 2 (section 20):
 6. ~~**Coverage in the index** (CORE-6, COV-2).~~ Done, 3 October 2026: index schema version 4 records each file that was not indexed, with its reason and attempts, and upgrades a version 3 index in place. A skipped file is not read again until it changes; a failed one gets a second try, then is parked; Library's Try again and `index --retry` read failed files again. Files that could not be opened (locked?) are tried on every run.
 7. ~~**Settings and first launch** (UI-4, UI-5, APP-1, APP-3, APP-4).~~ Done, 3 October 2026: exclusions (SRC-2) of sub-folders and name patterns, with a default list for system, development and credential files, applied by the scan, which also skips hidden and system files; Settings for exclusions, the data location and size (COV-3), and delete all data; a two-step first launch (privacy promise, folders). The update-check step waits for the updater (APP-2), since the Store build has none. Resource mode (IDX-5) and appearance are not done.
 8. **Packaging spike** (REL-1, REL-2). Partly done, 3 October 2026: `scripts/package-msix.sh` builds an MSIX holding the app, the worker, PDFium, ONNX Runtime and the model, with no download (makeappx from the Windows SDK); a test proves the packaged files read a PDF and search by meaning. Still to do: **the owner** installs the package with a test certificate and checks it (steps in `docs/packaging.md`), registers as a Store developer and reserves the name; then the Store identity in the manifest, notices for the Rust libraries, and the NSIS installer, the last two needing an OK for new tools.
-9. **Logs and diagnostics** (OBS-1, APP-5): local, rotated logs with no document text; a redacted diagnostics export.
+9. ~~**Logs and diagnostics** (OBS-1, APP-5).~~ Done, 3 October 2026: JSON-line logs in the app's `logs` folder, rotated at 1 MB with three files kept. Event names are fixed text and values are numbers or fixed codes, so no document text, query or file name can be logged by accident (PRIV-3); paths and error details are written only with detailed logs on, and those lines are marked private. Panics are logged with their place in the code. Settings shows a diagnostics report, read before saving, with file names only if the user asks. Delete all data deletes the logs too. Crash reports beyond the panic line (OBS-3) are not done.
 
 ## How to work with the owner
 

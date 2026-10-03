@@ -86,6 +86,15 @@ export const strings = {
     confirmDeleteAll:
       "Delete the index and forget your folders and settings? Catchword starts again as new. Your own files are not touched.",
     keep: "Keep",
+    diagnosticsTitle: "Diagnostics",
+    version: (version: string) => `Catchword ${version}`,
+    detailedLogs: "Detailed logs: also record file names and error details. Turn on only while tracking down a problem.",
+    logsNote: "Logs stay on this computer. They never hold document text or searches.",
+    includePaths: "Include file and folder names in the report",
+    prepareReport: "Prepare a diagnostics report",
+    reportTitle: "The report, exactly as it will be saved",
+    saveReport: "Save the report…",
+    reportSaved: (name: string) => `Saved as ${name}. Nothing was sent; share it only if you choose to.`,
     privacyTitle: "Privacy",
     privacy:
       "Your files never leave this computer. Catchword sends no document text, search, file name or usage data anywhere, and has no account.",

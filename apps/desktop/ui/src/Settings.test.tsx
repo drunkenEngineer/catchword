@@ -61,6 +61,47 @@ describe("the settings screen", () => {
     expect(await screen.findByText(/AppData.*Catchword.*17[.,]5 MB/)).toBeTruthy();
   });
 
+  it("turns detailed logs on and off", async () => {
+    const engine = createMockEngine();
+    const setDetailedLogs = vi.spyOn(engine, "setDetailedLogs");
+    renderWith(engine, <Settings />);
+    const box = (await screen.findByRole("checkbox", { name: /Detailed logs/ })) as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    await act(async () => {
+      fireEvent.click(box);
+    });
+    expect(setDetailedLogs).toHaveBeenCalledWith(true);
+    expect(((await screen.findByRole("checkbox", { name: /Detailed logs/ })) as HTMLInputElement).checked).toBe(true);
+  });
+
+  it("shows the diagnostics report before saving it, without paths unless asked", async () => {
+    const engine = createMockEngine();
+    const diagnostics = vi.spyOn(engine, "diagnostics");
+    const save = vi.spyOn(engine, "saveDiagnostics");
+    renderWith(engine, <Settings />);
+    await screen.findByRole("heading", { name: "Diagnostics" });
+    expect(screen.queryByRole("button", { name: "Save the report…" })).toBeNull();
+
+    await click("Prepare a diagnostics report");
+    expect(diagnostics).toHaveBeenLastCalledWith(false);
+    const report = screen.getByLabelText("The report, exactly as it will be saved");
+    expect(report.textContent).toContain("File and folder names: left out.");
+    expect(report.textContent).not.toContain("Documents");
+
+    await click("Save the report…");
+    expect(save).toHaveBeenCalled();
+    expect(screen.getByText(/Saved as catchword-diagnostics.txt/)).toBeTruthy();
+
+    // Asking for paths makes a new report; the old one is not saved by mistake.
+    await act(async () => {
+      fireEvent.click(screen.getByRole("checkbox", { name: /Include file and folder names/ }));
+    });
+    expect(screen.queryByRole("button", { name: "Save the report…" })).toBeNull();
+    await click("Prepare a diagnostics report");
+    expect(diagnostics).toHaveBeenLastCalledWith(true);
+    expect(screen.getByLabelText("The report, exactly as it will be saved").textContent).toContain("Documents");
+  });
+
   it("deletes all data only after one confirmation, then starts again as new", async () => {
     const engine = createMockEngine();
     const deleteAllData = vi.spyOn(engine, "deleteAllData");

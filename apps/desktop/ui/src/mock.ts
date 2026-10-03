@@ -64,6 +64,8 @@ export function createMockEngine({ firstLaunch = false } = {}): Engine {
   let welcomed = !firstLaunch;
   let excludedFolders: Folder[] = [];
   let patterns = [...DEFAULT_PATTERNS];
+  let detailedLogs = false;
+  let report: string | null = null;
   const listeners = new Set<() => void>();
   const changed = () => listeners.forEach((listener) => listener());
 
@@ -149,6 +151,8 @@ export function createMockEngine({ firstLaunch = false } = {}): Engine {
         defaultPatterns: [...DEFAULT_PATTERNS],
         dataFolder: "C:\\Users\\you\\AppData\\Local\\Catchword\\data",
         indexBytes: folders.length === 0 ? 4096 : 18_350_080,
+        detailedLogs,
+        version: "0.0.1",
       };
     },
 
@@ -180,7 +184,32 @@ export function createMockEngine({ firstLaunch = false } = {}): Engine {
       changed();
     },
 
+    async setDetailedLogs(on: boolean): Promise<void> {
+      detailedLogs = on;
+    },
+
+    async diagnostics(includePaths: boolean): Promise<string> {
+      report = [
+        "Catchword diagnostics report",
+        "",
+        "Read this before you share it. It holds no document text and no searches.",
+        includePaths ? "File and folder names: included, because you asked for them." : "File and folder names: left out.",
+        "",
+        "Index",
+        `  Files: ${folders.length === 0 ? 0 : DOCUMENTS.length}`,
+        ...(includePaths ? folders.map((folder) => `    ${folder.path}`) : []),
+      ].join("\n");
+      return report;
+    },
+
+    async saveDiagnostics(): Promise<string | null> {
+      if (report === null) throw "Prepare the report first.";
+      return "catchword-diagnostics.txt";
+    },
+
     async deleteAllData(): Promise<void> {
+      detailedLogs = false;
+      report = null;
       folders = [];
       excludedFolders = [];
       patterns = [...DEFAULT_PATTERNS];

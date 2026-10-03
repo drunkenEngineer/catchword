@@ -8,7 +8,9 @@
 
 pub mod commands;
 pub mod contract;
+mod diagnostics;
 mod indexing;
+mod log;
 mod open;
 mod settings;
 mod views;
@@ -33,12 +35,14 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let data = app.path().app_local_data_dir()?;
-            app.manage(AppState::open(&data, Worker::NextToProgram)?);
+            let state = AppState::open(&data, Worker::NextToProgram)?;
+            log::record_panics(state.log());
+            app.manage(state);
             // The model takes a few seconds; the window is usable meanwhile.
             let handle = app.handle().clone();
             thread::spawn(move || {
                 let state = handle.state::<AppState>();
-                state.indexer.set_model(Model::load());
+                state.set_model(Model::load());
                 let _ = handle.emit(STATUS_CHANGED, ());
                 state.start_indexing(notifier(&handle));
             });
@@ -57,6 +61,9 @@ pub fn run() {
             commands::set_patterns,
             commands::finish_first_launch,
             commands::delete_all_data,
+            commands::set_detailed_logs,
+            commands::diagnostics,
+            commands::save_diagnostics,
             commands::preview,
             commands::open_file,
             commands::reveal_file,

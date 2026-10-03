@@ -41,6 +41,8 @@ Scanned documents need OCR, which is planned for a later version. Until then the
 
 The engine contains no network code, and a check in CI enforces that. The desktop app will make at most two kinds of request, both visible and switchable: an update check and a model download.
 
+The desktop app keeps small local logs (at most about 3 MB). They never hold document text, searches or file names; file names are recorded only while you turn on detailed logs in Settings. To report a problem, Settings makes a diagnostics report that you read before saving, and share only if you choose to.
+
 ## Help test it
 
 A tester sign-up form will be linked here. We are looking for people with large document folders, on Windows, including scans and non-English files.

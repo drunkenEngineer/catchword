@@ -13,6 +13,9 @@ export function Settings() {
   const [draft, setDraft] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [includePaths, setIncludePaths] = useState(false);
+  const [report, setReport] = useState<string | null>(null);
+  const [reportSaved, setReportSaved] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const fail = (error: unknown) => setProblem(String(error));
 
@@ -122,6 +125,56 @@ export function Settings() {
           <button type="button" className="danger" onClick={() => setConfirmingDelete(true)}>
             {strings.settings.deleteAll}
           </button>
+        )}
+      </section>
+
+      <section aria-labelledby="diagnostics-title">
+        <h2 id="diagnostics-title">{strings.settings.diagnosticsTitle}</h2>
+        <p>{strings.settings.version(view.version)}</p>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={view.detailedLogs}
+            onChange={(event) => engine.setDetailedLogs(event.target.checked).then(load, fail)}
+          />
+          {strings.settings.detailedLogs}
+        </label>
+        <p className="muted">{strings.settings.logsNote}</p>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={includePaths}
+            onChange={(event) => {
+              setIncludePaths(event.target.checked);
+              setReport(null);
+            }}
+          />
+          {strings.settings.includePaths}
+        </label>
+        <div className="actions">
+          <button
+            type="button"
+            onClick={() => {
+              setReportSaved(null);
+              engine.diagnostics(includePaths).then(setReport, fail);
+            }}
+          >
+            {strings.settings.prepareReport}
+          </button>
+        </div>
+        {report !== null && (
+          <>
+            <h3 id="report-title">{strings.settings.reportTitle}</h3>
+            <pre className="report" aria-labelledby="report-title" tabIndex={0}>
+              {report}
+            </pre>
+            <div className="actions">
+              <button type="button" className="primary" onClick={() => engine.saveDiagnostics().then(setReportSaved, fail)}>
+                {strings.settings.saveReport}
+              </button>
+              {reportSaved && <span role="status">{strings.settings.reportSaved(reportSaved)}</span>}
+            </div>
+          </>
         )}
       </section>
 

@@ -12,10 +12,11 @@ use std::time::{Duration, Instant};
 
 use catchword_engine::extract::Limits;
 use catchword_engine::Exclusions;
-use catchword_service::{embed_missing, index_folder, Cutter, Model, Worker};
+use catchword_service::{embed_missing, index_folder, Cutter, Model, Report, Worker};
 use catchword_store::Store;
 
 use crate::contract::{Stage, Work};
+use crate::log::{Logger, Value};
 
 /// How often progress is reported to the interface, at most.
 const REPORT_EVERY: Duration = Duration::from_millis(250);
@@ -40,6 +41,7 @@ pub struct Snapshot {
 struct Shared {
     store_path: PathBuf,
     worker: Worker,
+    log: Arc<Logger>,
     model: OnceLock<Arc<Model>>,
     control: Mutex<Control>,
     finished: Condvar,
@@ -58,11 +60,12 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 
 impl Indexer {
     /// `worker` is where the PDF reader is: beside the app, once installed.
-    pub fn new(store_path: PathBuf, worker: Worker) -> Self {
+    pub fn new(store_path: PathBuf, worker: Worker, log: Arc<Logger>) -> Self {
         Self {
             shared: Arc::new(Shared {
                 store_path,
                 worker,
+                log,
                 model: OnceLock::new(),
                 control: Mutex::new(Control::default()),
                 finished: Condvar::new(),
@@ -149,13 +152,22 @@ fn run(shared: &Shared, folders: &[PathBuf], exclusions: &Exclusions, notify: &N
     let set_work = |stage, done: u64, total: u64| {
         lock(&shared.snapshot).work = Some(Work { stage, done, total });
     };
+    let log = &shared.log;
     let mut store = match Store::open(&shared.store_path) {
         Ok(store) => store,
         Err(error) => {
+            log.error(
+                "index.open_failed",
+                &[("error", Value::Private(error.to_string()))],
+            );
             lock(&shared.snapshot).problem = Some(format!("Cannot open the index: {error}"));
             return;
         }
     };
+    log.info(
+        "index.started",
+        &[("folders", Value::Number(folders.len() as u64))],
+    );
     let cutter = Cutter::for_model(&model);
     let mut last_report = Instant::now();
     let mut report = |force: bool| {
@@ -166,7 +178,8 @@ fn run(shared: &Shared, folders: &[PathBuf], exclusions: &Exclusions, notify: &N
     };
 
     let mut problem = None;
-    for folder in folders {
+    for (number, folder) in folders.iter().enumerate() {
+        let started = Instant::now();
         let result = index_folder(
             &mut store,
             folder,
@@ -181,27 +194,98 @@ fn run(shared: &Shared, folders: &[PathBuf], exclusions: &Exclusions, notify: &N
             },
         );
         match result {
-            Ok(done) if done.stopped => return,
-            // Files not indexed are in the index's own list (COV-2).
-            Ok(_) => {}
+            Ok(done) => {
+                log_folder(log, number, &done, started);
+                if done.stopped {
+                    return;
+                }
+            }
             // An unreachable folder (an unplugged drive) is skipped; its
             // files stay in the index (SRC-5).
-            Err(error) => problem = Some(format!("{error:#}")),
+            Err(error) => {
+                log.warn(
+                    "index.folder_failed",
+                    &[
+                        ("folder", Value::Number(number as u64 + 1)),
+                        ("error", Value::Private(format!("{error:#}"))),
+                    ],
+                );
+                problem = Some(format!("{error:#}"));
+            }
         }
         report(true);
     }
 
     if let Some(ready) = model.ready() {
+        let started = Instant::now();
+        let before = store.counts().map_or(0, |counts| counts.vectors);
         let result = embed_missing(&mut store, ready, |done, total| {
             set_work(Stage::Meaning, done.max(0) as u64, total.max(0) as u64);
             report(false);
             !shared.stop.load(Ordering::SeqCst)
         });
-        if let Err(error) = result {
-            problem = Some(format!("{error:#}"));
+        match result {
+            Ok(done) => {
+                let after = store.counts().map_or(before, |counts| counts.vectors);
+                log.info(
+                    "embed.finished",
+                    &[
+                        (
+                            "passages",
+                            Value::Number(after.saturating_sub(before) as u64),
+                        ),
+                        ("millis", Value::Number(millis(started))),
+                        ("model_changed", Value::Flag(done.model_changed)),
+                        ("stopped", Value::Flag(done.stopped)),
+                    ],
+                );
+            }
+            Err(error) => {
+                log.error(
+                    "embed.failed",
+                    &[("error", Value::Private(format!("{error:#}")))],
+                );
+                problem = Some(format!("{error:#}"));
+            }
         }
     }
     lock(&shared.snapshot).problem = problem;
+}
+
+fn millis(since: Instant) -> u64 {
+    since.elapsed().as_millis().min(u128::from(u64::MAX)) as u64
+}
+
+/// What one folder's run did: counts always, each file's path only in
+/// detailed logs.
+fn log_folder(log: &Logger, number: usize, done: &Report, started: Instant) {
+    let count = |n: usize| Value::Number(n as u64);
+    log.info(
+        "index.folder",
+        &[
+            ("folder", count(number + 1)),
+            ("added", count(done.added)),
+            ("reused", count(done.reused)),
+            ("unchanged", count(done.unchanged)),
+            ("removed", count(done.removed)),
+            ("unsupported", count(done.unsupported)),
+            ("skipped", count(done.skipped())),
+            ("failed", count(done.failed())),
+            ("known_problems", count(done.known_problems)),
+            ("rebuilt", Value::Flag(done.rebuilt)),
+            ("stopped", Value::Flag(done.stopped)),
+            ("millis", Value::Number(millis(started))),
+        ],
+    );
+    for (path, reason) in &done.not_indexed {
+        log.debug(
+            "index.not_indexed",
+            &[
+                ("reason", Value::Code(reason.code())),
+                ("path", Value::Private(path.clone())),
+            ],
+        );
+    }
 }
 
 /// Background indexing yields to the user's own work (RSC-2).
@@ -244,7 +328,8 @@ mod tests {
         for suffix in ["", "-wal", "-shm"] {
             let _ = std::fs::remove_file(format!("{}{suffix}", store.display()));
         }
-        let indexer = Indexer::new(store.clone(), Worker::NextToProgram);
+        let log = Arc::new(Logger::new(store.with_extension("logs"), false));
+        let indexer = Indexer::new(store.clone(), Worker::NextToProgram, log);
         indexer.set_model(Model::Unavailable("not needed".into()));
         (indexer, store)
     }

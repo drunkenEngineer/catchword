@@ -27,11 +27,12 @@ tauri-plugin-single-instance = "2.5.2"
 tauri-plugin-window-state = "2.5.0"
 ts-rs = "12.0.1"
 
-# Opening files through the shell API (threat T15), and a lower priority for
-# background indexing (RSC-2).
+# Opening files through the shell API (threat T15), a lower priority for
+# background indexing (RSC-2), and the Windows version for diagnostics.
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = [
     "Win32_Foundation",
+    "Win32_System_Registry",
     "Win32_System_Threading",
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",

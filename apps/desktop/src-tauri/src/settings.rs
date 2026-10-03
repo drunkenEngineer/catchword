@@ -33,6 +33,9 @@ pub struct Settings {
     /// The first-launch steps are done (APP-1).
     #[serde(default)]
     pub welcomed: bool,
+    /// Logs also record file paths and error details (PRIV-3).
+    #[serde(default)]
+    pub detailed_logs: bool,
     next_id: u32,
 }
 
@@ -50,6 +53,7 @@ impl Default for Settings {
             excluded_folders: Vec::new(),
             patterns: Exclusions::with_default_patterns().patterns,
             welcomed: false,
+            detailed_logs: false,
             next_id: 1,
         }
     }

@@ -24,4 +24,8 @@ dataFolder: string,
 /**
  * The size of the index on disk, in bytes.
  */
-indexBytes: number, };
+indexBytes: number, 
+/**
+ * Logs also record file paths and error details.
+ */
+detailedLogs: boolean, version: string, };
