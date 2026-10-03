@@ -9,6 +9,7 @@ license = "Apache-2.0"
 
 [workspace.dependencies]
 anyhow = "1"
+dunce = "1"
 rusqlite = { version = "0.31", features = ["bundled"] }
 sha2 = "0.10"
 walkdir = "2"

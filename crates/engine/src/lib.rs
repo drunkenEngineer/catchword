@@ -39,6 +39,16 @@ pub fn is_supported(path: &Path) -> bool {
     matches!(extension.as_deref(), Some("txt" | "md" | "markdown"))
 }
 
+/// Turn a folder the user chose into the absolute, real path that a scan starts from.
+///
+/// Links and `..` are resolved. On Windows the result is the plain form
+/// (`C:\Users\...`), not the `\\?\C:\Users\...` form the standard library
+/// returns. The `\\?\` form is kept only where a plain path would not mean the
+/// same folder, such as a path longer than 260 characters.
+pub fn resolve_folder(folder: &Path) -> io::Result<PathBuf> {
+    dunce::canonicalize(folder)
+}
+
 /// List the files under `root`, sorted by path.
 ///
 /// Links are not followed, so a scan can never leave the folder the user chose.
@@ -175,6 +185,54 @@ mod tests {
         assert_eq!(content_hash(b"same"), content_hash(b"same"));
         assert_ne!(content_hash(b"same"), content_hash(b"different"));
         assert_eq!(content_hash(b"").len(), 64);
+    }
+
+    /// An empty folder of the test's own under the system temp folder.
+    fn test_folder(name: &str) -> PathBuf {
+        let folder = std::env::temp_dir().join(format!("catchword-engine-test-{name}"));
+        let _ = fs::remove_dir_all(&folder);
+        fs::create_dir_all(&folder).unwrap();
+        folder
+    }
+
+    #[test]
+    fn resolved_folder_is_absolute_and_plain() {
+        let folder = test_folder("plain");
+        fs::create_dir(folder.join("sub")).unwrap();
+
+        let resolved = resolve_folder(&folder.join("sub").join("..")).unwrap();
+        assert!(resolved.is_absolute());
+        assert!(resolved.ends_with("catchword-engine-test-plain"));
+        assert!(
+            !resolved.to_string_lossy().starts_with(r"\\?\"),
+            "{}",
+            resolved.display()
+        );
+        fs::remove_dir_all(&folder).unwrap();
+    }
+
+    #[test]
+    fn long_paths_keep_working() {
+        let folder = test_folder("long");
+        // Six 50-character names put the file past Windows' old 260-character limit.
+        let mut deep = folder.clone();
+        for _ in 0..6 {
+            deep.push("a-folder-name-of-exactly-fifty-characters-in-total");
+        }
+        fs::create_dir_all(&deep).unwrap();
+        fs::write(deep.join("note.txt"), "deep inside").unwrap();
+
+        // A short folder with a long path below it.
+        let found = scan(&resolve_folder(&folder).unwrap());
+        assert_eq!(found.len(), 1);
+        assert!(found[0].path.as_os_str().len() > 260);
+        assert_eq!(read_text(&found[0].path).unwrap().0, "deep inside");
+
+        // A folder whose own path is long.
+        let found = scan(&resolve_folder(&deep).unwrap());
+        assert_eq!(found.len(), 1);
+        assert_eq!(read_text(&found[0].path).unwrap().0, "deep inside");
+        fs::remove_dir_all(&folder).unwrap();
     }
 
     #[test]

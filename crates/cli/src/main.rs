@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf, MAIN_SEPARATOR};
 use std::process::ExitCode;
 
 use anyhow::{bail, Context, Result};
-use catchword_engine::{chunk, is_supported, read_text, scan};
+use catchword_engine::{chunk, is_supported, read_text, resolve_folder, scan};
 use catchword_store::Store;
 
 /// Passage size in words. Replaced by a token limit once a model is chosen.
@@ -80,8 +80,7 @@ fn take_option(args: &mut Vec<String>, name: &str) -> Option<String> {
 }
 
 fn index(index_file: &Path, folder: &Path) -> Result<()> {
-    let root = folder
-        .canonicalize()
+    let root = resolve_folder(folder)
         .with_context(|| format!("cannot open folder {}", folder.display()))?;
     let mut store = Store::open(index_file).context("cannot open the index")?;
 
