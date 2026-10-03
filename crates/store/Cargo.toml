@@ -1,0 +1,10 @@
+[package]
+name = "catchword-store"
+description = "Catchword store: one SQLite file with files, passages and the keyword index."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+catchword-engine = { path = "../engine" }
+rusqlite.workspace = true

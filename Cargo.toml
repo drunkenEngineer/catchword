@@ -1,0 +1,14 @@
+[workspace]
+resolver = "2"
+members = ["crates/engine", "crates/store", "crates/cli"]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2021"
+license = "Apache-2.0"
+
+[workspace.dependencies]
+anyhow = "1"
+rusqlite = { version = "0.31", features = ["bundled"] }
+sha2 = "0.10"
+walkdir = "2"

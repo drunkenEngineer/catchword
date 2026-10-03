@@ -1,0 +1,10 @@
+[package]
+name = "catchword-engine"
+description = "Catchword engine: scanning, reading and splitting documents. No network code, ever."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+sha2.workspace = true
+walkdir.workspace = true

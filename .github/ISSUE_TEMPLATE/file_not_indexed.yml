@@ -1,0 +1,18 @@
+name: File not indexed or text wrong
+description: A file is missing from search, or its text is wrong
+labels: ["extract", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: "**Do not attach private documents.** Describe the problem instead."
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: "Which file type, and which program created it? What does the status say?"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Catchword version and Windows version

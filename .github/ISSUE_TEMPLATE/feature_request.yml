@@ -1,0 +1,18 @@
+name: Feature or format request
+description: Suggest a feature or a file format
+labels: ["feature", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: "**Do not attach private documents.** Describe the problem instead."
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: "What would you like, and why does it matter to you?"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Catchword version and Windows version

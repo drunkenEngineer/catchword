@@ -1,0 +1,11 @@
+[package]
+name = "catchword"
+description = "Catchword command-line tool: index a folder and search it."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+catchword-engine = { path = "../engine" }
+catchword-store = { path = "../store" }
