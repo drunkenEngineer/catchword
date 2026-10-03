@@ -187,7 +187,9 @@ fn search_index(index_file: &Path, query: &str, limit: usize) -> Result<()> {
             without_controls(&hit.path),
             copies
         );
-        println!("   {}", hit.snippet);
+        // Matches are marked with two control characters; show them as brackets.
+        let snippet = hit.snippet.replace('\u{2}', "[").replace('\u{3}', "]");
+        println!("   {snippet}");
     }
     Ok(())
 }

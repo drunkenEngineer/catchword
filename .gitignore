@@ -4,3 +4,6 @@
 *.db-wal
 *.db-shm
 .DS_Store
+/apps/desktop/src-tauri/gen
+/apps/desktop/ui/node_modules
+/apps/desktop/ui/dist

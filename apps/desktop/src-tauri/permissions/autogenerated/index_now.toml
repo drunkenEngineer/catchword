@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-index-now"
+description = "Enables the index_now command without any pre-configured scope."
+commands.allow = ["index_now"]
+
+[[permission]]
+identifier = "deny-index-now"
+description = "Denies the index_now command without any pre-configured scope."
+commands.deny = ["index_now"]

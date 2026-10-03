@@ -1,0 +1,190 @@
+//! The command contract: every value that crosses between the shell and the
+//! interface (ARC-3). The TypeScript side is generated from these types into
+//! `apps/desktop/ui/src/contract/`, and a test fails when the two drift.
+//!
+//! The interface speaks in ids: it never sends a file path to be read or
+//! opened. Paths here are for display only (section 9, rule 7).
+
+use serde::Serialize;
+use ts_rs::TS;
+
+/// Everything the interface shows about the index and its work.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct Status {
+    pub folders: Vec<Folder>,
+    /// What indexing is doing right now, if anything.
+    pub work: Option<Work>,
+    #[ts(type = "number")]
+    pub files: i64,
+    #[ts(type = "number")]
+    pub passages: i64,
+    #[ts(type = "number")]
+    pub searchable_by_meaning: i64,
+    pub meaning: Meaning,
+    /// Files that were not indexed in the last run, with why.
+    pub not_indexed: Vec<NotIndexed>,
+    /// The last thing that went wrong, in plain words.
+    pub problem: Option<String>,
+}
+
+/// A folder the user chose. The path is shown, never sent back.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct Folder {
+    pub id: u32,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum Stage {
+    /// Reading files and making them searchable by their words.
+    Words,
+    /// Making passages searchable by their meaning.
+    Meaning,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct Work {
+    pub stage: Stage,
+    #[ts(type = "number")]
+    pub done: u64,
+    #[ts(type = "number")]
+    pub total: u64,
+}
+
+/// Whether meaning search is available.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(tag = "state", rename_all = "camelCase")]
+pub enum Meaning {
+    Loading,
+    Ready,
+    Off { reason: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct NotIndexed {
+    pub name: String,
+    pub folder: String,
+    pub reason: String,
+    /// True when reading failed; false when the file was skipped by a rule.
+    pub failed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchResponse {
+    /// One entry per file, best first, its passages beneath it (SEA-3).
+    pub files: Vec<FileHit>,
+    /// What to know about these results, in plain words.
+    pub notes: Vec<String>,
+    pub elapsed_ms: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct FileHit {
+    pub name: String,
+    pub folder: String,
+    /// How many files share this exact content (1 means no copies).
+    #[ts(type = "number")]
+    pub copies: i64,
+    pub passages: Vec<PassageHit>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PassageHit {
+    /// The id to preview, open or reveal this passage's file with.
+    #[ts(type = "number")]
+    pub id: i64,
+    pub location: String,
+    /// The matching words, marked; shown as plain text only.
+    pub snippet: Vec<Span>,
+    pub found: FoundBy,
+}
+
+/// A piece of text; `marked` pieces are the words that matched.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct Span {
+    pub text: String,
+    pub marked: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum FoundBy {
+    Words,
+    Meaning,
+    Both,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::path::PathBuf;
+    use ts_rs::Config;
+
+    /// The generated TypeScript of each type, by file name.
+    fn generated() -> Vec<(String, String)> {
+        let config = Config::default();
+        let mut files = Vec::new();
+        macro_rules! each {
+            ($($t:ty),*) => {$(
+                files.push((
+                    format!("{}.ts", <$t as TS>::name(&config)),
+                    <$t as TS>::export_to_string(&config).unwrap(),
+                ));
+            )*};
+        }
+        each!(
+            Status,
+            Folder,
+            Stage,
+            Work,
+            Meaning,
+            NotIndexed,
+            SearchResponse,
+            FileHit,
+            PassageHit,
+            Span,
+            FoundBy
+        );
+        files
+    }
+
+    fn folder() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../ui/src/contract")
+    }
+
+    /// Fails when a Rust type changed and the TypeScript was not regenerated.
+    /// To regenerate: `UPDATE_CONTRACT=1 cargo test -p catchword-desktop contract`.
+    #[test]
+    fn the_typescript_contract_matches_the_rust_types() {
+        let update = std::env::var_os("UPDATE_CONTRACT").is_some();
+        let mut stale = Vec::new();
+        for (name, content) in generated() {
+            let path = folder().join(&name);
+            if update {
+                fs::create_dir_all(folder()).unwrap();
+                fs::write(&path, &content).unwrap();
+            } else {
+                // A Windows checkout may turn line endings into CRLF.
+                let committed = fs::read_to_string(&path).map(|text| text.replace("\r\n", "\n"));
+                if committed.ok().as_deref() != Some(content.as_str()) {
+                    stale.push(name);
+                }
+            }
+        }
+        assert!(
+            stale.is_empty(),
+            "the TypeScript contract is out of date: {stale:?}. Regenerate it with \
+             UPDATE_CONTRACT=1 cargo test -p catchword-desktop contract"
+        );
+    }
+}

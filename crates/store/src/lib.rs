@@ -453,6 +453,21 @@ impl Store {
             .collect())
     }
 
+    /// The file a passage comes from: the first by path, if copies share it.
+    /// The interface sends passage ids; the path comes from here, never
+    /// from the interface (threat T15).
+    pub fn file_of_passage(&self, id: i64) -> rusqlite::Result<Option<String>> {
+        self.conn
+            .query_row(
+                "SELECT MIN(f.path) FROM passages p JOIN files f ON f.hash = p.hash
+                 WHERE p.id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map(Option::flatten)
+    }
+
     /// The full text of one passage, for a preview or for judging a result.
     pub fn passage_text(&self, id: i64) -> rusqlite::Result<Option<String>> {
         self.conn
@@ -491,7 +506,7 @@ impl Store {
                     p.page,
                     p.start_line,
                     p.end_line,
-                    snippet(passages_fts, 0, '[', ']', ' ... ', 24),
+                    snippet(passages_fts, 0, char(2), char(3), ' ... ', 24),
                     bm25(passages_fts),
                     highlight(passages_fts, 0, char(2), char(3))
              FROM passages_fts
@@ -1140,7 +1155,7 @@ mod tests {
         let results = store.search_combined("tax", Some(&toward(1)), 10).unwrap();
         assert_eq!(results[0].0.path, "/tax.txt");
         assert_eq!(results[0].1, Found::Both);
-        assert!(results[0].0.snippet.contains("[tax]"));
+        assert!(results[0].0.snippet.contains("\u{2}tax\u{3}"));
         assert_eq!(results.len(), 3);
         assert!(results[1..]
             .iter()
@@ -1149,6 +1164,20 @@ mod tests {
         let results = store.search_combined("rent", None, 10).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].1, Found::Keyword);
+    }
+
+    #[test]
+    fn a_passage_knows_its_file() {
+        let store = store_with(&[
+            ("/b/copy.txt", "h1", "shared words"),
+            ("/a/original.txt", "h1", "shared words"),
+        ]);
+        let id = store.search_keyword("shared", 1).unwrap()[0].passage_id;
+        assert_eq!(
+            store.file_of_passage(id).unwrap().as_deref(),
+            Some("/a/original.txt")
+        );
+        assert_eq!(store.file_of_passage(id + 1000).unwrap(), None);
     }
 
     #[test]
