@@ -18,9 +18,15 @@ jobs:
     steps:
       # Before the first release, pin these actions to commit hashes.
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+      # Installs the version and components pinned in rust-toolchain.toml.
+      # The version lines make the step fail if rustfmt or clippy is missing.
+      - name: Install Rust
+        shell: bash
+        run: |
+          rustup toolchain install --profile minimal
+          rustc --version
+          cargo fmt --version
+          cargo clippy --version
       - uses: Swatinem/rust-cache@v2
       - name: Format
         run: cargo fmt --all -- --check
