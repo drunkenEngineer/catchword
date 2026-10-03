@@ -12,6 +12,9 @@ The full plan is `docs/specification.md` (26 sections). Before any work, read se
 - Privacy check: `sh scripts/check-no-network.sh`
 - PDFium, ONNX Runtime and the model (once, and after a pin changes): `sh scripts/fetch-pdfium.sh` and `sh scripts/fetch-embedding.sh`
 - Try it: `cargo build --workspace` (builds the PDF worker too), then `cargo run -p catchword -- index <folder>` and `cargo run -p catchword -- search <words>`
+- Interface (in `apps/desktop/ui`, once: `npm ci`): `npm run typecheck`, `npm test`; with a made-up engine in a browser: `npm run dev:mock`
+- Desktop app (after `cargo build --workspace`): `cd apps/desktop && ./ui/node_modules/.bin/tauri dev`
+- Command contract changed: `UPDATE_CONTRACT=1 cargo test -p catchword-desktop contract`
 
 ## Rules
 

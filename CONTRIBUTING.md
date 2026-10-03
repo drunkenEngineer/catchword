@@ -10,7 +10,9 @@ Thank you for helping. The project is small and run by one maintainer, so please
 4. Run `sh scripts/fetch-pdfium.sh` (on Windows, from Git Bash). It downloads the pinned PDFium library into `vendor/pdfium/` and refuses it if its checksum does not match.
 5. Run `sh scripts/fetch-embedding.sh` the same way. It downloads the pinned ONNX Runtime library and the embedding model (about 200 MB) into `vendor/`, with the same checks.
 6. Run `sh scripts/fetch-eval.sh` the same way. It downloads the evaluation data and the baseline model (about 140 MB), used by the retrieval evaluation and its tests.
-7. Run `cargo test --workspace`. Everything should pass.
+7. Install Node.js 22 (22.22 or later) and, in `apps/desktop/ui`, run `npm ci`.
+8. Run `cargo test --workspace`, and in `apps/desktop/ui` run `npm run typecheck` and `npm test`. Everything should pass.
+9. To run the desktop app: `cargo build --workspace`, then from `apps/desktop` run `./ui/node_modules/.bin/tauri dev`. To work on the interface alone, run `npm run dev:mock` in `apps/desktop/ui` and open http://127.0.0.1:1420: a made-up engine stands in.
 
 ## Before you open a pull request
 
@@ -18,6 +20,8 @@ Thank you for helping. The project is small and run by one maintainer, so please
 - `cargo clippy --workspace --all-targets -- -D warnings`
 - `cargo test --workspace`
 - `sh scripts/check-no-network.sh`
+- In `apps/desktop/ui`: `npm run typecheck` and `npm test`
+- If you changed a type in `apps/desktop/src-tauri/src/contract.rs`: `UPDATE_CONTRACT=1 cargo test -p catchword-desktop contract`, and commit the regenerated TypeScript
 
 ## Rules that are not negotiable
 

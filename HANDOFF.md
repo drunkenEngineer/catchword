@@ -9,16 +9,19 @@ A free, open-source desktop app for Windows that searches a person's own documen
 ## Where things stand
 
 - **Planning is complete.** The full specification is `docs/specification.md`. Section 26 lists every decision, section 21 is the backlog, section 20 is the roadmap.
-- **Code so far** is a Rust workspace with seven crates:
+- **Code so far** is a Rust workspace with nine crates and a desktop interface:
   - `crates/engine`: scan a folder, read text files, hash content, split text into passages sized in model tokens (with page numbers for PDFs), run the extraction worker under limits (`extract`), and combine keyword and meaning results (`fuse`, reciprocal rank fusion).
   - `crates/worker`: the extraction worker. Reads one PDF with PDFium and returns the text of each page, or a reason code.
   - `crates/embed`: the embedding runtime. ONNX Runtime and the provisional model, granite-embedding-97m-multilingual-r2 in 8-bit form, loaded by full path after a checksum check.
   - `crates/store`: the SQLite index, with FTS5 keyword search and sqlite-vec vectors. Identical files are stored once. Layout version 3.
+  - `crates/service`: the use cases both front ends share: index a folder, embed what is new, search, group by file.
   - `crates/cli`: the commands `index`, `search` and `status`.
+  - `apps/desktop/src-tauri`: the Tauri 2 shell: typed command contract, command handlers, background indexing, settings.
+  - `apps/desktop/ui`: the React and TypeScript interface: Search, Library and a first Settings screen.
   - `crates/eval`: the retrieval evaluation and benchmark tool (`catchword-eval`), never shipped. The evaluation set is in `eval/` (ADR-19).
   - `crates/test-support`: test PDFs written by code, never shipped.
-- **Verified on Windows 11 with Rust 1.99.0** (pinned in `rust-toolchain.toml`): 103 tests pass, and format, lint and the privacy check are clean. PDFium, ONNX Runtime and the model come from `scripts/fetch-pdfium.sh` and `scripts/fetch-embedding.sh` (ADR-14, ADR-18).
-- **Not built yet:** the evaluation set and benchmark, the Tauri desktop app, OCR, the installer and the Store package. Skipped and failed files are reported but not yet recorded in the index, so they are tried again on every run (CORE-6).
+- **Verified on Windows 11 with Rust 1.99.0** (pinned in `rust-toolchain.toml`): 125 Rust tests and 18 interface tests pass, and format, lint, type check and the privacy check are clean. PDFium, ONNX Runtime and the model come from `scripts/fetch-pdfium.sh` and `scripts/fetch-embedding.sh` (ADR-14, ADR-18).
+- **Not built yet:** the first-launch flow, most settings, exclusions, OCR, the updater, the installer and the Store package. Skipped and failed files are reported but not yet recorded in the index, so they are tried again on every run (CORE-6).
 
 ## Decisions already made
 
@@ -50,7 +53,14 @@ Do not reopen these without asking the owner.
 2. ~~**PDF extraction** (backlog CORE-2, CORE-3).~~ Done, 3 October 2026. See ADR-14 to ADR-17.
 3. ~~**Embeddings and combined search** (CORE-4, CORE-5, CORE-7, DB-2).~~ Done, 3 October 2026. Passages are 350 tokens with 50 shared, provisionally. Embedding runs at about 13 passages a second on the owner's laptop; see ADR-18 before choosing the model.
 4. ~~**Evaluation set and benchmark** (TST-1, ARC-5).~~ Done, 3 October 2026; report in `docs/benchmarks/2026-10-03-phase0.md`. The owner kept Granite (ADR-20), although the spec's speed clause, read literally, said to switch to e5.
-5. **Only then** the Tauri desktop shell (UI-1 onward).
+5. ~~**The Tauri desktop shell** (UI-1 onward), first slice.~~ Done, 3 October 2026: shell, command contract (ARC-3), lock-down (SEC-1), Search (UI-2), Library (UI-3, first part), background indexing.
+
+Next, in the order of the spec's Phase 2 (section 20):
+
+6. **Coverage in the index** (CORE-6, COV-2): record skipped and failed files with their reason, so they are not read again on every run; a retry action; park a file after two failed attempts.
+7. **Settings and first launch** (UI-4, UI-5, APP-1, APP-3, APP-4): folders, exclusions (SRC-2), delete all data; a two- or three-step first-launch flow.
+8. **Packaging spike** (REL-1, REL-2): bundle the worker, PDFium, ONNX Runtime and the model with the app; an MSIX that installs and runs its worker.
+9. **Logs and diagnostics** (OBS-1, APP-5): local, rotated logs with no document text; a redacted diagnostics export.
 
 ## How to work with the owner
 

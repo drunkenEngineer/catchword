@@ -6,7 +6,7 @@ Catchword finds passages in your own documents, by meaning as well as by exact w
 
 ## What works today
 
-A command-line tool that indexes text, Markdown and PDF files and searches them by their words and by their meaning:
+A first desktop app for Windows, and a command-line tool. Both index text, Markdown and PDF files and search them by their words and by their meaning. The desktop app: add a folder, watch it being indexed, search, preview a passage, open the file or show it in its folder. To run it, see CONTRIBUTING. The command-line tool:
 
 ```
 sh scripts/fetch-pdfium.sh
@@ -31,7 +31,8 @@ Meaning search is slow to build: on a 2023 laptop about 20 passages a second, so
 
 ## What comes next
 
-1. The desktop app for Windows, distributed through the Microsoft Store.
+1. The rest of the desktop app: first-launch flow, settings, exclusions, and a retry for files that failed.
+2. An installer, and the Microsoft Store package.
 
 Scanned documents need OCR, which is planned for a later version. Until then they are listed as skipped, not searched.
 
