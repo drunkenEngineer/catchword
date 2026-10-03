@@ -10,6 +10,8 @@ use std::time::UNIX_EPOCH;
 use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 
+pub mod extract;
+
 /// A piece of a document, small enough to index and later to embed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Passage {
