@@ -1,0 +1,7 @@
+# The repository stores text files with LF line endings, whatever each
+# contributor's own Git settings are.
+* text=auto
+
+# Shell scripts are also checked out with LF on every system: `sh` fails on
+# the CRLF endings Windows checkouts would otherwise get.
+*.sh text eol=lf
