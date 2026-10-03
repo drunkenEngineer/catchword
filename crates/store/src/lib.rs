@@ -7,6 +7,9 @@
 use std::path::Path;
 use std::sync::Once;
 
+use std::collections::HashMap;
+
+use catchword_engine::fuse::{fuse, Found};
 use catchword_engine::Passage;
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
@@ -393,6 +396,49 @@ impl Store {
         drop_orphans(&tx)?;
         tx.commit()?;
         Ok(removed)
+    }
+
+    /// Search by words and, when a query vector is given, by meaning, and
+    /// combine both lists by rank (ADR-5). Each kind of search contributes
+    /// up to `candidates` results; the combined list is best first and says
+    /// how each result was found. A result found by words keeps the
+    /// highlighted snippet of the keyword search.
+    pub fn search_combined(
+        &self,
+        words: &str,
+        meaning: Option<&[f32]>,
+        candidates: usize,
+    ) -> rusqlite::Result<Vec<(Hit, Found)>> {
+        let by_words = self.search_keyword(words, candidates)?;
+        let by_meaning = match meaning {
+            Some(vector) => self.search_vector(vector, candidates)?,
+            None => Vec::new(),
+        };
+        let ids = |hits: &[Hit]| hits.iter().map(|hit| hit.passage_id).collect::<Vec<_>>();
+        let order = fuse(&ids(&by_words), &ids(&by_meaning));
+        let mut hits: HashMap<i64, Hit> = HashMap::new();
+        for hit in by_meaning.into_iter().chain(by_words) {
+            hits.insert(hit.passage_id, hit);
+        }
+        Ok(order
+            .into_iter()
+            .filter_map(|result| {
+                let mut hit = hits.remove(&result.item)?;
+                hit.score = result.score;
+                Some((hit, result.found))
+            })
+            .collect())
+    }
+
+    /// The full text of one passage, for a preview or for judging a result.
+    pub fn passage_text(&self, id: i64) -> rusqlite::Result<Option<String>> {
+        self.conn
+            .query_row(
+                "SELECT text FROM passages WHERE id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .optional()
     }
 
     /// Keyword search: every word must appear, ranked by BM25.
@@ -837,6 +883,36 @@ mod tests {
         // Vectors of the old size are now refused.
         let id = store.passages_without_vectors(1).unwrap()[0].0;
         assert!(store.put_vectors(&[(id, toward(0))]).is_err());
+    }
+
+    #[test]
+    fn combined_search_ranks_results_found_both_ways_first() {
+        let store = store_with_vectors();
+        // "tax" matches one passage by words; the vector points at the same
+        // passage, so it is found both ways and comes first.
+        let results = store.search_combined("tax", Some(&toward(1)), 10).unwrap();
+        assert_eq!(results[0].0.path, "/tax.txt");
+        assert_eq!(results[0].1, Found::Both);
+        assert!(results[0].0.snippet.contains("[tax]"));
+        assert_eq!(results.len(), 3);
+        assert!(results[1..]
+            .iter()
+            .all(|(_, found)| *found == Found::Meaning));
+        // Without a query vector, only words count.
+        let results = store.search_combined("rent", None, 10).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].1, Found::Keyword);
+    }
+
+    #[test]
+    fn a_passage_can_be_read_back_by_its_id() {
+        let store = store_with(&[("/a.txt", "h1", "the whole passage text")]);
+        let id = store.search_keyword("whole", 1).unwrap()[0].passage_id;
+        assert_eq!(
+            store.passage_text(id).unwrap().as_deref(),
+            Some("the whole passage text")
+        );
+        assert_eq!(store.passage_text(id + 1000).unwrap(), None);
     }
 
     #[test]

@@ -132,6 +132,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "catchword-eval"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "catchword-embed",
+ "catchword-engine",
+ "catchword-store",
+ "serde_json",
+]
+
+[[package]]
 name = "catchword-store"
 version = "0.0.1"
 dependencies = [

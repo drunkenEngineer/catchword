@@ -6,24 +6,20 @@
 //! needs ONNX Runtime and the embedding model (scripts/fetch-embedding.sh);
 //! without them, keyword search still works.
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf, MAIN_SEPARATOR};
 use std::process::ExitCode;
 
 use anyhow::{bail, Context, Result};
-use catchword_embed::{Embedder, GRANITE_97M};
+use catchword_embed::{Embedder, DEFAULT_MODEL};
 use catchword_engine::extract::{self, Limits, Outcome, Reason};
-use catchword_engine::fuse::{fuse, Found};
+use catchword_engine::fuse::Found;
 use catchword_engine::{
     chunk, chunk_pages, document_kind, hash_file, read_text, resolve_folder, scan,
     without_controls, DocumentKind, FileMeta, Passage, Tokenizer, WordTokenizer,
+    PASSAGE_OVERLAP_TOKENS, PASSAGE_TOKENS,
 };
-use catchword_store::{Hit, Store};
+use catchword_store::Store;
 
-/// Passage size in the model's tokens, and the overlap between neighbours.
-/// Provisional: the Phase 0 benchmark compares 200, 350 and 500 (ARC-5).
-const MAX_TOKENS: usize = 350;
-const OVERLAP_TOKENS: usize = 50;
 /// Without a model, passages are sized in words.
 const MAX_WORDS: usize = 200;
 const OVERLAP_WORDS: usize = 30;
@@ -116,8 +112,8 @@ fn index(index_file: &Path, folder: &Path) -> Result<()> {
     let cutter = match &model {
         Some(model) => Cutter {
             tokenizer: model,
-            max: MAX_TOKENS,
-            overlap: OVERLAP_TOKENS,
+            max: PASSAGE_TOKENS,
+            overlap: PASSAGE_OVERLAP_TOKENS,
         },
         None => Cutter {
             tokenizer: &WordTokenizer,
@@ -127,7 +123,7 @@ fn index(index_file: &Path, folder: &Path) -> Result<()> {
     };
     let pipeline = match &model {
         Some(model) => format!(
-            "{} tokens {MAX_TOKENS}/{OVERLAP_TOKENS}",
+            "{} tokens {PASSAGE_TOKENS}/{PASSAGE_OVERLAP_TOKENS}",
             model.manifest().id()
         ),
         None => format!("words {MAX_WORDS}/{OVERLAP_WORDS}"),
@@ -205,14 +201,14 @@ fn index(index_file: &Path, folder: &Path) -> Result<()> {
 
 /// Load the embedding model, or say why meaning search is off.
 fn load_model() -> Option<Embedder> {
-    let Some(paths) = catchword_embed::find(&GRANITE_97M) else {
+    let Some(paths) = catchword_embed::find(&DEFAULT_MODEL) else {
         println!(
             "Note: meaning search is off: the embedding model or ONNX Runtime was not found. \
              Run `sh scripts/fetch-embedding.sh`."
         );
         return None;
     };
-    match Embedder::load(&paths, &GRANITE_97M) {
+    match Embedder::load(&paths, &DEFAULT_MODEL) {
         Ok(model) => Some(model),
         Err(error) => {
             println!("Note: meaning search is off: {error}.");
@@ -326,26 +322,17 @@ fn open_store(index_file: &Path) -> Result<Store> {
     Ok(store)
 }
 
-/// Search by words and by meaning, and combine both lists by rank (ADR-5).
+/// Search by words and by meaning, combined by rank (ADR-5).
 fn search(index_file: &Path, query: &str, limit: usize) -> Result<()> {
     let store = open_store(index_file)?;
-    let by_words = store.search_keyword(query, CANDIDATES)?;
-    let by_meaning = search_meaning(&store, query)?;
-
-    // Keyword hits go in last, so their highlighted snippet is the one shown.
-    let mut hits: HashMap<i64, &Hit> = HashMap::new();
-    for hit in by_meaning.iter().chain(&by_words) {
-        hits.insert(hit.passage_id, hit);
-    }
-    let ids = |list: &[Hit]| list.iter().map(|hit| hit.passage_id).collect::<Vec<_>>();
-    let results = fuse(&ids(&by_words), &ids(&by_meaning));
+    let vector = query_vector(&store, query)?;
+    let results = store.search_combined(query, vector.as_deref(), CANDIDATES)?;
     if results.is_empty() {
         println!("Nothing found for: {query}");
         return Ok(());
     }
 
-    for (number, result) in results.iter().take(limit).enumerate() {
-        let hit = hits[&result.item];
+    for (number, (hit, found)) in results.iter().take(limit).enumerate() {
         let copies = if hit.copies > 1 {
             format!("  (+{} identical)", hit.copies - 1)
         } else {
@@ -355,7 +342,7 @@ fn search(index_file: &Path, query: &str, limit: usize) -> Result<()> {
             Some(page) => format!("page {page}"),
             None => format!("lines {}-{}", hit.start_line, hit.end_line),
         };
-        let found = match result.found {
+        let found = match found {
             Found::Keyword => "words",
             Found::Meaning => "meaning",
             Found::Both => "words and meaning",
@@ -371,22 +358,21 @@ fn search(index_file: &Path, query: &str, limit: usize) -> Result<()> {
     Ok(())
 }
 
-/// Passages near the query in meaning. Empty, with a note, when this index
-/// has no vectors from the installed model.
-fn search_meaning(store: &Store, query: &str) -> Result<Vec<Hit>> {
+/// The query as a vector, for meaning search. None, with a note, when this
+/// index has no vectors from the installed model.
+fn query_vector(store: &Store, query: &str) -> Result<Option<Vec<f32>>> {
     let Some(mut model) = load_model() else {
-        return Ok(Vec::new());
+        return Ok(None);
     };
     let Some(indexed_with) = store.embedding_model()? else {
         println!("Note: this index is not searchable by meaning yet. Run `catchword index` again.");
-        return Ok(Vec::new());
+        return Ok(None);
     };
     if model.manifest().id() != indexed_with {
         println!(
-            "Note: this index was embedded with another model ({indexed_with}). \
-             Run `catchword index` again to update it. Showing matches by words only."
+            "Note: this index was embedded with another model ({indexed_with}).              Run `catchword index` again to update it. Showing matches by words only."
         );
-        return Ok(Vec::new());
+        return Ok(None);
     }
     let counts = store.counts()?;
     if counts.vectors < counts.passages {
@@ -395,8 +381,8 @@ fn search_meaning(store: &Store, query: &str) -> Result<Vec<Hit>> {
             counts.vectors, counts.passages
         );
     }
-    let query = model.embed_query(query).context("cannot embed the query")?;
-    Ok(store.search_vector(&query, CANDIDATES)?)
+    let vector = model.embed_query(query).context("cannot embed the query")?;
+    Ok(Some(vector))
 }
 
 fn status(index_file: &Path) -> Result<()> {

@@ -158,6 +158,11 @@ fn to_hex(digest: &[u8]) -> String {
     hex
 }
 
+/// The passage size the app uses, in the embedding model's tokens, and the
+/// overlap between neighbouring passages. Chosen by the benchmark (ADR-20).
+pub const PASSAGE_TOKENS: usize = 350;
+pub const PASSAGE_OVERLAP_TOKENS: usize = 50;
+
 /// Splits text into an embedding model's tokens. Passages are sized in
 /// tokens because a model silently ignores text beyond its limit.
 pub trait Tokenizer {
