@@ -1,17 +1,20 @@
-//! Catchword store: one SQLite file with files, passages and the keyword index.
+//! Catchword store: one SQLite file with files, passages, the keyword index
+//! and the passage vectors.
 //!
 //! The index is derived data. Everything in it can be rebuilt from the user's
 //! files, so a damaged index is replaced, never repaired by hand.
 
 use std::path::Path;
+use std::sync::Once;
 
 use catchword_engine::Passage;
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
 /// Bumped whenever the tables change. An older app must refuse a newer index.
 ///
-/// Version 2 added page numbers to passages.
-pub const SCHEMA_VERSION: i64 = 2;
+/// Version 2 added page numbers to passages. Version 3 added passage vectors
+/// and records how passages were cut and which model made the vectors.
+pub const SCHEMA_VERSION: i64 = 3;
 
 pub struct Store {
     conn: Connection,
@@ -21,6 +24,7 @@ pub struct Store {
 /// One matching passage, with the file it came from.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Hit {
+    pub passage_id: i64,
     pub path: String,
     /// How many files share this exact content (1 means no copies).
     pub copies: i64,
@@ -38,14 +42,42 @@ pub struct Counts {
     pub files: i64,
     pub contents: i64,
     pub passages: i64,
+    /// Passages that are searchable by meaning.
+    pub vectors: i64,
+}
+
+/// Make sqlite-vec part of every SQLite connection this process opens from
+/// now on. Done once, before the first connection.
+fn enable_vector_search() {
+    static ENABLED: Once = Once::new();
+    ENABLED.call_once(|| {
+        // SAFETY: sqlite3_vec_init is the extension's entry point and has the
+        // signature SQLite expects; the cast only restores that signature,
+        // which the sqlite-vec crate declares without arguments. This is the
+        // registration sqlite-vec documents for rusqlite.
+        unsafe {
+            rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute::<
+                *const (),
+                unsafe extern "C" fn(
+                    *mut rusqlite::ffi::sqlite3,
+                    *mut *const std::os::raw::c_char,
+                    *const rusqlite::ffi::sqlite3_api_routines,
+                ) -> std::os::raw::c_int,
+            >(
+                sqlite_vec::sqlite3_vec_init as *const (),
+            )));
+        }
+    });
 }
 
 impl Store {
     pub fn open(path: &Path) -> rusqlite::Result<Self> {
+        enable_vector_search();
         Self::init(Connection::open(path)?)
     }
 
     pub fn open_in_memory() -> rusqlite::Result<Self> {
+        enable_vector_search();
         Self::init(Connection::open_in_memory()?)
     }
 
@@ -71,7 +103,8 @@ impl Store {
         if was_reset {
             let tx = conn.transaction()?;
             tx.execute_batch(
-                "DROP TABLE IF EXISTS passages_fts;
+                "DROP TABLE IF EXISTS passage_vectors;
+                 DROP TABLE IF EXISTS passages_fts;
                  DROP TABLE IF EXISTS passages;
                  DROP TABLE IF EXISTS files;
                  DROP TABLE IF EXISTS contents;
@@ -113,6 +146,132 @@ impl Store {
     /// opening. The next scan fills it again.
     pub fn was_reset(&self) -> bool {
         self.was_reset
+    }
+
+    /// Record how passages are cut, for example which tokenizer and sizes.
+    /// Passages cut another way would not match their files' next scan, so
+    /// a different value clears the index for a rebuild. Returns true when
+    /// it was cleared.
+    pub fn use_pipeline(&mut self, pipeline: &str) -> rusqlite::Result<bool> {
+        let stored = meta_get(&self.conn, "pipeline")?;
+        if stored.as_deref() == Some(pipeline) {
+            return Ok(false);
+        }
+        let tx = self.conn.transaction()?;
+        tx.execute("DELETE FROM files", ())?;
+        drop_orphans(&tx)?;
+        meta_set(&tx, "pipeline", pipeline)?;
+        tx.commit()?;
+        Ok(stored.is_some())
+    }
+
+    /// Record which model makes the vectors. Vectors from different models
+    /// cannot be compared, so a different model drops the stored vectors and
+    /// every passage waits to be embedded again. Returns true when vectors
+    /// were dropped.
+    pub fn use_model(&mut self, model: &str, dimensions: usize) -> rusqlite::Result<bool> {
+        let stored = meta_get(&self.conn, "model")?;
+        let current = format!("{model} {dimensions}");
+        if stored.as_deref() == Some(current.as_str()) {
+            return Ok(false);
+        }
+        let tx = self.conn.transaction()?;
+        tx.execute_batch(&format!(
+            "DROP TABLE IF EXISTS passage_vectors;
+             CREATE VIRTUAL TABLE passage_vectors USING vec0(embedding float[{dimensions}]);"
+        ))?;
+        meta_set(&tx, "model", &current)?;
+        tx.commit()?;
+        Ok(stored.is_some())
+    }
+
+    /// Up to `limit` passages that have no vector yet, as (id, text).
+    pub fn passages_without_vectors(&self, limit: usize) -> rusqlite::Result<Vec<(i64, String)>> {
+        self.require_model()?;
+        let mut statement = self.conn.prepare(
+            "SELECT id, text FROM passages
+             WHERE id NOT IN (SELECT rowid FROM passage_vectors)
+             ORDER BY id LIMIT ?1",
+        )?;
+        let rows =
+            statement.query_map(params![limit as i64], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        rows.collect()
+    }
+
+    /// Store passage vectors, all in one transaction. A vector whose passage
+    /// has gone in the meantime is skipped.
+    pub fn put_vectors(&mut self, vectors: &[(i64, Vec<f32>)]) -> rusqlite::Result<()> {
+        let dimensions = self.require_model()?;
+        let tx = self.conn.transaction()?;
+        for (id, vector) in vectors {
+            if vector.len() != dimensions {
+                return Err(misuse(&format!(
+                    "a vector of {} numbers, but the model makes {dimensions}",
+                    vector.len()
+                )));
+            }
+            let exists = tx
+                .query_row("SELECT 1 FROM passages WHERE id = ?1", params![id], |_| {
+                    Ok(())
+                })
+                .optional()?
+                .is_some();
+            if exists {
+                tx.execute("DELETE FROM passage_vectors WHERE rowid = ?1", params![id])?;
+                tx.execute(
+                    "INSERT INTO passage_vectors(rowid, embedding) VALUES (?1, ?2)",
+                    params![id, as_blob(vector)],
+                )?;
+            }
+        }
+        tx.commit()
+    }
+
+    /// The passages nearest to `query` in meaning, best first. Empty when no
+    /// model has been chosen yet.
+    pub fn search_vector(&self, query: &[f32], limit: usize) -> rusqlite::Result<Vec<Hit>> {
+        let Some(dimensions) = self.model_dimensions()? else {
+            return Ok(Vec::new());
+        };
+        if query.len() != dimensions {
+            return Err(misuse("the query vector has the wrong size"));
+        }
+        let mut statement = self.conn.prepare(
+            "WITH nearest AS (
+                 SELECT rowid, distance FROM passage_vectors
+                 WHERE embedding MATCH ?1 AND k = ?2)
+             SELECT p.id,
+                    (SELECT MIN(path) FROM files f WHERE f.hash = p.hash),
+                    (SELECT COUNT(*) FROM files f WHERE f.hash = p.hash),
+                    p.page, p.start_line, p.end_line, p.text, nearest.distance
+             FROM nearest JOIN passages p ON p.id = nearest.rowid
+             ORDER BY nearest.distance",
+        )?;
+        let hits = statement.query_map(params![as_blob(query), limit as i64], |row| {
+            let distance: f64 = row.get(7)?;
+            Ok(Hit {
+                passage_id: row.get(0)?,
+                path: row.get(1)?,
+                copies: row.get(2)?,
+                page: row.get(3)?,
+                start_line: row.get(4)?,
+                end_line: row.get(5)?,
+                snippet: opening_words(&row.get::<_, String>(6)?),
+                // Vectors have unit length, so this is the cosine similarity.
+                score: 1.0 - distance * distance / 2.0,
+            })
+        })?;
+        hits.collect()
+    }
+
+    /// The vector size of the chosen model, if one was chosen.
+    fn model_dimensions(&self) -> rusqlite::Result<Option<usize>> {
+        Ok(meta_get(&self.conn, "model")?.and_then(|model| model.rsplit(' ').next()?.parse().ok()))
+    }
+
+    fn require_model(&self) -> rusqlite::Result<usize> {
+        self.model_dimensions()?
+            .ok_or_else(|| misuse("no embedding model has been chosen for this index"))
     }
 
     /// True when size and modified time match what is stored, so the file
@@ -237,7 +396,8 @@ impl Store {
             return Ok(Vec::new());
         };
         let mut statement = self.conn.prepare(
-            "SELECT (SELECT MIN(path) FROM files f WHERE f.hash = p.hash),
+            "SELECT p.id,
+                    (SELECT MIN(path) FROM files f WHERE f.hash = p.hash),
                     (SELECT COUNT(*) FROM files f WHERE f.hash = p.hash),
                     p.page,
                     p.start_line,
@@ -252,14 +412,15 @@ impl Store {
         )?;
         let hits = statement.query_map(params![fts_query, limit as i64], |row| {
             Ok(Hit {
-                path: row.get(0)?,
-                copies: row.get(1)?,
-                page: row.get(2)?,
-                start_line: row.get(3)?,
-                end_line: row.get(4)?,
-                snippet: row.get(5)?,
+                passage_id: row.get(0)?,
+                path: row.get(1)?,
+                copies: row.get(2)?,
+                page: row.get(3)?,
+                start_line: row.get(4)?,
+                end_line: row.get(5)?,
+                snippet: row.get(6)?,
                 // SQLite's bm25() is lower-is-better; flip it.
-                score: -row.get::<_, f64>(6)?,
+                score: -row.get::<_, f64>(7)?,
             })
         })?;
         hits.collect()
@@ -276,7 +437,62 @@ impl Store {
             files: count("files")?,
             contents: count("contents")?,
             passages: count("passages")?,
+            vectors: if has_table(&self.conn, "passage_vectors")? {
+                count("passage_vectors")?
+            } else {
+                0
+            },
         })
+    }
+}
+
+fn has_table(conn: &Connection, name: &str) -> rusqlite::Result<bool> {
+    conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1)",
+        params![name],
+        |row| row.get(0),
+    )
+}
+
+fn meta_get(conn: &Connection, key: &str) -> rusqlite::Result<Option<String>> {
+    conn.query_row(
+        "SELECT value FROM meta WHERE key = ?1",
+        params![key],
+        |row| row.get(0),
+    )
+    .optional()
+}
+
+fn meta_set(conn: &Connection, key: &str, value: &str) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT INTO meta(key, value) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![key, value],
+    )?;
+    Ok(())
+}
+
+/// An error for a call this store cannot honour.
+fn misuse(message: &str) -> rusqlite::Error {
+    rusqlite::Error::SqliteFailure(
+        rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_MISUSE),
+        Some(message.to_string()),
+    )
+}
+
+/// A vector as sqlite-vec stores it: 4-byte little-endian floats.
+fn as_blob(vector: &[f32]) -> Vec<u8> {
+    vector.iter().flat_map(|x| x.to_le_bytes()).collect()
+}
+
+/// The start of a passage, to show for a match found by meaning.
+fn opening_words(text: &str) -> String {
+    const WORDS: usize = 30;
+    let words: Vec<&str> = text.split_whitespace().collect();
+    if words.len() <= WORDS {
+        words.join(" ")
+    } else {
+        format!("{} ...", words[..WORDS].join(" "))
     }
 }
 
@@ -301,8 +517,15 @@ fn stored_version(conn: &Connection) -> rusqlite::Result<Option<i64>> {
     Ok(Some(value.and_then(|v| v.parse().ok()).unwrap_or(0)))
 }
 
-/// Remove passages and contents that no file refers to any more.
+/// Remove passages, their vectors and contents that no file refers to any more.
 fn drop_orphans(tx: &Transaction<'_>) -> rusqlite::Result<()> {
+    if has_table(tx, "passage_vectors")? {
+        tx.execute(
+            "DELETE FROM passage_vectors WHERE rowid IN (
+                 SELECT id FROM passages WHERE hash NOT IN (SELECT hash FROM files))",
+            (),
+        )?;
+    }
     // The keyword index is told about each deletion first, with the old text.
     tx.execute(
         "INSERT INTO passages_fts(passages_fts, rowid, text)
@@ -369,6 +592,7 @@ mod tests {
             files: 2,
             contents: 1,
             passages: 1,
+            vectors: 0,
         };
         assert_eq!(store.counts().unwrap(), expected);
         let hits = store.search_keyword("refund", 10).unwrap();
@@ -410,6 +634,7 @@ mod tests {
             files: 2,
             contents: 2,
             passages: 2,
+            vectors: 0,
         };
         assert_eq!(store.counts().unwrap(), expected);
     }
@@ -517,10 +742,11 @@ mod tests {
         let _ = std::fs::remove_file(&file);
         Connection::open(&file)
             .unwrap()
-            .execute_batch(
+            .execute_batch(&format!(
                 "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-                 INSERT INTO meta VALUES ('schema_version', '3');",
-            )
+                 INSERT INTO meta VALUES ('schema_version', '{}');",
+                SCHEMA_VERSION + 1
+            ))
             .unwrap();
         let before = std::fs::read(&file).unwrap();
 
@@ -530,5 +756,100 @@ mod tests {
         assert!(error.to_string().contains("newer version"), "{error}");
         assert_eq!(std::fs::read(&file).unwrap(), before);
         std::fs::remove_file(&file).unwrap();
+    }
+
+    /// A unit-length vector pointing mostly along `axis`.
+    fn toward(axis: usize) -> Vec<f32> {
+        let mut vector = [0.1f32; 3];
+        vector[axis] = 1.0;
+        let length = vector.iter().map(|x| x * x).sum::<f32>().sqrt();
+        vector.iter().map(|x| x / length).collect()
+    }
+
+    /// Three files, one passage each, with vectors along different axes.
+    fn store_with_vectors() -> Store {
+        let mut store = store_with(&[
+            ("/rent.txt", "h1", "the rent is due monthly"),
+            ("/tax.txt", "h2", "the tax refund was approved"),
+            ("/cat.txt", "h3", "the cat sleeps"),
+        ]);
+        store.use_model("test-model", 3).unwrap();
+        let missing = store.passages_without_vectors(10).unwrap();
+        let vectors: Vec<(i64, Vec<f32>)> = missing
+            .iter()
+            .enumerate()
+            .map(|(axis, (id, _))| (*id, toward(axis)))
+            .collect();
+        store.put_vectors(&vectors).unwrap();
+        store
+    }
+
+    #[test]
+    fn vector_search_finds_the_nearest_passages_first() {
+        let store = store_with_vectors();
+        let hits = store.search_vector(&toward(1), 3).unwrap();
+        let paths: Vec<&str> = hits.iter().map(|hit| hit.path.as_str()).collect();
+        assert_eq!(paths[0], "/tax.txt");
+        assert_eq!(hits.len(), 3);
+        assert!(hits[0].score > 0.99, "{}", hits[0].score);
+        assert!(hits[0].score > hits[1].score);
+        assert_eq!(hits[0].snippet, "the tax refund was approved");
+    }
+
+    #[test]
+    fn only_passages_without_vectors_are_listed() {
+        let mut store = store_with(&[("/a.txt", "h1", "alpha"), ("/b.txt", "h2", "beta")]);
+        store.use_model("test-model", 3).unwrap();
+        let missing = store.passages_without_vectors(10).unwrap();
+        assert_eq!(missing.len(), 2);
+        store.put_vectors(&[(missing[0].0, toward(0))]).unwrap();
+        let still = store.passages_without_vectors(10).unwrap();
+        assert_eq!(still, vec![missing[1].clone()]);
+        assert_eq!(store.counts().unwrap().vectors, 1);
+    }
+
+    #[test]
+    fn purging_a_file_removes_its_vectors() {
+        let mut store = store_with_vectors();
+        store
+            .purge_missing("/", &["/rent.txt".to_string(), "/cat.txt".to_string()])
+            .unwrap();
+        assert_eq!(store.counts().unwrap().vectors, 2);
+        let hits = store.search_vector(&toward(1), 3).unwrap();
+        assert!(hits.iter().all(|hit| hit.path != "/tax.txt"));
+    }
+
+    #[test]
+    fn another_model_drops_the_old_vectors() {
+        let mut store = store_with_vectors();
+        assert!(!store.use_model("test-model", 3).unwrap());
+        assert_eq!(store.counts().unwrap().vectors, 3);
+        assert!(store.use_model("other-model", 4).unwrap());
+        assert_eq!(store.counts().unwrap().vectors, 0);
+        assert_eq!(store.passages_without_vectors(10).unwrap().len(), 3);
+        // Vectors of the old size are now refused.
+        let id = store.passages_without_vectors(1).unwrap()[0].0;
+        assert!(store.put_vectors(&[(id, toward(0))]).is_err());
+    }
+
+    #[test]
+    fn vectors_need_a_model_first() {
+        let mut store = store_with(&[("/a.txt", "h1", "alpha")]);
+        assert!(store.passages_without_vectors(10).is_err());
+        assert!(store.put_vectors(&[(1, toward(0))]).is_err());
+        assert!(store.search_vector(&toward(0), 3).unwrap().is_empty());
+    }
+
+    #[test]
+    fn another_way_of_cutting_passages_clears_the_index() {
+        let mut store = Store::open_in_memory().unwrap();
+        assert!(!store.use_pipeline("words 200/30").unwrap());
+        store
+            .put_file("/a.txt", 5, 1, "h1", &chunk("alpha", 50, 5, &WordTokenizer))
+            .unwrap();
+        assert!(!store.use_pipeline("words 200/30").unwrap());
+        assert_eq!(store.counts().unwrap().files, 1);
+        assert!(store.use_pipeline("model tokens 350/50").unwrap());
+        assert_eq!(store.counts().unwrap(), Counts::default());
     }
 }
