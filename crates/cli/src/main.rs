@@ -11,7 +11,7 @@ use anyhow::{bail, Context, Result};
 use catchword_engine::extract::{self, Limits, Outcome, Reason};
 use catchword_engine::{
     chunk, chunk_pages, document_kind, hash_file, read_text, resolve_folder, scan,
-    without_controls, DocumentKind, FileMeta, Passage,
+    without_controls, DocumentKind, FileMeta, Passage, WordTokenizer,
 };
 use catchword_store::Store;
 
@@ -171,7 +171,7 @@ fn read_document(
             let passages = if store.has_content(&hash)? {
                 Vec::new()
             } else {
-                chunk(&text, MAX_WORDS, OVERLAP_WORDS)
+                chunk(&text, MAX_WORDS, OVERLAP_WORDS, &WordTokenizer)
             };
             Ok(Ok((hash, passages)))
         }
@@ -189,7 +189,10 @@ fn read_document(
             let outcome =
                 extract::run(worker, &file.path, limits).context("cannot start the PDF reader")?;
             Ok(match outcome {
-                Outcome::Pages(pages) => Ok((hash, chunk_pages(&pages, MAX_WORDS, OVERLAP_WORDS))),
+                Outcome::Pages(pages) => Ok((
+                    hash,
+                    chunk_pages(&pages, MAX_WORDS, OVERLAP_WORDS, &WordTokenizer),
+                )),
                 Outcome::NotIndexed(reason) => Err(reason),
             })
         }

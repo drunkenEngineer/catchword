@@ -157,15 +157,41 @@ fn to_hex(digest: &[u8]) -> String {
     hex
 }
 
-/// Split text into passages of at most `max_words` words.
+/// Splits text into an embedding model's tokens. Passages are sized in
+/// tokens because a model silently ignores text beyond its limit.
+pub trait Tokenizer {
+    /// The byte offset in `text` where each token ends, in order, leaving
+    /// out special tokens such as start and end markers.
+    fn token_ends(&self, text: &str) -> Vec<usize>;
+}
+
+/// Counts each word as one token. Used in tests, and to size passages when
+/// no embedding model is installed.
+pub struct WordTokenizer;
+
+impl Tokenizer for WordTokenizer {
+    fn token_ends(&self, text: &str) -> Vec<usize> {
+        text.split_whitespace()
+            .map(|word| word.as_ptr() as usize - text.as_ptr() as usize + word.len())
+            .collect()
+    }
+}
+
+/// Split text into passages of at most `max_tokens` tokens, cutting only
+/// between words.
 ///
-/// Neighbouring passages share `overlap_words` words, so a sentence cut at a
-/// boundary is still whole in one of them. Words stand in for model tokens
-/// until the embedding step sets the real limit.
-pub fn chunk(text: &str, max_words: usize, overlap_words: usize) -> Vec<Passage> {
-    assert!(max_words > 0, "max_words must be positive");
+/// Neighbouring passages share up to `overlap_tokens` tokens of whole words,
+/// so a sentence cut at a boundary is still whole in one of them. A single
+/// word longer than `max_tokens` becomes a passage of its own.
+pub fn chunk(
+    text: &str,
+    max_tokens: usize,
+    overlap_tokens: usize,
+    tokenizer: &dyn Tokenizer,
+) -> Vec<Passage> {
+    assert!(max_tokens > 0, "max_tokens must be positive");
     assert!(
-        overlap_words < max_words,
+        overlap_tokens < max_tokens,
         "overlap must be smaller than the passage"
     );
 
@@ -175,33 +201,72 @@ pub fn chunk(text: &str, max_words: usize, overlap_words: usize) -> Vec<Passage>
             words.push((index as u32 + 1, word));
         }
     }
+    if words.is_empty() {
+        return Vec::new();
+    }
+
+    // Passages are cut from the words joined by single spaces. Each token
+    // is counted against the word its last byte falls in.
+    let mut joined = String::new();
+    let mut starts = Vec::with_capacity(words.len());
+    for (_, word) in &words {
+        if !joined.is_empty() {
+            joined.push(' ');
+        }
+        starts.push(joined.len());
+        joined.push_str(word);
+    }
+    let mut tokens = vec![0usize; words.len()];
+    for end in tokenizer.token_ends(&joined) {
+        if end > 0 && end <= joined.len() {
+            tokens[starts.partition_point(|&start| start < end) - 1] += 1;
+        }
+    }
 
     let mut passages = Vec::new();
     let mut start = 0;
     while start < words.len() {
-        let end = (start + max_words).min(words.len());
-        let slice = &words[start..end];
+        let mut end = start + 1;
+        let mut used = tokens[start];
+        while end < words.len() && used + tokens[end] <= max_tokens {
+            used += tokens[end];
+            end += 1;
+        }
+        let last = end - 1;
         passages.push(Passage {
             ordinal: passages.len() as u32,
             page: None,
-            start_line: slice[0].0,
-            end_line: slice[slice.len() - 1].0,
-            text: slice.iter().map(|(_, w)| *w).collect::<Vec<_>>().join(" "),
+            start_line: words[start].0,
+            end_line: words[last].0,
+            text: joined[starts[start]..starts[last] + words[last].1.len()].to_string(),
         });
         if end == words.len() {
             break;
         }
-        start = end - overlap_words;
+        // Step back over whole words worth at most `overlap_tokens`, but
+        // always move forward.
+        let mut next = end;
+        let mut shared = 0;
+        while next > start + 1 && shared + tokens[next - 1] <= overlap_tokens {
+            shared += tokens[next - 1];
+            next -= 1;
+        }
+        start = next;
     }
     passages
 }
 
 /// Split each page into passages on its own, so every passage lies on one
 /// page and carries its number. Ordinals run on across pages.
-pub fn chunk_pages(pages: &[String], max_words: usize, overlap_words: usize) -> Vec<Passage> {
+pub fn chunk_pages(
+    pages: &[String],
+    max_tokens: usize,
+    overlap_tokens: usize,
+    tokenizer: &dyn Tokenizer,
+) -> Vec<Passage> {
     let mut passages = Vec::new();
     for (index, text) in pages.iter().enumerate() {
-        for passage in chunk(text, max_words, overlap_words) {
+        for passage in chunk(text, max_tokens, overlap_tokens, tokenizer) {
             passages.push(Passage {
                 ordinal: passages.len() as u32,
                 page: Some(index as u32 + 1),
@@ -222,7 +287,7 @@ mod tests {
             .map(|n| format!("w{n}"))
             .collect::<Vec<_>>()
             .join(" ");
-        let passages = chunk(&text, 20, 5);
+        let passages = chunk(&text, 20, 5, &WordTokenizer);
         assert!(passages
             .iter()
             .all(|p| p.text.split_whitespace().count() <= 20));
@@ -235,15 +300,78 @@ mod tests {
 
     #[test]
     fn chunk_tracks_line_numbers() {
-        let passages = chunk("one two\n\nthree four\nfive", 3, 1);
+        let passages = chunk("one two\n\nthree four\nfive", 3, 1, &WordTokenizer);
         assert_eq!((passages[0].start_line, passages[0].end_line), (1, 3));
         assert_eq!(passages[1].start_line, 3);
         assert_eq!(passages.last().unwrap().end_line, 4);
     }
 
+    /// A stand-in for a real model's tokenizer: one token per three
+    /// characters of each word, so long words cost more than short ones.
+    struct Triples;
+
+    impl Tokenizer for Triples {
+        fn token_ends(&self, text: &str) -> Vec<usize> {
+            let mut ends = Vec::new();
+            for word in text.split_whitespace() {
+                let start = word.as_ptr() as usize - text.as_ptr() as usize;
+                let mut end = start;
+                for (count, c) in word.chars().enumerate() {
+                    end += c.len_utf8();
+                    if count % 3 == 2 || end == start + word.len() {
+                        ends.push(end);
+                    }
+                }
+            }
+            ends
+        }
+    }
+
+    fn count_tokens(text: &str) -> usize {
+        Triples.token_ends(text).len()
+    }
+
+    #[test]
+    fn passages_fit_the_token_limit_and_cut_between_words() {
+        let text = "a quick brown fox, extraordinarily well documented, jumps over \
+                    the incomprehensibilities of lazy dogs and résumés"
+            .repeat(3);
+        let passages = chunk(&text, 12, 4, &Triples);
+        assert!(passages.len() > 3);
+        for passage in &passages {
+            assert!(count_tokens(&passage.text) <= 12, "{passage:?}");
+            // Every passage is made of whole words of the original text.
+            for word in passage.text.split_whitespace() {
+                assert!(text.split_whitespace().any(|w| w == word), "{word}");
+            }
+        }
+        // Nothing is lost: the first and last words are in some passage.
+        assert!(passages[0].text.starts_with("a quick"));
+        assert!(passages.last().unwrap().text.ends_with("résumés"));
+    }
+
+    #[test]
+    fn neighbouring_passages_share_whole_words() {
+        let passages = chunk("one two three four five six seven", 3, 1, &WordTokenizer);
+        let texts: Vec<&str> = passages.iter().map(|p| p.text.as_str()).collect();
+        assert_eq!(
+            texts,
+            vec!["one two three", "three four five", "five six seven"]
+        );
+    }
+
+    #[test]
+    fn a_word_longer_than_the_limit_is_a_passage_of_its_own() {
+        let long = "x".repeat(60); // 20 tokens with Triples
+        let text = format!("before {long} after");
+        let passages = chunk(&text, 5, 1, &Triples);
+        let texts: Vec<&str> = passages.iter().map(|p| p.text.as_str()).collect();
+        assert_eq!(texts, vec!["before", long.as_str(), "after"]);
+    }
+
     #[test]
     fn empty_text_gives_no_passages() {
-        assert!(chunk("  \n\n ", 10, 2).is_empty());
+        assert!(chunk("  \n\n ", 10, 2, &WordTokenizer).is_empty());
     }
 
     #[test]
@@ -355,7 +483,7 @@ mod tests {
             String::new(),
             "four five".to_string(),
         ];
-        let passages = chunk_pages(&pages, 2, 1);
+        let passages = chunk_pages(&pages, 2, 1, &WordTokenizer);
         let found: Vec<(u32, Option<u32>, &str)> = passages
             .iter()
             .map(|p| (p.ordinal, p.page, p.text.as_str()))
@@ -368,6 +496,8 @@ mod tests {
                 (2, Some(3), "four five"),
             ]
         );
-        assert!(chunk("plain text", 5, 1).iter().all(|p| p.page.is_none()));
+        assert!(chunk("plain text", 5, 1, &WordTokenizer)
+            .iter()
+            .all(|p| p.page.is_none()));
     }
 }

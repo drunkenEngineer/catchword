@@ -340,14 +340,20 @@ fn to_fts_query(query: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use catchword_engine::{chunk, chunk_pages};
+    use catchword_engine::{chunk, chunk_pages, WordTokenizer};
 
     /// Build a store from (path, hash, text) triples.
     fn store_with(documents: &[(&str, &str, &str)]) -> Store {
         let mut store = Store::open_in_memory().unwrap();
         for (path, hash, text) in documents {
             store
-                .put_file(path, text.len() as u64, 1, hash, &chunk(text, 50, 5))
+                .put_file(
+                    path,
+                    text.len() as u64,
+                    1,
+                    hash,
+                    &chunk(text, 50, 5, &WordTokenizer),
+                )
                 .unwrap();
         }
         store
@@ -412,7 +418,13 @@ mod tests {
     fn changed_content_replaces_the_old_text() {
         let mut store = store_with(&[("/a.txt", "h1", "first version")]);
         store
-            .put_file("/a.txt", 14, 2, "h2", &chunk("second version", 50, 5))
+            .put_file(
+                "/a.txt",
+                14,
+                2,
+                "h2",
+                &chunk("second version", 50, 5, &WordTokenizer),
+            )
             .unwrap();
         assert!(store.search_keyword("first", 10).unwrap().is_empty());
         assert_eq!(store.search_keyword("second", 10).unwrap().len(), 1);
@@ -425,10 +437,22 @@ mod tests {
         let mut store = Store::open_in_memory().unwrap();
         let pages = ["cover".to_string(), "the refund decision".to_string()];
         store
-            .put_file("/a.pdf", 10, 1, "h1", &chunk_pages(&pages, 50, 5))
+            .put_file(
+                "/a.pdf",
+                10,
+                1,
+                "h1",
+                &chunk_pages(&pages, 50, 5, &WordTokenizer),
+            )
             .unwrap();
         store
-            .put_file("/b.txt", 10, 1, "h2", &chunk("another refund note", 50, 5))
+            .put_file(
+                "/b.txt",
+                10,
+                1,
+                "h2",
+                &chunk("another refund note", 50, 5, &WordTokenizer),
+            )
             .unwrap();
         let mut found: Vec<(String, Option<i64>)> = store
             .search_keyword("refund", 10)
@@ -474,7 +498,13 @@ mod tests {
 
         let pages = ["fresh text".to_string()];
         store
-            .put_file("/new.pdf", 1, 1, "h2", &chunk_pages(&pages, 50, 5))
+            .put_file(
+                "/new.pdf",
+                1,
+                1,
+                "h2",
+                &chunk_pages(&pages, 50, 5, &WordTokenizer),
+            )
             .unwrap();
         assert_eq!(store.search_keyword("fresh", 10).unwrap()[0].page, Some(1));
         assert_eq!(stored_version(&store.conn).unwrap(), Some(SCHEMA_VERSION));
