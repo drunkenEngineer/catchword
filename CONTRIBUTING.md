@@ -21,7 +21,7 @@ Thank you for helping. The project is small and run by one maintainer, so please
 
 ## Rules that are not negotiable
 
-- **No network code in the engine, the store or the extraction worker.** Network access belongs only in the desktop shell.
+- **No network code in the engine, the store, the extraction worker, the embedding runtime or the service.** Network access belongs only in the desktop shell.
 - **No new dependency without a reason** stated in the pull request. GPL and AGPL libraries cannot be used.
 - **Test files must be redistributable** and contain no real personal data.
 - **You must be able to explain the code you submit,** whether or not a tool helped you write it.

@@ -105,8 +105,8 @@ name = "catchword"
 version = "0.0.1"
 dependencies = [
  "anyhow",
- "catchword-embed",
  "catchword-engine",
+ "catchword-service",
  "catchword-store",
  "catchword-test-support",
 ]
@@ -140,6 +140,17 @@ dependencies = [
  "catchword-engine",
  "catchword-store",
  "serde_json",
+]
+
+[[package]]
+name = "catchword-service"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "catchword-embed",
+ "catchword-engine",
+ "catchword-store",
+ "catchword-test-support",
 ]
 
 [[package]]

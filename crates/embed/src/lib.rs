@@ -9,7 +9,7 @@ use std::fmt;
 use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use catchword_engine::Tokenizer;
 use ort::session::Session;
@@ -164,7 +164,7 @@ pub fn find(manifest: &ModelManifest) -> Option<Paths> {
 /// A loaded model, ready to embed text.
 pub struct Embedder {
     session: Session,
-    tokenizer: tokenizers::Tokenizer,
+    tokenizer: ModelTokenizer,
     manifest: ModelManifest,
     /// BERT-style models also take a "segment" input, all zeros here.
     needs_token_types: bool,
@@ -181,6 +181,7 @@ impl Embedder {
         let session = Session::builder()?.commit_from_file(&model)?;
         let tokenizer = tokenizers::Tokenizer::from_file(&tokenizer)
             .map_err(|error| EmbedError::Tokenizer(error.to_string()))?;
+        let tokenizer = ModelTokenizer(Arc::new(tokenizer));
         let needs_token_types = session
             .inputs()
             .iter()
@@ -195,6 +196,12 @@ impl Embedder {
 
     pub fn manifest(&self) -> &ModelManifest {
         &self.manifest
+    }
+
+    /// The model's tokenizer, to size passages. It can be used on another
+    /// thread while this model embeds: splitting text never waits for it.
+    pub fn tokenizer(&self) -> ModelTokenizer {
+        self.tokenizer.clone()
     }
 
     /// One unit-length vector per passage, in order.
@@ -221,6 +228,7 @@ impl Embedder {
     fn embed_one(&mut self, text: &str) -> Result<Vec<f32>, EmbedError> {
         let encoding = self
             .tokenizer
+            .0
             .encode(text, true)
             .map_err(|error| EmbedError::Tokenizer(error.to_string()))?;
         let mut ids: Vec<i64> = encoding.get_ids().iter().map(|&id| i64::from(id)).collect();
@@ -274,7 +282,17 @@ fn pool(values: &[f32], dimensions: usize, pooling: Pooling) -> Vec<f32> {
 
 impl Tokenizer for Embedder {
     fn token_ends(&self, text: &str) -> Vec<usize> {
-        match self.tokenizer.encode(text, false) {
+        self.tokenizer.token_ends(text)
+    }
+}
+
+/// A model's tokenizer, shared: copies are cheap and point to the same one.
+#[derive(Clone)]
+pub struct ModelTokenizer(Arc<tokenizers::Tokenizer>);
+
+impl Tokenizer for ModelTokenizer {
+    fn token_ends(&self, text: &str) -> Vec<usize> {
+        match self.0.encode(text, false) {
             Ok(encoding) => encoding.get_offsets().iter().map(|&(_, end)| end).collect(),
             Err(_) => Vec::new(),
         }
