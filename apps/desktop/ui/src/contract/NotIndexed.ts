@@ -4,4 +4,9 @@ export type NotIndexed = { name: string, folder: string, reason: string,
 /**
  * True when reading failed; false when the file was skipped by a rule.
  */
-failed: boolean, };
+failed: boolean, 
+/**
+ * True when reading failed too often: it is not tried again until the
+ * user asks for a retry.
+ */
+parked: boolean, };

@@ -106,6 +106,40 @@ impl Reason {
                 | Reason::LibraryMissing
         )
     }
+
+    /// Every reason, for listing and for tests.
+    pub const ALL: [Reason; 10] = [
+        Reason::NeedsOcr,
+        Reason::Encrypted,
+        Reason::TooLarge,
+        Reason::CannotOpen,
+        Reason::Damaged,
+        Reason::TimedOut,
+        Reason::MemoryLimit,
+        Reason::Crashed,
+        Reason::InvalidOutput,
+        Reason::LibraryMissing,
+    ];
+
+    /// A stable name, for storing in the index. Never change one.
+    pub fn code(self) -> &'static str {
+        match self {
+            Reason::NeedsOcr => "needs-ocr",
+            Reason::Encrypted => "encrypted",
+            Reason::TooLarge => "too-large",
+            Reason::CannotOpen => "cannot-open",
+            Reason::Damaged => "damaged",
+            Reason::TimedOut => "timed-out",
+            Reason::MemoryLimit => "memory-limit",
+            Reason::Crashed => "crashed",
+            Reason::InvalidOutput => "invalid-output",
+            Reason::LibraryMissing => "library-missing",
+        }
+    }
+
+    pub fn from_code(code: &str) -> Option<Reason> {
+        Reason::ALL.into_iter().find(|reason| reason.code() == code)
+    }
 }
 
 /// What the operating system reported about a finished worker.
@@ -305,5 +339,17 @@ mod tests {
     fn pages_with_only_control_characters_need_ocr() {
         let response = Response::Pages(vec!["\u{0}\u{7}".to_string(), " \n".to_string()]);
         assert_eq!(accept(response), Outcome::NotIndexed(Reason::NeedsOcr));
+    }
+
+    #[test]
+    fn every_reason_has_its_own_stable_code() {
+        for reason in Reason::ALL {
+            assert_eq!(Reason::from_code(reason.code()), Some(reason));
+        }
+        let mut codes: Vec<&str> = Reason::ALL.iter().map(|r| r.code()).collect();
+        codes.sort();
+        codes.dedup();
+        assert_eq!(codes.len(), Reason::ALL.len());
+        assert_eq!(Reason::from_code("from-a-newer-version"), None);
     }
 }

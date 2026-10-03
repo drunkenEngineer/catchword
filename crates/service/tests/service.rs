@@ -4,9 +4,10 @@
 use std::fs;
 use std::path::Path;
 
-use catchword_engine::extract::Limits;
+use catchword_engine::extract::{Limits, Reason};
 use catchword_service::{
-    embed_missing, group_by_file, index_folder, search, Cutter, Model, Note, Worker,
+    embed_missing, group_by_file, index_folder, is_parked, search, Cutter, Model, Note, Report,
+    Worker,
 };
 use catchword_store::Store;
 use catchword_test_support::scratch_folder;
@@ -24,7 +25,7 @@ fn three_files(name: &str) -> std::path::PathBuf {
     folder
 }
 
-fn index(store: &mut Store, folder: &Path, stop_after: usize) -> catchword_service::Report {
+fn index(store: &mut Store, folder: &Path, stop_after: usize) -> Report {
     let cutter = Cutter::for_model(&Model::Unavailable("not needed".into()));
     index_folder(
         store,
@@ -118,4 +119,82 @@ fn the_meaning_stage_can_stop_and_carry_on() {
         .all(|note| !matches!(note, Note::Partial { .. })));
     let first = group_by_file(answer.results).remove(0);
     assert!(first.path.ends_with("a.txt"), "{}", first.path);
+}
+
+/// The PDF reader as `cargo test --workspace` builds it.
+fn built_worker() -> Worker {
+    let test = std::env::current_exe().unwrap();
+    let folder = test.parent().and_then(Path::parent).unwrap();
+    let worker = folder.join(format!("catchword-worker{}", std::env::consts::EXE_SUFFIX));
+    assert!(
+        worker.is_file(),
+        "build the workspace first: cargo build --workspace"
+    );
+    Worker::At(worker)
+}
+
+fn index_with(store: &mut Store, folder: &Path, worker: &Worker, limits: &Limits) -> Report {
+    let cutter = Cutter::for_model(&Model::Unavailable("not needed".into()));
+    index_folder(store, folder, &cutter, worker, limits, |_, _| true).unwrap()
+}
+
+#[test]
+fn a_skipped_file_is_not_read_again_until_it_changes() {
+    let folder = scratch_folder("service-skip-remembered");
+    fs::write(folder.join("big.txt"), "far more than ten bytes of text").unwrap();
+    let mut store = Store::open_in_memory().unwrap();
+    let small = Limits {
+        max_file_bytes: 10,
+        ..Limits::default()
+    };
+
+    let first = index_with(&mut store, &folder, &Worker::NextToProgram, &small);
+    assert_eq!(first.not_indexed.len(), 1);
+    assert_eq!(first.not_indexed[0].1, Reason::TooLarge);
+    assert_eq!(first.known_problems, 0);
+
+    // Known now: still listed, but not read again.
+    let second = index_with(&mut store, &folder, &Worker::NextToProgram, &small);
+    assert_eq!(second.not_indexed.len(), 1);
+    assert_eq!(second.known_problems, 1);
+    assert_eq!(store.problems().unwrap()[0].attempts, 1);
+
+    // A changed file gets a fresh try; once indexed, it is no problem.
+    fs::write(folder.join("big.txt"), "now small").unwrap();
+    let third = index_with(&mut store, &folder, &Worker::NextToProgram, &small);
+    assert_eq!((third.added, third.not_indexed.len()), (1, 0));
+    assert!(store.problems().unwrap().is_empty());
+}
+
+#[test]
+fn a_file_that_fails_twice_is_parked_until_a_retry() {
+    let folder = scratch_folder("service-parked");
+    fs::write(
+        folder.join("broken.pdf"),
+        b"%PDF-1.7 and then nothing useful",
+    )
+    .unwrap();
+    let mut store = Store::open_in_memory().unwrap();
+    let worker = built_worker();
+    let limits = Limits::default();
+    let attempts = |store: &Store| store.problems().unwrap()[0].attempts;
+
+    // Damaged, or the PDF library missing: either way, reading failed.
+    let first = index_with(&mut store, &folder, &worker, &limits);
+    assert!(first.not_indexed[0].1.is_failure(), "{first:?}");
+    assert_eq!(attempts(&store), 1);
+
+    let second = index_with(&mut store, &folder, &worker, &limits);
+    assert_eq!((second.known_problems, attempts(&store)), (0, 2));
+    assert!(is_parked(&store.problems().unwrap()[0]));
+
+    // Parked: listed, not read again.
+    let third = index_with(&mut store, &folder, &worker, &limits);
+    assert_eq!((third.known_problems, attempts(&store)), (1, 2));
+    assert_eq!(third.not_indexed.len(), 1);
+
+    // The user's retry: tried again, counting from one.
+    assert_eq!(store.forget_failures().unwrap(), 1);
+    let fourth = index_with(&mut store, &folder, &worker, &limits);
+    assert_eq!((fourth.known_problems, attempts(&store)), (0, 1));
 }

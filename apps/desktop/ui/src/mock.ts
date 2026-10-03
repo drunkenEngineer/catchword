@@ -53,6 +53,7 @@ export function createMockEngine(): Engine {
     { id: 2, path: "C:\\Users\\you\\Documents\\Home" },
   ];
   let nextId = 3;
+  let parked = true;
   const listeners = new Set<() => void>();
   const changed = () => listeners.forEach((listener) => listener());
 
@@ -75,6 +76,14 @@ export function createMockEngine(): Engine {
                   folder: "C:\\Users\\you\\Documents\\Letters",
                   reason: "no text layer (a scan?); needs text recognition, not available yet",
                   failed: false,
+                  parked: false,
+                },
+                {
+                  name: "statement-2019.pdf",
+                  folder: "C:\\Users\\you\\Documents\\Bank",
+                  reason: "the reader crashed on this file",
+                  failed: true,
+                  parked,
                 },
               ],
         problem: null,
@@ -114,6 +123,11 @@ export function createMockEngine(): Engine {
     },
 
     async indexNow(): Promise<void> {
+      changed();
+    },
+
+    async retryFailed(): Promise<void> {
+      parked = false;
       changed();
     },
 

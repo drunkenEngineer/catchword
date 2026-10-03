@@ -10,7 +10,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use catchword_engine::extract::{Limits, Reason};
+use catchword_engine::extract::Limits;
 use catchword_service::{embed_missing, index_folder, Cutter, Model, Worker};
 use catchword_store::Store;
 
@@ -32,12 +32,12 @@ struct Control {
 #[derive(Default, Clone)]
 pub struct Snapshot {
     pub work: Option<Work>,
-    pub not_indexed: Vec<(String, Reason)>,
     pub problem: Option<String>,
 }
 
 struct Shared {
     store_path: PathBuf,
+    worker: Worker,
     model: OnceLock<Arc<Model>>,
     control: Mutex<Control>,
     finished: Condvar,
@@ -55,10 +55,12 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 impl Indexer {
-    pub fn new(store_path: PathBuf) -> Self {
+    /// `worker` is where the PDF reader is: beside the app, once installed.
+    pub fn new(store_path: PathBuf, worker: Worker) -> Self {
         Self {
             shared: Arc::new(Shared {
                 store_path,
+                worker,
                 model: OnceLock::new(),
                 control: Mutex::new(Control::default()),
                 finished: Condvar::new(),
@@ -148,7 +150,6 @@ fn run(shared: &Shared, folders: &[PathBuf], notify: &Notify) {
             return;
         }
     };
-    lock(&shared.snapshot).not_indexed.clear();
     let cutter = Cutter::for_model(&model);
     let mut last_report = Instant::now();
     let mut report = |force: bool| {
@@ -164,7 +165,7 @@ fn run(shared: &Shared, folders: &[PathBuf], notify: &Notify) {
             &mut store,
             folder,
             &cutter,
-            &Worker::NextToProgram,
+            &shared.worker,
             &Limits::default(),
             |done, total| {
                 set_work(Stage::Words, done as u64, total as u64);
@@ -173,12 +174,9 @@ fn run(shared: &Shared, folders: &[PathBuf], notify: &Notify) {
             },
         );
         match result {
-            Ok(done) => {
-                lock(&shared.snapshot).not_indexed.extend(done.not_indexed);
-                if done.stopped {
-                    return;
-                }
-            }
+            Ok(done) if done.stopped => return,
+            // Files not indexed are in the index's own list (COV-2).
+            Ok(_) => {}
             // An unreachable folder (an unplugged drive) is skipped; its
             // files stay in the index (SRC-5).
             Err(error) => problem = Some(format!("{error:#}")),
@@ -239,7 +237,7 @@ mod tests {
         for suffix in ["", "-wal", "-shm"] {
             let _ = std::fs::remove_file(format!("{}{suffix}", store.display()));
         }
-        let indexer = Indexer::new(store.clone());
+        let indexer = Indexer::new(store.clone(), Worker::NextToProgram);
         indexer.set_model(Model::Unavailable("not needed".into()));
         (indexer, store)
     }

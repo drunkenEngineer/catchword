@@ -14,6 +14,8 @@ export interface Engine {
   addFolder(): Promise<Folder | null>;
   removeFolder(id: number): Promise<void>;
   indexNow(): Promise<void>;
+  /** Reads again the files whose reading failed, parked ones included. */
+  retryFailed(): Promise<void>;
   /** The full text of a passage. */
   preview(id: number): Promise<string | null>;
   openFile(id: number): Promise<void>;
@@ -29,6 +31,7 @@ export const tauriEngine: Engine = {
   addFolder: () => invoke("add_folder"),
   removeFolder: (id) => invoke("remove_folder", { id }),
   indexNow: () => invoke("index_now"),
+  retryFailed: () => invoke("retry_failed"),
   preview: (id) => invoke("preview", { id }),
   openFile: (id) => invoke("open_file", { id }),
   revealFile: (id) => invoke("reveal_file", { id }),

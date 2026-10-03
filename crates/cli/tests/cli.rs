@@ -60,10 +60,40 @@ fn indexes_text_and_pdf_and_finds_pdf_passages_by_page() {
     let found = catchword(&db, &["search", "notice", "period"]);
     assert!(found.contains("notes.txt  lines 1-1"), "{found}");
 
-    // Nothing changed: nothing is read again.
+    // Nothing changed: nothing is read again, skipped files included.
     let report = catchword(&db, &["index", docs]);
     assert!(report.contains("new or changed: 0"), "{report}");
     assert!(report.contains("unchanged: 2"), "{report}");
+    assert!(report.contains("skipped: 2"), "{report}");
+    assert!(
+        report.contains("2 of these were not read again"),
+        "{report}"
+    );
+}
+
+#[test]
+fn a_failed_file_is_parked_after_two_tries_and_read_again_on_retry() {
+    let folder = scratch_folder("cli-retry");
+    let docs = folder.join("docs");
+    fs::create_dir(&docs).unwrap();
+    fs::write(docs.join("broken.pdf"), b"%PDF-1.7 and then nothing useful").unwrap();
+    let db = folder.join("index.db");
+    let docs = docs.to_str().unwrap();
+
+    for _ in 0..2 {
+        let report = catchword(&db, &["index", docs]);
+        assert!(report.contains("failed: 1"), "{report}");
+        assert!(!report.contains("not read again"), "{report}");
+    }
+    let parked = catchword(&db, &["index", docs]);
+    assert!(
+        parked.contains("1 of these were not read again"),
+        "{parked}"
+    );
+
+    let retried = catchword(&db, &["index", docs, "--retry"]);
+    assert!(retried.contains("to read again: 1"), "{retried}");
+    assert!(!retried.contains("not read again"), "{retried}");
 }
 
 #[test]

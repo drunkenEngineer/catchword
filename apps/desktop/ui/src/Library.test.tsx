@@ -40,10 +40,38 @@ describe("the library screen", () => {
     expect(screen.getByRole("progressbar", { name: "Reading files: 3 of 8" })).toBeTruthy();
     expect(screen.getByRole("progressbar", { name: /Searchable by meaning: 4 of 4/ })).toBeTruthy();
     expect(screen.getByText(/no text layer/).textContent).toContain("(1, skipped)");
+    expect(screen.getByText(/reader crashed/).textContent).toContain("(1, failed)");
+  });
+
+  it("retries failed files on request, and says which ones are parked", async () => {
+    const engine = createMockEngine();
+    const retryFailed = vi.spyOn(engine, "retryFailed");
+    renderWith(engine, <Library status={await engine.status()} />);
+    expect(screen.getByText(/not tried again until you ask/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(retryFailed).toHaveBeenCalled();
+    cleanup();
+    renderWith(engine, <Library status={await engine.status()} />);
+    expect(screen.queryByText(/not tried again until you ask/)).toBeNull();
+  });
+
+  it("offers no retry when nothing failed", async () => {
+    const engine = createMockEngine();
+    const status = await engine.status();
+    const skippedOnly = { ...status, notIndexed: status.notIndexed.filter((file) => !file.failed) };
+    renderWith(engine, <Library status={skippedOnly} />);
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
   });
 
   it("groups files that were not indexed by reason, largest group first", () => {
-    const file = (name: string, reason: string): NotIndexed => ({ name, folder: "/d", reason, failed: false });
+    const file = (name: string, reason: string): NotIndexed => ({
+      name,
+      folder: "/d",
+      reason,
+      failed: false,
+      parked: false,
+    });
     const groups = byReason([file("a", "scan"), file("b", "password"), file("c", "scan")]);
     expect(groups.map(([reason, files]) => [reason, files.length])).toEqual([
       ["scan", 2],

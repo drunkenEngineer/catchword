@@ -77,7 +77,7 @@ describe("the search screen", () => {
   it("explains an empty result", async () => {
     await show(createMockEngine(), "zebra");
     expect(await screen.findByText("Nothing found for “zebra”.")).toBeTruthy();
-    expect(screen.getByText(/1 file was not indexed/)).toBeTruthy();
+    expect(screen.getByText(/2 files were not indexed/)).toBeTruthy();
   });
 
   it("shows right-to-left text in its own direction", async () => {

@@ -63,6 +63,9 @@ export const strings = {
     nothingNeedsAttention: "Every supported file was indexed.",
     failed: "failed",
     skipped: "skipped",
+    parked: "not tried again until you ask",
+    retry: "Try again",
+    retryHint: "Reads the files that failed again. Skipped files are read again when they change.",
   },
 
   settings: {

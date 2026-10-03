@@ -10,7 +10,7 @@ use catchword_engine::{
     chunk, chunk_pages, document_kind, hash_file, read_text, resolve_folder, scan, DocumentKind,
     FileMeta, Passage, Tokenizer, WordTokenizer, PASSAGE_OVERLAP_TOKENS, PASSAGE_TOKENS,
 };
-use catchword_store::Store;
+use catchword_store::{Problem, Store};
 
 use crate::{lock, Model};
 
@@ -79,6 +79,28 @@ impl Worker {
     }
 }
 
+/// A file whose reading failed is tried this many times, then parked until
+/// the user asks for a retry (spec: lifecycle of a file).
+pub const ATTEMPTS_BEFORE_PARKING: u32 = 2;
+
+/// True for a file whose reading failed too often: it is not read again
+/// until the user retries, or the file changes.
+pub fn is_parked(problem: &Problem) -> bool {
+    problem.reason.is_failure() && problem.attempts >= ATTEMPTS_BEFORE_PARKING
+}
+
+/// Whether a file that was not indexed before, and has not changed since, is
+/// read again. One skipped by a rule is not: the same rule would skip it
+/// again. One that could not be opened is: it was probably in use, and trying
+/// costs nothing. One whose reading failed gets a second try, then is parked.
+fn read_again(problem: &Problem) -> bool {
+    match problem.reason {
+        Reason::CannotOpen => true,
+        reason if reason.is_failure() => !is_parked(problem),
+        _ => false,
+    }
+}
+
 /// What indexing one folder did.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Report {
@@ -90,6 +112,9 @@ pub struct Report {
     pub unsupported: usize,
     /// Each file that was not indexed, with why.
     pub not_indexed: Vec<(String, Reason)>,
+    /// How many of those were not read again this time, because the index
+    /// already knew why: skipped by a rule, or parked after failing.
+    pub known_problems: usize,
     /// The way passages are cut changed, so the index was cleared first.
     pub rebuilt: bool,
     /// The run was stopped before the end.
@@ -154,10 +179,18 @@ pub fn index_folder(
             report.unchanged += 1;
             continue;
         }
+        if let Some(known) = store.known_problem(&path, file.size, file.modified_secs)? {
+            if !read_again(&known) {
+                report.known_problems += 1;
+                report.not_indexed.push((path, known.reason));
+                continue;
+            }
+        }
         let read = read_document(store, file, kind, worker, &mut worker_path, limits, cutter)?;
         let (hash, passages) = match read {
             Ok(read) => read,
             Err(reason) => {
+                store.record_problem(&path, file.size, file.modified_secs, reason)?;
                 report.not_indexed.push((path, reason));
                 continue;
             }
@@ -280,4 +313,39 @@ pub fn embed_missing(
         done += vectors.len() as i64;
     }
     Ok(report)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn problem(reason: Reason, attempts: u32) -> Problem {
+        Problem {
+            path: "/docs/file.pdf".to_string(),
+            reason,
+            attempts,
+        }
+    }
+
+    #[test]
+    fn a_failed_file_gets_a_second_try_then_is_parked() {
+        assert!(read_again(&problem(Reason::Crashed, 1)));
+        assert!(!is_parked(&problem(Reason::Crashed, 1)));
+        assert!(!read_again(&problem(Reason::TimedOut, 2)));
+        assert!(is_parked(&problem(Reason::TimedOut, 2)));
+    }
+
+    #[test]
+    fn a_file_skipped_by_a_rule_is_not_read_again_nor_parked() {
+        for reason in [Reason::NeedsOcr, Reason::Encrypted, Reason::TooLarge] {
+            assert!(!read_again(&problem(reason, 1)), "{reason:?}");
+            assert!(!is_parked(&problem(reason, 5)), "{reason:?}");
+        }
+    }
+
+    #[test]
+    fn a_file_that_could_not_be_opened_is_always_tried_again() {
+        assert!(read_again(&problem(Reason::CannotOpen, 9)));
+        assert!(!is_parked(&problem(Reason::CannotOpen, 9)));
+    }
 }

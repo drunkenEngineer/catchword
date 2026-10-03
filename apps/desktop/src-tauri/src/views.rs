@@ -3,11 +3,10 @@
 
 use std::path::Path;
 
-use catchword_engine::extract::Reason;
 use catchword_engine::fuse::Found;
 use catchword_engine::without_controls;
-use catchword_service::FileResults;
-use catchword_store::Hit;
+use catchword_service::{is_parked, FileResults};
+use catchword_store::{Hit, Problem};
 
 use crate::contract::{FileHit, FoundBy, NotIndexed, PassageHit, Span};
 
@@ -91,19 +90,21 @@ pub fn file_hits(files: Vec<FileResults>) -> Vec<FileHit> {
         .collect()
 }
 
-pub fn not_indexed(path: &str, reason: Reason) -> NotIndexed {
-    let (name, folder) = name_and_folder(path);
+pub fn not_indexed(problem: &Problem) -> NotIndexed {
+    let (name, folder) = name_and_folder(&problem.path);
     NotIndexed {
         name,
         folder,
-        reason: reason.describe().to_string(),
-        failed: reason.is_failure(),
+        reason: problem.reason.describe().to_string(),
+        failed: problem.reason.is_failure(),
+        parked: is_parked(problem),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use catchword_engine::extract::Reason;
 
     #[test]
     fn paths_are_split_and_cleaned_for_display() {
@@ -138,12 +139,22 @@ mod tests {
         assert!(!plain[0].marked);
     }
 
+    fn problem(path: &str, reason: Reason, attempts: u32) -> Problem {
+        Problem {
+            path: path.to_string(),
+            reason,
+            attempts,
+        }
+    }
+
     #[test]
     fn skipped_and_failed_files_say_why() {
-        let skipped = not_indexed("/docs/scan.pdf", Reason::NeedsOcr);
+        let skipped = not_indexed(&problem("/docs/scan.pdf", Reason::NeedsOcr, 1));
         assert_eq!(skipped.name, "scan.pdf");
-        assert!(!skipped.failed);
+        assert!(!skipped.failed && !skipped.parked);
         assert!(skipped.reason.contains("no text layer"));
-        assert!(not_indexed("/docs/bad.pdf", Reason::Crashed).failed);
+        let failed = not_indexed(&problem("/docs/bad.pdf", Reason::Crashed, 1));
+        assert!(failed.failed && !failed.parked);
+        assert!(not_indexed(&problem("/docs/bad.pdf", Reason::Crashed, 2)).parked);
     }
 }

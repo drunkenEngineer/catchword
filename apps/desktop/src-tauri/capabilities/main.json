@@ -11,6 +11,7 @@
     "allow-add-folder",
     "allow-remove-folder",
     "allow-index-now",
+    "allow-retry-failed",
     "allow-preview",
     "allow-open-file",
     "allow-reveal-file"

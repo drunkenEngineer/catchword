@@ -22,7 +22,7 @@ On Windows, run the two scripts from Git Bash. They download the PDFium library,
 - Search combines matches by words and by meaning, and says how each result was found. A query in one language finds passages in another.
 - Indexing is in two stages: everything is searchable by words first, then by meaning as passages are embedded on your computer. An interrupted run carries on where it stopped.
 - PDFs are read in a separate worker process with time and memory limits. Results show the page.
-- Every file that was not indexed is listed with the reason: a scan with no text, a password, a size limit, or damage.
+- Every file that was not indexed is listed with the reason: a scan with no text, a password, a size limit, or damage. The index remembers it, so the file is not read again until it changes. A file whose reading failed gets a second try, then waits until you ask for a retry (the Library's Try again button, or `catchword index <folder> --retry`).
 - Identical copies of a file are stored once.
 - Moved, changed and deleted files are picked up on the next `index` run.
 - Hidden folders are skipped, and links are never followed out of the folder you chose.
@@ -31,7 +31,7 @@ Meaning search is slow to build: on a 2023 laptop about 20 passages a second, so
 
 ## What comes next
 
-1. The rest of the desktop app: first-launch flow, settings, exclusions, and a retry for files that failed.
+1. The rest of the desktop app: first-launch flow, settings and exclusions.
 2. An installer, and the Microsoft Store package.
 
 Scanned documents need OCR, which is planned for a later version. Until then they are listed as skipped, not searched.

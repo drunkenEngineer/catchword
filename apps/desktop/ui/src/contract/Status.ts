@@ -13,7 +13,7 @@ export type Status = { folders: Array<Folder>,
  */
 work: Work | null, files: number, passages: number, searchableByMeaning: number, meaning: Meaning, 
 /**
- * Files that were not indexed in the last run, with why.
+ * Files that are not in the index, with why (COV-2).
  */
 notIndexed: Array<NotIndexed>, 
 /**

@@ -7,6 +7,7 @@ fn main() {
         "add_folder",
         "remove_folder",
         "index_now",
+        "retry_failed",
         "preview",
         "open_file",
         "reveal_file",

@@ -29,7 +29,8 @@ Usage:
 
 Options:
   --db <file>      Index file to use (default: catchword-index.db)
-  --limit <n>      Number of results to show (default: 10)";
+  --limit <n>      Number of results to show (default: 10)
+  --retry          With index: read again the files whose reading failed before";
 
 fn main() -> ExitCode {
     match run() {
@@ -51,11 +52,12 @@ fn run() -> Result<()> {
             .context("--limit needs a whole number")?,
         None => 10,
     };
+    let retry = take_flag(&mut args, "--retry");
 
     match args.first().map(String::as_str) {
         Some("index") => {
             let folder = args.get(1).context("index needs a folder")?;
-            index(&index_file, Path::new(folder))
+            index(&index_file, Path::new(folder), retry)
         }
         Some("search") => {
             if args.len() < 2 {
@@ -72,6 +74,13 @@ fn run() -> Result<()> {
     }
 }
 
+/// Remove `--name` from the arguments; true if it was there.
+fn take_flag(args: &mut Vec<String>, name: &str) -> bool {
+    let before = args.len();
+    args.retain(|arg| arg != name);
+    args.len() != before
+}
+
 /// Remove `--name value` from the arguments and return the value.
 fn take_option(args: &mut Vec<String>, name: &str) -> Option<String> {
     let at = args.iter().position(|arg| arg == name)?;
@@ -84,8 +93,12 @@ fn take_option(args: &mut Vec<String>, name: &str) -> Option<String> {
     Some(value)
 }
 
-fn index(index_file: &Path, folder: &Path) -> Result<()> {
+fn index(index_file: &Path, folder: &Path, retry: bool) -> Result<()> {
     let mut store = open_store(index_file)?;
+    if retry {
+        let forgotten = store.forget_failures()?;
+        println!("Files that failed before, to read again: {forgotten}");
+    }
     let model = Model::load();
     if let Model::Unavailable(why) = &model {
         println!("Note: meaning search is off: {why}.");
@@ -115,6 +128,12 @@ fn index(index_file: &Path, folder: &Path) -> Result<()> {
         for (path, reason) in &report.not_indexed {
             println!("  {}: {}", without_controls(path), reason.describe());
         }
+    }
+    if report.known_problems > 0 {
+        println!(
+            "{} of these were not read again: nothing changed since the last try.              To read failed files again, add --retry.",
+            report.known_problems
+        );
     }
 
     // Keyword search works from here on. Meaning search follows.

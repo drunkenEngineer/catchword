@@ -11,7 +11,7 @@ use std::time::Instant;
 
 use anyhow::{anyhow, Context, Result};
 use catchword_engine::resolve_folder;
-use catchword_service::{group_by_file, search as search_index, Model};
+use catchword_service::{group_by_file, search as search_index, Model, Worker};
 use catchword_store::Store;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
@@ -41,14 +41,14 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 
 impl AppState {
     /// `data` is the app's folder in the non-roaming profile (PRIV-4).
-    pub fn open(data: &Path) -> Result<Self> {
+    pub fn open(data: &Path, worker: Worker) -> Result<Self> {
         let config_dir = data.join("config");
         let index = data.join("data").join("index.db");
         std::fs::create_dir_all(index.parent().unwrap_or(data))?;
         let (settings, notice) = Settings::load(&config_dir);
         let reader = Store::open(&index).context("cannot open the index")?;
         Ok(Self {
-            indexer: Indexer::new(index),
+            indexer: Indexer::new(index, worker),
             settings: Mutex::new(settings),
             config_dir,
             reader: Mutex::new(reader),
@@ -92,10 +92,10 @@ impl AppState {
             passages: counts.passages,
             searchable_by_meaning: counts.vectors,
             meaning,
-            not_indexed: snapshot
-                .not_indexed
+            not_indexed: lock(&self.reader)
+                .problems()?
                 .iter()
-                .map(|(path, reason)| views::not_indexed(path, *reason))
+                .map(views::not_indexed)
                 .collect(),
             problem: lock(&self.notice).take().or(snapshot.problem),
         })
@@ -149,6 +149,16 @@ impl AppState {
             prefix.push(MAIN_SEPARATOR);
         }
         lock(&self.reader).purge_missing(&prefix, &[])?;
+        self.start_indexing(notify);
+        Ok(())
+    }
+
+    /// Forget why the failed files were not indexed, so the next run reads
+    /// them again, parked ones included (COV-2). Files skipped by a rule
+    /// stay skipped: the same rule would skip them again.
+    pub fn retry_failed(&self, notify: Notify) -> Result<()> {
+        self.indexer.stop_and_wait();
+        lock(&self.reader).forget_failures()?;
         self.start_indexing(notify);
         Ok(())
     }
@@ -234,6 +244,11 @@ pub async fn index_now(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub async fn retry_failed(app: AppHandle) -> Result<(), String> {
+    on_state(app, |app, state| state.retry_failed(notifier(app))).await
+}
+
+#[tauri::command]
 pub async fn preview(app: AppHandle, id: i64) -> Result<Option<String>, String> {
     on_state(app, move |_, state| state.preview(id)).await
 }
@@ -256,6 +271,18 @@ mod tests {
     use super::*;
     use std::time::Duration;
 
+    /// The PDF reader as `cargo test --workspace` builds it.
+    fn built_worker() -> Worker {
+        let test = std::env::current_exe().unwrap();
+        let folder = test.parent().and_then(Path::parent).unwrap();
+        let worker = folder.join(format!("catchword-worker{}", std::env::consts::EXE_SUFFIX));
+        assert!(
+            worker.is_file(),
+            "build the workspace first: cargo build --workspace"
+        );
+        Worker::At(worker)
+    }
+
     fn state(name: &str) -> (AppState, PathBuf) {
         let data = std::env::temp_dir().join(format!("catchword-app-test-{name}"));
         let _ = std::fs::remove_dir_all(&data);
@@ -263,7 +290,7 @@ mod tests {
         std::fs::create_dir_all(&docs).unwrap();
         std::fs::write(docs.join("lease.txt"), "the notice period is three months").unwrap();
         std::fs::write(docs.join("invoice.txt"), "invoice INV-7 is due").unwrap();
-        let state = AppState::open(&data).unwrap();
+        let state = AppState::open(&data, built_worker()).unwrap();
         state
             .indexer
             .set_model(Model::Unavailable("not needed".into()));
@@ -307,13 +334,34 @@ mod tests {
     }
 
     #[test]
+    fn files_not_indexed_are_listed_and_failed_ones_can_be_retried() {
+        let (state, docs) = state("retry");
+        std::fs::write(docs.join("broken.pdf"), b"%PDF-1.7 and then nothing").unwrap();
+        state.add_folder(&docs, Arc::new(|| {})).unwrap();
+        wait(&state);
+        let listed = state.status().unwrap().not_indexed;
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].name, "broken.pdf");
+        assert!(listed[0].failed && !listed[0].parked);
+
+        // A second failure parks it; a retry reads it once more.
+        state.start_indexing(Arc::new(|| {}));
+        wait(&state);
+        assert!(state.status().unwrap().not_indexed[0].parked);
+        state.retry_failed(Arc::new(|| {})).unwrap();
+        wait(&state);
+        let listed = state.status().unwrap().not_indexed;
+        assert!(listed[0].failed && !listed[0].parked);
+    }
+
+    #[test]
     fn folders_are_remembered_across_starts() {
         let (state, docs) = state("remember");
         state.add_folder(&docs, Arc::new(|| {})).unwrap();
         wait(&state);
         let data = docs.parent().unwrap().to_path_buf();
         drop(state);
-        let again = AppState::open(&data).unwrap();
+        let again = AppState::open(&data, built_worker()).unwrap();
         assert_eq!(again.folders().len(), 1);
     }
 }

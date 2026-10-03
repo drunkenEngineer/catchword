@@ -98,11 +98,20 @@ export function Library({ status }: { status: Status | null }) {
                 {files.map((file) => (
                   <li key={`${file.folder}/${file.name}`}>
                     <span dir="auto">{file.name}</span> <span className="file-folder" dir="auto">{file.folder}</span>
+                    {file.parked && <span className="parked"> ({strings.library.parked})</span>}
                   </li>
                 ))}
               </ul>
             </details>
           ))
+        )}
+        {status.notIndexed.some((file) => file.failed) && (
+          <div className="actions">
+            <button type="button" onClick={() => engine.retryFailed().catch(fail)}>
+              {strings.library.retry}
+            </button>
+            <span className="hint">{strings.library.retryHint}</span>
+          </div>
         )}
       </section>
     </div>

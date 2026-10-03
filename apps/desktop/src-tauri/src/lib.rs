@@ -15,7 +15,7 @@ mod views;
 
 use std::thread;
 
-use catchword_service::Model;
+use catchword_service::{Model, Worker};
 use tauri::{Emitter, Manager};
 
 use crate::commands::{notifier, AppState, STATUS_CHANGED};
@@ -33,7 +33,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let data = app.path().app_local_data_dir()?;
-            app.manage(AppState::open(&data)?);
+            app.manage(AppState::open(&data, Worker::NextToProgram)?);
             // The model takes a few seconds; the window is usable meanwhile.
             let handle = app.handle().clone();
             thread::spawn(move || {
@@ -50,6 +50,7 @@ pub fn run() {
             commands::add_folder,
             commands::remove_folder,
             commands::index_now,
+            commands::retry_failed,
             commands::preview,
             commands::open_file,
             commands::reveal_file,

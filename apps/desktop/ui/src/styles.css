@@ -173,7 +173,9 @@ button.link {
 .found,
 .location,
 .preview-place,
-.status-line {
+.status-line,
+.parked,
+.hint {
   color: var(--muted);
 }
 

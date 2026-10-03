@@ -9,6 +9,7 @@ use std::sync::Once;
 
 use std::collections::HashMap;
 
+use catchword_engine::extract::Reason;
 use catchword_engine::fuse::{fuse, Found};
 use catchword_engine::Passage;
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
@@ -17,7 +18,12 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction};
 ///
 /// Version 2 added page numbers to passages. Version 3 added passage vectors
 /// and records how passages were cut and which model made the vectors.
-pub const SCHEMA_VERSION: i64 = 3;
+/// Version 4 records the files that were not indexed, and why.
+pub const SCHEMA_VERSION: i64 = 4;
+
+/// The oldest layout that is upgraded in place. Older ones are cleared and
+/// refilled by the next scan: the index is derived data.
+const OLDEST_UPGRADABLE: i64 = 3;
 
 /// Words found in more than this share of passages are left out of keyword
 /// queries (ADR-20).
@@ -51,6 +57,15 @@ pub struct Counts {
     pub passages: i64,
     /// Passages that are searchable by meaning.
     pub vectors: i64,
+}
+
+/// A file that is not in the index, and why.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Problem {
+    pub path: String,
+    pub reason: Reason,
+    /// How many times reading it was tried, for this size and date.
+    pub attempts: u32,
 }
 
 /// Make sqlite-vec part of every SQLite connection this process opens from
@@ -102,7 +117,7 @@ impl Store {
                 )),
             ));
         }
-        let was_reset = found.is_some_and(|found| found < SCHEMA_VERSION);
+        let was_reset = found.is_some_and(|found| found < OLDEST_UPGRADABLE);
 
         conn.pragma_update(None, "journal_mode", "WAL")?;
         // Overwrite freed pages, so purged text cannot be read back from the file.
@@ -110,7 +125,8 @@ impl Store {
         if was_reset {
             let tx = conn.transaction()?;
             tx.execute_batch(
-                "DROP TABLE IF EXISTS passage_vectors;
+                "DROP TABLE IF EXISTS problems;
+                 DROP TABLE IF EXISTS passage_vectors;
                  DROP TABLE IF EXISTS passages_fts;
                  DROP TABLE IF EXISTS passages;
                  DROP TABLE IF EXISTS files;
@@ -140,12 +156,21 @@ impl Store {
              CREATE INDEX IF NOT EXISTS passages_hash ON passages(hash);
              CREATE VIRTUAL TABLE IF NOT EXISTS passages_fts USING fts5(
                  text, content='passages', content_rowid='id',
-                 tokenize='unicode61 remove_diacritics 2');",
+                 tokenize='unicode61 remove_diacritics 2');
+             CREATE TABLE IF NOT EXISTS problems (
+                 path TEXT PRIMARY KEY,
+                 size INTEGER NOT NULL,
+                 modified_secs INTEGER NOT NULL,
+                 reason TEXT NOT NULL,
+                 attempts INTEGER NOT NULL);",
         )?;
         conn.execute(
             "INSERT OR IGNORE INTO meta(key, value) VALUES ('schema_version', ?1)",
             params![SCHEMA_VERSION.to_string()],
         )?;
+        // Layouts from OLDEST_UPGRADABLE on only lack tables, and the
+        // statements above have just created them.
+        meta_set(&conn, "schema_version", &SCHEMA_VERSION.to_string())?;
         // How many passages hold each word, read from the keyword index. A
         // temporary view for this connection only: nothing is stored.
         conn.execute_batch(
@@ -382,6 +407,7 @@ impl Store {
                  hash = excluded.hash",
             params![path, size as i64, modified_secs, hash],
         )?;
+        tx.execute("DELETE FROM problems WHERE path = ?1", params![path])?;
         // Only the content this file pointed to before can have lost its last
         // file. Checking just that one keeps each write the same cost however
         // large the index grows; a scan of the whole index here made indexing
@@ -412,6 +438,12 @@ impl Store {
         }
         let removed = tx.execute(
             "DELETE FROM files
+             WHERE substr(path, 1, length(?1)) = ?1
+               AND path NOT IN (SELECT path FROM seen)",
+            params![root_prefix],
+        )?;
+        tx.execute(
+            "DELETE FROM problems
              WHERE substr(path, 1, length(?1)) = ?1
                AND path NOT IN (SELECT path FROM seen)",
             params![root_prefix],
@@ -451,6 +483,101 @@ impl Store {
                 Some((hit, result.found))
             })
             .collect())
+    }
+
+    /// The problem recorded for this file, if its size and date are still
+    /// the ones it had then. A changed file gets a fresh try.
+    pub fn known_problem(
+        &self,
+        path: &str,
+        size: u64,
+        modified_secs: i64,
+    ) -> rusqlite::Result<Option<Problem>> {
+        let row: Option<(String, u32)> = self
+            .conn
+            .query_row(
+                "SELECT reason, attempts FROM problems
+                 WHERE path = ?1 AND size = ?2 AND modified_secs = ?3",
+                params![path, size as i64, modified_secs],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        Ok(row.and_then(|(code, attempts)| {
+            Some(Problem {
+                path: path.to_string(),
+                reason: Reason::from_code(&code)?,
+                attempts,
+            })
+        }))
+    }
+
+    /// Record why a file was not indexed. Returns how many times it has now
+    /// been tried with this size and date.
+    pub fn record_problem(
+        &mut self,
+        path: &str,
+        size: u64,
+        modified_secs: i64,
+        reason: Reason,
+    ) -> rusqlite::Result<u32> {
+        let attempts = self
+            .known_problem(path, size, modified_secs)?
+            .map_or(1, |problem| problem.attempts + 1);
+        self.conn.execute(
+            "INSERT INTO problems(path, size, modified_secs, reason, attempts)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(path) DO UPDATE SET
+                 size = excluded.size,
+                 modified_secs = excluded.modified_secs,
+                 reason = excluded.reason,
+                 attempts = excluded.attempts",
+            params![path, size as i64, modified_secs, reason.code(), attempts],
+        )?;
+        Ok(attempts)
+    }
+
+    /// Every file that is not in the index, by path (COV-2).
+    pub fn problems(&self) -> rusqlite::Result<Vec<Problem>> {
+        let mut statement = self
+            .conn
+            .prepare("SELECT path, reason, attempts FROM problems ORDER BY path")?;
+        let rows = statement.query_map((), |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, u32>(2)?,
+            ))
+        })?;
+        let mut problems = Vec::new();
+        for row in rows {
+            let (path, code, attempts) = row?;
+            // A reason from a newer version is left out, not misread.
+            if let Some(reason) = Reason::from_code(&code) {
+                problems.push(Problem {
+                    path,
+                    reason,
+                    attempts,
+                });
+            }
+        }
+        Ok(problems)
+    }
+
+    /// Forget the files whose reading failed, so the next run tries them
+    /// again: the user's retry (COV-2). Returns how many.
+    pub fn forget_failures(&mut self) -> rusqlite::Result<usize> {
+        let failures: Vec<&str> = Reason::ALL
+            .iter()
+            .filter(|reason| reason.is_failure())
+            .map(|reason| reason.code())
+            .collect();
+        let mut forgotten = 0;
+        for code in failures {
+            forgotten += self
+                .conn
+                .execute("DELETE FROM problems WHERE reason = ?1", params![code])?;
+        }
+        Ok(forgotten)
     }
 
     /// The file a passage comes from: the first by path, if copies share it.
@@ -1189,6 +1316,153 @@ mod tests {
             Some("the whole passage text")
         );
         assert_eq!(store.passage_text(id + 1000).unwrap(), None);
+    }
+
+    #[test]
+    fn problems_are_counted_per_size_and_date() {
+        let mut store = Store::open_in_memory().unwrap();
+        assert_eq!(
+            store
+                .record_problem("/a.pdf", 10, 1, Reason::Crashed)
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            store
+                .record_problem("/a.pdf", 10, 1, Reason::Crashed)
+                .unwrap(),
+            2
+        );
+        let known = store.known_problem("/a.pdf", 10, 1).unwrap().unwrap();
+        assert_eq!((known.reason, known.attempts), (Reason::Crashed, 2));
+        // A changed file is a new file: no known problem, and counting restarts.
+        assert_eq!(store.known_problem("/a.pdf", 11, 2).unwrap(), None);
+        assert_eq!(
+            store
+                .record_problem("/a.pdf", 11, 2, Reason::Damaged)
+                .unwrap(),
+            1
+        );
+        store
+            .record_problem("/b.pdf", 5, 1, Reason::NeedsOcr)
+            .unwrap();
+        let listed: Vec<(String, Reason, u32)> = store
+            .problems()
+            .unwrap()
+            .into_iter()
+            .map(|p| (p.path, p.reason, p.attempts))
+            .collect();
+        assert_eq!(
+            listed,
+            vec![
+                ("/a.pdf".to_string(), Reason::Damaged, 1),
+                ("/b.pdf".to_string(), Reason::NeedsOcr, 1)
+            ]
+        );
+    }
+
+    #[test]
+    fn a_file_indexed_at_last_is_no_longer_a_problem() {
+        let mut store = Store::open_in_memory().unwrap();
+        store
+            .record_problem("/a.txt", 5, 1, Reason::CannotOpen)
+            .unwrap();
+        store
+            .put_file(
+                "/a.txt",
+                5,
+                1,
+                "h1",
+                &chunk("now readable", 50, 5, &WordTokenizer),
+            )
+            .unwrap();
+        assert!(store.problems().unwrap().is_empty());
+    }
+
+    #[test]
+    fn problems_of_files_that_are_gone_are_forgotten() {
+        let mut store = Store::open_in_memory().unwrap();
+        store
+            .record_problem("/docs/gone.pdf", 5, 1, Reason::NeedsOcr)
+            .unwrap();
+        store
+            .record_problem("/docs/kept.pdf", 5, 1, Reason::NeedsOcr)
+            .unwrap();
+        store
+            .record_problem("/other/x.pdf", 5, 1, Reason::NeedsOcr)
+            .unwrap();
+        store
+            .purge_missing("/docs/", &["/docs/kept.pdf".to_string()])
+            .unwrap();
+        let paths: Vec<String> = store
+            .problems()
+            .unwrap()
+            .into_iter()
+            .map(|p| p.path)
+            .collect();
+        assert_eq!(paths, vec!["/docs/kept.pdf", "/other/x.pdf"]);
+    }
+
+    #[test]
+    fn retrying_forgets_failures_but_not_rules() {
+        let mut store = Store::open_in_memory().unwrap();
+        store
+            .record_problem("/crash.pdf", 5, 1, Reason::Crashed)
+            .unwrap();
+        store
+            .record_problem("/slow.pdf", 5, 1, Reason::TimedOut)
+            .unwrap();
+        store
+            .record_problem("/scan.pdf", 5, 1, Reason::NeedsOcr)
+            .unwrap();
+        store
+            .record_problem("/locked.pdf", 5, 1, Reason::Encrypted)
+            .unwrap();
+        assert_eq!(store.forget_failures().unwrap(), 2);
+        let left: Vec<Reason> = store
+            .problems()
+            .unwrap()
+            .into_iter()
+            .map(|p| p.reason)
+            .collect();
+        assert_eq!(left, vec![Reason::Encrypted, Reason::NeedsOcr]);
+    }
+
+    #[test]
+    fn a_version_3_index_is_upgraded_in_place() {
+        let file = std::env::temp_dir().join("catchword-store-test-upgrade.db");
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{suffix}", file.display()));
+        }
+        {
+            let mut store = Store::open(&file).unwrap();
+            store
+                .put_file(
+                    "/kept.txt",
+                    4,
+                    1,
+                    "h1",
+                    &chunk("kept text", 50, 5, &WordTokenizer),
+                )
+                .unwrap();
+            // Make it look like version 3, which had no problems table.
+            store
+                .conn
+                .execute_batch(
+                    "DROP TABLE problems;
+                     UPDATE meta SET value = '3' WHERE key = 'schema_version';",
+                )
+                .unwrap();
+        }
+        let mut store = Store::open(&file).unwrap();
+        assert!(!store.was_reset());
+        assert_eq!(store.counts().unwrap().files, 1);
+        assert_eq!(store.search_keyword("kept", 5).unwrap().len(), 1);
+        assert_eq!(stored_version(&store.conn).unwrap(), Some(SCHEMA_VERSION));
+        store
+            .record_problem("/new.pdf", 1, 1, Reason::NeedsOcr)
+            .unwrap();
+        assert_eq!(store.problems().unwrap().len(), 1);
     }
 
     #[test]

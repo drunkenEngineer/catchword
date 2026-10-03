@@ -20,8 +20,8 @@ A free, open-source desktop app for Windows that searches a person's own documen
   - `apps/desktop/ui`: the React and TypeScript interface: Search, Library and a first Settings screen.
   - `crates/eval`: the retrieval evaluation and benchmark tool (`catchword-eval`), never shipped. The evaluation set is in `eval/` (ADR-19).
   - `crates/test-support`: test PDFs written by code, never shipped.
-- **Verified on Windows 11 with Rust 1.99.0** (pinned in `rust-toolchain.toml`): 125 Rust tests and 18 interface tests pass, and format, lint, type check and the privacy check are clean. PDFium, ONNX Runtime and the model come from `scripts/fetch-pdfium.sh` and `scripts/fetch-embedding.sh` (ADR-14, ADR-18).
-- **Not built yet:** the first-launch flow, most settings, exclusions, OCR, the updater, the installer and the Store package. Skipped and failed files are reported but not yet recorded in the index, so they are tried again on every run (CORE-6).
+- **Verified on Windows 11 with Rust 1.99.0** (pinned in `rust-toolchain.toml`): 138 Rust tests and 20 interface tests pass, and format, lint, type check and the privacy check are clean. PDFium, ONNX Runtime and the model come from `scripts/fetch-pdfium.sh` and `scripts/fetch-embedding.sh` (ADR-14, ADR-18).
+- **Not built yet:** the first-launch flow, most settings, exclusions, OCR, the updater, the installer and the Store package.
 
 ## Decisions already made
 
@@ -57,7 +57,7 @@ Do not reopen these without asking the owner.
 
 Next, in the order of the spec's Phase 2 (section 20):
 
-6. **Coverage in the index** (CORE-6, COV-2): record skipped and failed files with their reason, so they are not read again on every run; a retry action; park a file after two failed attempts.
+6. ~~**Coverage in the index** (CORE-6, COV-2).~~ Done, 3 October 2026: index schema version 4 records each file that was not indexed, with its reason and attempts, and upgrades a version 3 index in place. A skipped file is not read again until it changes; a failed one gets a second try, then is parked; Library's Try again and `index --retry` read failed files again. Files that could not be opened (locked?) are tried on every run.
 7. **Settings and first launch** (UI-4, UI-5, APP-1, APP-3, APP-4): folders, exclusions (SRC-2), delete all data; a two- or three-step first-launch flow.
 8. **Packaging spike** (REL-1, REL-2): bundle the worker, PDFium, ONNX Runtime and the model with the app; an MSIX that installs and runs its worker.
 9. **Logs and diagnostics** (OBS-1, APP-5): local, rotated logs with no document text; a redacted diagnostics export.

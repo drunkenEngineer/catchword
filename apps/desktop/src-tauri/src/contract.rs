@@ -22,7 +22,7 @@ pub struct Status {
     #[ts(type = "number")]
     pub searchable_by_meaning: i64,
     pub meaning: Meaning,
-    /// Files that were not indexed in the last run, with why.
+    /// Files that are not in the index, with why (COV-2).
     pub not_indexed: Vec<NotIndexed>,
     /// The last thing that went wrong, in plain words.
     pub problem: Option<String>,
@@ -72,6 +72,9 @@ pub struct NotIndexed {
     pub reason: String,
     /// True when reading failed; false when the file was skipped by a rule.
     pub failed: bool,
+    /// True when reading failed too often: it is not tried again until the
+    /// user asks for a retry.
+    pub parked: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
