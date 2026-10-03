@@ -1,0 +1,13 @@
+[package]
+name = "catchword-worker"
+description = "Catchword extraction worker: reads one untrusted file in a separate, limited process. No network code, ever."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+catchword-engine = { path = "../engine" }
+pdfium-render.workspace = true
+
+[dev-dependencies]
+catchword-test-support = { path = "../test-support" }

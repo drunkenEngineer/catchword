@@ -14,7 +14,7 @@ The full plan is `docs/specification.md` (26 sections). Before any work, read se
 
 ## Rules
 
-1. No network code in `crates/engine` or `crates/store`.
+1. No network code in `crates/engine`, `crates/store` or `crates/worker`.
 2. Untrusted files are parsed only in a separate worker process with time and memory limits.
 3. The index is derived data: one transaction per document, and everything can be rebuilt from the files.
 4. Never modify, move or delete the user's documents.

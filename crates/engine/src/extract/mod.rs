@@ -239,10 +239,14 @@ fn judge(
 
 fn accept(response: Response) -> Outcome {
     match response {
-        Response::Pages(pages) if pages.iter().all(|page| page.trim().is_empty()) => {
-            Outcome::NotIndexed(Reason::NeedsOcr)
+        Response::Pages(pages) => {
+            let pages: Vec<String> = pages.iter().map(|page| without_controls(page)).collect();
+            if pages.iter().all(|page| page.trim().is_empty()) {
+                Outcome::NotIndexed(Reason::NeedsOcr)
+            } else {
+                Outcome::Pages(pages)
+            }
         }
-        Response::Pages(pages) => Outcome::Pages(pages),
         Response::Refused(refusal) => Outcome::NotIndexed(match refusal {
             Refusal::Encrypted => Reason::Encrypted,
             Refusal::TooLarge => Reason::TooLarge,
@@ -251,6 +255,15 @@ fn accept(response: Response) -> Outcome {
             Refusal::LibraryMissing => Reason::LibraryMissing,
         }),
     }
+}
+
+/// Drop control characters other than tab and line breaks. They carry no
+/// searchable text, and some (such as terminal escape codes) could act on the
+/// screen that later shows the passage.
+fn without_controls(text: &str) -> String {
+    text.chars()
+        .filter(|c| !c.is_control() || matches!(c, '\t' | '\n' | '\r'))
+        .collect()
 }
 
 /// Outside Windows there is no job object yet: only the timeout and the
@@ -274,5 +287,31 @@ impl Containment {
 
     fn events(&self) -> Events {
         Events::default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn control_characters_are_removed_from_page_text() {
+        let response = Response::Pages(vec![
+            "plain\ttext\r\nnext line".to_string(),
+            "\u{1b}[2Jerased\u{0}\u{2}screen".to_string(),
+        ]);
+        assert_eq!(
+            accept(response),
+            Outcome::Pages(vec![
+                "plain\ttext\r\nnext line".to_string(),
+                "[2Jerasedscreen".to_string(),
+            ])
+        );
+    }
+
+    #[test]
+    fn pages_with_only_control_characters_need_ocr() {
+        let response = Response::Pages(vec!["\u{0}\u{7}".to_string(), " \n".to_string()]);
+        assert_eq!(accept(response), Outcome::NotIndexed(Reason::NeedsOcr));
     }
 }
