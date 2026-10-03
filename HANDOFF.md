@@ -49,7 +49,7 @@ Do not reopen these without asking the owner.
 1. ~~**Build and test on Windows.**~~ Done, 3 October 2026.
 2. ~~**PDF extraction** (backlog CORE-2, CORE-3).~~ Done, 3 October 2026. See ADR-14 to ADR-17.
 3. ~~**Embeddings and combined search** (CORE-4, CORE-5, CORE-7, DB-2).~~ Done, 3 October 2026. Passages are 350 tokens with 50 shared, provisionally. Embedding runs at about 13 passages a second on the owner's laptop; see ADR-18 before choosing the model.
-4. ~~**Evaluation set and benchmark** (TST-1, ARC-5).~~ Done, 3 October 2026; report in `docs/benchmarks/2026-10-03-phase0.md`. ADR-20 is **proposed**: the owner must confirm keeping Granite, because the spec's speed clause, read literally, says to switch to e5.
+4. ~~**Evaluation set and benchmark** (TST-1, ARC-5).~~ Done, 3 October 2026; report in `docs/benchmarks/2026-10-03-phase0.md`. The owner kept Granite (ADR-20), although the spec's speed clause, read literally, said to switch to e5.
 5. **Only then** the Tauri desktop shell (UI-1 onward).
 
 ## How to work with the owner

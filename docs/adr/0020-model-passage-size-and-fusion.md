@@ -1,6 +1,6 @@
 # ADR-20: Embedding model, passage size and keyword fusion after the Phase 0 benchmark
 
-Status: **proposed**, 3 October 2026. The keyword and fusion parts are in effect. The model and passage-size parts wait for the owner, because the benchmark and the spec's own decision rule disagree. Backlog item ARC-5; the evidence is in `docs/benchmarks/2026-10-03-phase0.md`.
+Status: **accepted**, 3 October 2026. The benchmark and the spec's own decision rule disagreed on the model, so the owner decided: keep Granite. Backlog item ARC-5; the evidence is in `docs/benchmarks/2026-10-03-phase0.md`.
 
 ## Context
 
@@ -32,7 +32,7 @@ Result: combined recall@10 rose from 91.5 to 92.9 and MRR@10 from 73.0 to 77.8, 
 - `eval/thresholds.txt` holds the scores of the current settings minus two points.
 - CI runs `catchword-eval check` on Linux, and fails below them.
 
-## Proposed, waiting for the owner
+## Model and passage size
 
 ### The model: keep Granite
 
@@ -40,7 +40,7 @@ Result: combined recall@10 rose from 91.5 to 92.9 and MRR@10 from 73.0 to 77.8, 
 - **On speed,** the spec's rule, read literally, says to switch to e5 at 350 and 500 tokens. There Granite embeds 19.7 and 15.3 passages a second, e5 39.4 and 27.0.
 - **Why the speed clause misleads here:** passages a second depends on passage size. Granite embeds the whole set in about 10 s at every size, against about 5 s for e5. The honest comparison is that Granite takes about twice as long to index.
 
-Recommendation: keep Granite. Indexing runs in the background, and keyword search works meanwhile (assumption A6). A 2-point quality margin is the spec's own threshold for switching, and Granite is ahead by more than 10. Twice the indexing time is a smaller cost than losing cross-language search. The speed target should be re-checked on the reference laptop.
+**Decision (owner, 3 October 2026): keep Granite.** Indexing runs in the background, and keyword search works meanwhile (assumption A6). A 2-point quality margin is the spec's own threshold for switching, and Granite is ahead by more than 10. Twice the indexing time is a smaller cost than losing cross-language search. The speed target should be re-checked on the reference laptop.
 
 Fallback: e5, if the reference laptop takes far longer than the spec's 3.5 hours for the reference corpus. In that case, also try Granite at 200 tokens, which meets the literal 20-passages-a-second rule.
 
@@ -51,7 +51,7 @@ Fallback: e5, if the reference laptop takes far longer than the spec's 3.5 hours
 - In its favour: 500 also stores a quarter fewer vectors, so vector search is faster.
 - Against it: a result then points the reader at a longer stretch of text.
 
-Recommendation: keep 350 until the evaluation set has a larger corpus, then measure again. If vector search proves too slow on the reference laptop, move to 500 first.
+Decision: keep 350 until the evaluation set has a larger corpus, then measure again. If vector search proves too slow on the reference laptop, move to 500 first.
 
 ## Revisit if
 
