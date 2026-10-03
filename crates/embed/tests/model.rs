@@ -3,7 +3,7 @@
 
 use std::sync::{Mutex, OnceLock};
 
-use catchword_embed::{find, Embedder, GRANITE_97M};
+use catchword_embed::{find, Embedder, ModelManifest, E5_SMALL, GRANITE_97M};
 use catchword_engine::{chunk, Tokenizer};
 
 /// The model takes a second or two to load, so the tests share one.
@@ -107,4 +107,46 @@ fn passages_cut_with_the_model_tokenizer_fit_the_limit() {
         let tokens = model.token_ends(&passage.text).len();
         assert!(tokens <= 64, "{tokens} tokens: {}", passage.text);
     }
+}
+
+// The baseline model, used by the benchmark. Needs `sh scripts/fetch-eval.sh`.
+
+fn baseline() -> &'static Mutex<Embedder> {
+    static EMBEDDER: OnceLock<Mutex<Embedder>> = OnceLock::new();
+    EMBEDDER.get_or_init(|| load(&E5_SMALL, "sh scripts/fetch-eval.sh"))
+}
+
+fn load(manifest: &ModelManifest, fetch: &str) -> Mutex<Embedder> {
+    let paths = find(manifest).unwrap_or_else(|| panic!("model not found; run {fetch}"));
+    Mutex::new(Embedder::load(&paths, manifest).unwrap())
+}
+
+#[test]
+fn the_baseline_model_ranks_by_meaning_across_languages() {
+    let mut model = baseline().lock().unwrap();
+    let q = model
+        .embed_query("When will my tax refund arrive?")
+        .unwrap();
+    let found = model
+        .embed_passages(&[
+            "Votre remboursement d'impôt a été approuvé et sera versé la semaine prochaine.",
+            "Le chat a dormi tout l'après-midi sur le rebord de la fenêtre.",
+        ])
+        .unwrap();
+    assert_eq!(q.len(), E5_SMALL.dimensions);
+    let length: f32 = q.iter().map(|x| x * x).sum::<f32>().sqrt();
+    assert!((length - 1.0).abs() < 1e-4);
+    let (related, unrelated) = (similarity(&q, &found[0]), similarity(&q, &found[1]));
+    assert!(related > unrelated, "{related} vs {unrelated}");
+}
+
+#[test]
+fn the_baseline_model_marks_queries_and_passages_differently() {
+    // e5 reads "query: " and "passage: " prefixes, so the same words get
+    // different vectors depending on their role.
+    let mut model = baseline().lock().unwrap();
+    let as_query = model.embed_query("notice period").unwrap();
+    let as_passage = model.embed_passages(&["notice period"]).unwrap().remove(0);
+    let same = similarity(&as_query, &as_passage);
+    assert!(same < 0.9999, "similarity {same}");
 }

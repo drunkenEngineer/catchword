@@ -16,6 +16,15 @@ use ort::session::Session;
 use ort::value::Tensor;
 use sha2::{Digest, Sha256};
 
+/// How a model turns its per-token output into one vector.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Pooling {
+    /// The first token's vector.
+    Cls,
+    /// The average of all tokens' vectors.
+    Mean,
+}
+
 /// What the engine needs to know about a model. Shipped with the app.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ModelManifest {
@@ -24,9 +33,11 @@ pub struct ModelManifest {
     /// The exact upstream revision the files come from.
     pub revision: &'static str,
     pub dimensions: usize,
-    /// Inputs are cut to this many tokens. Passages are far shorter; this
-    /// only stops one enormous "word" from costing minutes.
+    /// Inputs are cut to this many tokens, special tokens included: the
+    /// model's own limit, or less where the model allows far more, so one
+    /// enormous "word" cannot cost minutes.
     pub max_tokens: usize,
+    pub pooling: Pooling,
     pub query_prefix: &'static str,
     pub passage_prefix: &'static str,
     pub model_sha256: &'static str,
@@ -48,11 +59,36 @@ pub const GRANITE_97M: ModelManifest = ModelManifest {
     revision: "835ad14087e140460703cf0fae09f97d469d65c2",
     dimensions: 384,
     max_tokens: 1024,
+    pooling: Pooling::Cls,
     query_prefix: "",
     passage_prefix: "",
     model_sha256: "a6022dd8220ea6f6595562a1328ee216f4a94faa55362f2f4747c80f1e78772e",
     tokenizer_sha256: "4f2842d568e2724370aec203652a42ac783c7937f8347a1a2cc7506d71f1582f",
 };
+
+/// The baseline the provisional model must beat (ADR-6). It averages all
+/// token vectors, needs "query: " and "passage: " prefixes, and reads at
+/// most 512 tokens. Fetched by scripts/fetch-eval.sh, for the benchmark.
+pub const E5_SMALL: ModelManifest = ModelManifest {
+    name: "multilingual-e5-small",
+    revision: "614241f622f53c4eeff9890bdc4f31cfecc418b3",
+    dimensions: 384,
+    max_tokens: 512,
+    pooling: Pooling::Mean,
+    query_prefix: "query: ",
+    passage_prefix: "passage: ",
+    model_sha256: "dd476dd0c2514e9b9be83aeb3853fac0763e0bdf4a71645407587d77c48a2d88",
+    tokenizer_sha256: "0b44a9d7b51c3c62626640cda0e2c2f70fdacdc25bbbd68038369d14ebdf4c39",
+};
+
+/// The file name of the ONNX Runtime library on this system.
+pub fn runtime_library_name() -> String {
+    format!(
+        "{}onnxruntime{}",
+        std::env::consts::DLL_PREFIX,
+        std::env::consts::DLL_SUFFIX
+    )
+}
 
 #[derive(Debug)]
 pub enum EmbedError {
@@ -99,11 +135,7 @@ pub struct Paths {
 /// vendor/ folder. Only these known places are tried, by full path: Windows
 /// ships an older onnxruntime.dll of its own, which must never be picked up.
 pub fn find(manifest: &ModelManifest) -> Option<Paths> {
-    let library = format!(
-        "{}onnxruntime{}",
-        std::env::consts::DLL_PREFIX,
-        std::env::consts::DLL_SUFFIX
-    );
+    let library = runtime_library_name();
     let mut places = Vec::new();
     if let Some(folder) = std::env::current_exe()
         .ok()
@@ -131,6 +163,8 @@ pub struct Embedder {
     session: Session,
     tokenizer: tokenizers::Tokenizer,
     manifest: ModelManifest,
+    /// BERT-style models also take a "segment" input, all zeros here.
+    needs_token_types: bool,
 }
 
 impl Embedder {
@@ -144,10 +178,15 @@ impl Embedder {
         let session = Session::builder()?.commit_from_file(&model)?;
         let tokenizer = tokenizers::Tokenizer::from_file(&tokenizer)
             .map_err(|error| EmbedError::Tokenizer(error.to_string()))?;
+        let needs_token_types = session
+            .inputs()
+            .iter()
+            .any(|input| input.name() == "token_type_ids");
         Ok(Self {
             session,
             tokenizer,
             manifest: *manifest,
+            needs_token_types,
         })
     }
 
@@ -189,19 +228,44 @@ impl Embedder {
             ids.push(end_marker);
         }
         let length = ids.len();
-        let outputs = self.session.run(ort::inputs![
+        let mut inputs = ort::inputs![
             "input_ids" => Tensor::from_array(([1, length], ids))?,
             "attention_mask" => Tensor::from_array(([1, length], vec![1i64; length]))?,
-        ])?;
+        ];
+        if self.needs_token_types {
+            let types = Tensor::from_array(([1, length], vec![0i64; length]))?;
+            inputs.push(("token_type_ids".into(), types.into()));
+        }
+        let outputs = self.session.run(inputs)?;
         let (shape, values) = outputs[0].try_extract_tensor::<f32>()?;
         let dimensions = self.manifest.dimensions;
-        if shape.len() != 3 || shape[2] as usize != dimensions {
+        if shape.len() != 3 || shape[1] as usize != length || shape[2] as usize != dimensions {
             return Err(EmbedError::Runtime(format!(
                 "unexpected output shape {shape:?}"
             )));
         }
-        // The first token's vector is the embedding (CLS pooling).
-        Ok(unit_length(&values[..dimensions]))
+        Ok(unit_length(&pool(
+            values,
+            dimensions,
+            self.manifest.pooling,
+        )))
+    }
+}
+
+/// One vector from a model's output, a row of `dimensions` numbers per token.
+fn pool(values: &[f32], dimensions: usize, pooling: Pooling) -> Vec<f32> {
+    match pooling {
+        Pooling::Cls => values[..dimensions].to_vec(),
+        Pooling::Mean => {
+            let tokens = values.len() / dimensions;
+            let mut sum = vec![0f32; dimensions];
+            for token in values.chunks_exact(dimensions) {
+                for (total, value) in sum.iter_mut().zip(token) {
+                    *total += value;
+                }
+            }
+            sum.iter().map(|total| total / tokens as f32).collect()
+        }
     }
 }
 
@@ -277,6 +341,14 @@ mod tests {
         assert!(verify(&file, &right).is_ok());
         std::fs::remove_file(&file).unwrap();
         assert!(matches!(verify(&file, &wrong), Err(EmbedError::Missing(_))));
+    }
+
+    #[test]
+    fn pooling_takes_the_first_token_or_the_average() {
+        // Two tokens of three numbers each.
+        let output = [1.0, 2.0, 3.0, 3.0, 4.0, 5.0];
+        assert_eq!(pool(&output, 3, Pooling::Cls), vec![1.0, 2.0, 3.0]);
+        assert_eq!(pool(&output, 3, Pooling::Mean), vec![2.0, 3.0, 4.0]);
     }
 
     #[test]
