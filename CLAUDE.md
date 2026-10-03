@@ -15,6 +15,7 @@ The full plan is `docs/specification.md` (26 sections). Before any work, read se
 - Interface (in `apps/desktop/ui`, once: `npm ci`): `npm run typecheck`, `npm test`; with a made-up engine in a browser: `npm run dev:mock`
 - Desktop app (after `cargo build --workspace`): `cd apps/desktop && ./ui/node_modules/.bin/tauri dev`
 - Command contract changed: `UPDATE_CONTRACT=1 cargo test -p catchword-desktop contract`
+- Windows package: `sh scripts/package-msix.sh`, then `cargo test -p catchword --test package -- --ignored` (see `docs/packaging.md`)
 
 ## Rules
 

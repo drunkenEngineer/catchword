@@ -13,6 +13,7 @@ Thank you for helping. The project is small and run by one maintainer, so please
 7. Install Node.js 22 (22.22 or later) and, in `apps/desktop/ui`, run `npm ci`.
 8. Run `cargo test --workspace`, and in `apps/desktop/ui` run `npm run typecheck` and `npm test`. Everything should pass.
 9. To run the desktop app: `cargo build --workspace`, then from `apps/desktop` run `./ui/node_modules/.bin/tauri dev`. To work on the interface alone, run `npm run dev:mock` in `apps/desktop/ui` and open http://127.0.0.1:1420: a made-up engine stands in.
+10. To build the Windows package (MSIX), see `docs/packaging.md`.
 
 ## Before you open a pull request
 

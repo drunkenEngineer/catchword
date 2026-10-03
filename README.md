@@ -33,7 +33,7 @@ Meaning search is slow to build: on a 2023 laptop about 20 passages a second, so
 ## What comes next
 
 1. Pause and resource modes, appearance settings, and the update check.
-2. An installer, and the Microsoft Store package.
+2. The Microsoft Store package and a GitHub installer. The package already builds (`docs/packaging.md`); it is not published yet.
 
 Scanned documents need OCR, which is planned for a later version. Until then they are listed as skipped, not searched.
 
