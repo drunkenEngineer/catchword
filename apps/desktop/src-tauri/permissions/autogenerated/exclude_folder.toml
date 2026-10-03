@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-exclude-folder"
+description = "Enables the exclude_folder command without any pre-configured scope."
+commands.allow = ["exclude_folder"]
+
+[[permission]]
+identifier = "deny-exclude-folder"
+description = "Denies the exclude_folder command without any pre-configured scope."
+commands.deny = ["exclude_folder"]

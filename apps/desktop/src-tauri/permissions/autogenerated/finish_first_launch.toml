@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-finish-first-launch"
+description = "Enables the finish_first_launch command without any pre-configured scope."
+commands.allow = ["finish_first_launch"]
+
+[[permission]]
+identifier = "deny-finish-first-launch"
+description = "Denies the finish_first_launch command without any pre-configured scope."
+commands.deny = ["finish_first_launch"]

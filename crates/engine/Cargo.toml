@@ -16,11 +16,13 @@ walkdir.workspace = true
 name = "supervisor"
 harness = false
 
-# Job objects: the Windows feature that limits the extraction worker.
+# Job objects, the Windows feature that limits the extraction worker; and
+# file attributes, to skip hidden and system files.
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = [
     "Win32_Foundation",
     "Win32_Security",
+    "Win32_Storage_FileSystem",
     "Win32_System_IO",
     "Win32_System_JobObjects",
     "Win32_System_SystemServices",

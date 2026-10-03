@@ -11,6 +11,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use catchword_engine::extract::Limits;
+use catchword_engine::Exclusions;
 use catchword_service::{embed_missing, index_folder, Cutter, Model, Worker};
 use catchword_store::Store;
 
@@ -27,6 +28,7 @@ struct Control {
     running: bool,
     again: bool,
     folders: Vec<PathBuf>,
+    exclusions: Exclusions,
 }
 
 #[derive(Default, Clone)]
@@ -89,11 +91,12 @@ impl Indexer {
         lock(&self.shared.control).running
     }
 
-    /// Index `folders` on a background thread. If a run is going, another
-    /// follows it, with the latest list of folders.
-    pub fn start(&self, folders: Vec<PathBuf>, notify: Notify) {
+    /// Index `folders`, leaving out `exclusions`, on a background thread.
+    /// If a run is going, another follows it, with the latest of both.
+    pub fn start(&self, folders: Vec<PathBuf>, exclusions: Exclusions, notify: Notify) {
         let mut control = lock(&self.shared.control);
         control.folders = folders;
+        control.exclusions = exclusions;
         if control.running {
             control.again = true;
             return;
@@ -104,8 +107,11 @@ impl Indexer {
         thread::spawn(move || {
             lower_priority();
             loop {
-                let folders = lock(&shared.control).folders.clone();
-                run(&shared, &folders, &notify);
+                let (folders, exclusions) = {
+                    let control = lock(&shared.control);
+                    (control.folders.clone(), control.exclusions.clone())
+                };
+                run(&shared, &folders, &exclusions, &notify);
                 let mut control = lock(&shared.control);
                 if control.again && !shared.stop.load(Ordering::SeqCst) {
                     control.again = false;
@@ -138,7 +144,7 @@ impl Indexer {
 }
 
 /// One run over all folders: words first, then meaning.
-fn run(shared: &Shared, folders: &[PathBuf], notify: &Notify) {
+fn run(shared: &Shared, folders: &[PathBuf], exclusions: &Exclusions, notify: &Notify) {
     let model = Arc::clone(shared.model.wait());
     let set_work = |stage, done: u64, total: u64| {
         lock(&shared.snapshot).work = Some(Work { stage, done, total });
@@ -164,6 +170,7 @@ fn run(shared: &Shared, folders: &[PathBuf], notify: &Notify) {
         let result = index_folder(
             &mut store,
             folder,
+            exclusions,
             &cutter,
             &shared.worker,
             &Limits::default(),
@@ -261,6 +268,7 @@ mod tests {
         let count = Arc::clone(&notified);
         indexer.start(
             folders,
+            Exclusions::default(),
             Arc::new(move || {
                 count.fetch_add(1, Ordering::SeqCst);
             }),
@@ -277,7 +285,11 @@ mod tests {
     fn a_missing_folder_is_a_problem_but_the_others_are_indexed() {
         let (indexer, store) = indexer("missing");
         let gone = std::env::temp_dir().join("catchword-desktop-test-not-there");
-        indexer.start(vec![gone, folder_with("missing-ok", 2)], Arc::new(|| {}));
+        indexer.start(
+            vec![gone, folder_with("missing-ok", 2)],
+            Exclusions::default(),
+            Arc::new(|| {}),
+        );
         wait_until_idle(&indexer);
         assert_eq!(Store::open(&store).unwrap().counts().unwrap().files, 2);
         assert!(indexer
@@ -290,11 +302,19 @@ mod tests {
     #[test]
     fn stop_and_wait_ends_a_run_and_leaves_the_index_usable() {
         let (indexer, store) = indexer("stop");
-        indexer.start(vec![folder_with("stop", 200)], Arc::new(|| {}));
+        indexer.start(
+            vec![folder_with("stop", 200)],
+            Exclusions::default(),
+            Arc::new(|| {}),
+        );
         indexer.stop_and_wait();
         assert!(!indexer.is_running());
         // Whatever was done is kept; the next run finishes the job.
-        indexer.start(vec![folder_with("stop", 200)], Arc::new(|| {}));
+        indexer.start(
+            vec![folder_with("stop", 200)],
+            Exclusions::default(),
+            Arc::new(|| {}),
+        );
         wait_until_idle(&indexer);
         assert_eq!(Store::open(&store).unwrap().counts().unwrap().files, 200);
     }

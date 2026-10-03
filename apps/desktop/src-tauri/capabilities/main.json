@@ -12,6 +12,12 @@
     "allow-remove-folder",
     "allow-index-now",
     "allow-retry-failed",
+    "allow-settings",
+    "allow-exclude-folder",
+    "allow-include-folder",
+    "allow-set-patterns",
+    "allow-finish-first-launch",
+    "allow-delete-all-data",
     "allow-preview",
     "allow-open-file",
     "allow-reveal-file"

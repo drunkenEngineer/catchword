@@ -4,6 +4,7 @@ import type { Folder } from "./contract/Folder";
 import type { FileHit } from "./contract/FileHit";
 import type { PassageHit } from "./contract/PassageHit";
 import type { SearchResponse } from "./contract/SearchResponse";
+import type { SettingsView } from "./contract/SettingsView";
 import type { Span } from "./contract/Span";
 import type { Status } from "./contract/Status";
 import type { Engine } from "./engine";
@@ -47,13 +48,22 @@ function mark(text: string, words: string[]): Span[] {
   return spans;
 }
 
-export function createMockEngine(): Engine {
-  let folders: Folder[] = [
-    { id: 1, path: "C:\\Users\\you\\Documents\\Letters" },
-    { id: 2, path: "C:\\Users\\you\\Documents\\Home" },
-  ];
+/** A few of the real defaults, enough to show. */
+const DEFAULT_PATTERNS = ["$RECYCLE.BIN", "Thumbs.db", "node_modules", "*.kdbx", "*.pem", "id_rsa*", "*passwords*"];
+
+/** `firstLaunch`: start as a new install, with no folders. */
+export function createMockEngine({ firstLaunch = false } = {}): Engine {
+  let folders: Folder[] = firstLaunch
+    ? []
+    : [
+        { id: 1, path: "C:\\Users\\you\\Documents\\Letters" },
+        { id: 2, path: "C:\\Users\\you\\Documents\\Home" },
+      ];
   let nextId = 3;
   let parked = true;
+  let welcomed = !firstLaunch;
+  let excludedFolders: Folder[] = [];
+  let patterns = [...DEFAULT_PATTERNS];
   const listeners = new Set<() => void>();
   const changed = () => listeners.forEach((listener) => listener());
 
@@ -87,6 +97,7 @@ export function createMockEngine(): Engine {
                 },
               ],
         problem: null,
+        firstLaunch: !welcomed,
       };
     },
 
@@ -128,6 +139,52 @@ export function createMockEngine(): Engine {
 
     async retryFailed(): Promise<void> {
       parked = false;
+      changed();
+    },
+
+    async settings(): Promise<SettingsView> {
+      return {
+        excludedFolders: [...excludedFolders],
+        patterns: [...patterns],
+        defaultPatterns: [...DEFAULT_PATTERNS],
+        dataFolder: "C:\\Users\\you\\AppData\\Local\\Catchword\\data",
+        indexBytes: folders.length === 0 ? 4096 : 18_350_080,
+      };
+    },
+
+    async excludeFolder(): Promise<Folder | null> {
+      const folder = { id: nextId, path: `C:\\Users\\you\\Documents\\Home\\Private ${nextId}` };
+      nextId += 1;
+      excludedFolders = [...excludedFolders, folder];
+      changed();
+      return folder;
+    },
+
+    async includeFolder(id: number): Promise<void> {
+      excludedFolders = excludedFolders.filter((folder) => folder.id !== id);
+      changed();
+    },
+
+    async setPatterns(next: string[]): Promise<void> {
+      const kept = [...new Set(next.map((pattern) => pattern.trim()).filter((pattern) => pattern !== ""))];
+      const bad = kept.find((pattern) => /[\\/]/.test(pattern));
+      if (bad) {
+        throw `“${bad}”: A pattern matches names, so it cannot contain / or \\. To leave out a folder, choose it instead.`;
+      }
+      patterns = kept;
+      changed();
+    },
+
+    async finishFirstLaunch(): Promise<void> {
+      welcomed = true;
+      changed();
+    },
+
+    async deleteAllData(): Promise<void> {
+      folders = [];
+      excludedFolders = [];
+      patterns = [...DEFAULT_PATTERNS];
+      welcomed = false;
       changed();
     },
 

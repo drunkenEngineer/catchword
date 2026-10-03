@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-include-folder"
+description = "Enables the include_folder command without any pre-configured scope."
+commands.allow = ["include_folder"]
+
+[[permission]]
+identifier = "deny-include-folder"
+description = "Denies the include_folder command without any pre-configured scope."
+commands.deny = ["include_folder"]

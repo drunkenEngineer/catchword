@@ -7,6 +7,7 @@ import { Library } from "./Library";
 import { Search } from "./Search";
 import { Settings } from "./Settings";
 import { strings } from "./strings";
+import { Welcome } from "./Welcome";
 
 export type Destination = "search" | "library" | "settings";
 const DESTINATIONS: Destination[] = ["search", "library", "settings"];
@@ -40,6 +41,15 @@ export function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [engine]);
+
+  // After the first-launch steps, Search opens, even when they follow a
+  // "delete all data" in Settings.
+  const firstLaunch = status?.firstLaunch ?? false;
+  useEffect(() => {
+    if (firstLaunch) setDestination("search");
+  }, [firstLaunch]);
+
+  if (status?.firstLaunch) return <Welcome status={status} />;
 
   return (
     <div className="app">

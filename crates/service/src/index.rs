@@ -8,7 +8,8 @@ use catchword_embed::Embedder;
 use catchword_engine::extract::{self, Limits, Outcome, Reason};
 use catchword_engine::{
     chunk, chunk_pages, document_kind, hash_file, read_text, resolve_folder, scan, DocumentKind,
-    FileMeta, Passage, Tokenizer, WordTokenizer, PASSAGE_OVERLAP_TOKENS, PASSAGE_TOKENS,
+    Exclusions, FileMeta, Passage, Tokenizer, WordTokenizer, PASSAGE_OVERLAP_TOKENS,
+    PASSAGE_TOKENS,
 };
 use catchword_store::{Problem, Store};
 
@@ -135,7 +136,8 @@ impl Report {
 }
 
 /// The keyword stage for one folder: read every new or changed file, store
-/// its passages, and forget files that are gone.
+/// its passages, and forget files that are gone. Files that `exclusions`
+/// leave out count as gone, so excluding a folder removes its text.
 ///
 /// `progress(done, total)` is called after each file; returning false stops
 /// the run. Nothing is lost: each file is its own transaction, and the next
@@ -144,6 +146,7 @@ impl Report {
 pub fn index_folder(
     store: &mut Store,
     folder: &Path,
+    exclusions: &Exclusions,
     cutter: &Cutter,
     worker: &Worker,
     limits: &Limits,
@@ -158,7 +161,7 @@ pub fn index_folder(
     };
     // Found when the first PDF needs it, so text-only folders work without it.
     let mut worker_path = None;
-    let files = scan(&root);
+    let files = scan(&root, exclusions);
     let mut seen = Vec::new();
 
     for (done, file) in files.iter().enumerate() {

@@ -5,6 +5,7 @@ use std::fs;
 use std::path::Path;
 
 use catchword_engine::extract::{Limits, Reason};
+use catchword_engine::Exclusions;
 use catchword_service::{
     embed_missing, group_by_file, index_folder, is_parked, search, Cutter, Model, Note, Report,
     Worker,
@@ -30,6 +31,7 @@ fn index(store: &mut Store, folder: &Path, stop_after: usize) -> Report {
     index_folder(
         store,
         folder,
+        &Exclusions::default(),
         &cutter,
         &Worker::NextToProgram,
         &Limits::default(),
@@ -95,6 +97,7 @@ fn the_meaning_stage_can_stop_and_carry_on() {
     index_folder(
         &mut store,
         &folder,
+        &Exclusions::default(),
         &cutter,
         &Worker::NextToProgram,
         &Limits::default(),
@@ -135,7 +138,16 @@ fn built_worker() -> Worker {
 
 fn index_with(store: &mut Store, folder: &Path, worker: &Worker, limits: &Limits) -> Report {
     let cutter = Cutter::for_model(&Model::Unavailable("not needed".into()));
-    index_folder(store, folder, &cutter, worker, limits, |_, _| true).unwrap()
+    index_folder(
+        store,
+        folder,
+        &Exclusions::default(),
+        &cutter,
+        worker,
+        limits,
+        |_, _| true,
+    )
+    .unwrap()
 }
 
 #[test]
@@ -197,4 +209,34 @@ fn a_file_that_fails_twice_is_parked_until_a_retry() {
     assert_eq!(store.forget_failures().unwrap(), 1);
     let fourth = index_with(&mut store, &folder, &worker, &limits);
     assert_eq!((fourth.known_problems, attempts(&store)), (0, 1));
+}
+
+#[test]
+fn excluding_a_folder_removes_its_text_and_including_it_brings_it_back() {
+    let folder = three_files("service-exclude");
+    let private = folder.join("private");
+    fs::create_dir(&private).unwrap();
+    fs::write(private.join("diary.txt"), "a secret about the garden").unwrap();
+    let mut store = Store::open_in_memory().unwrap();
+    let cutter = Cutter::for_model(&Model::Unavailable("not needed".into()));
+    let mut run = |exclusions: &Exclusions| {
+        index_folder(
+            &mut store,
+            &folder,
+            exclusions,
+            &cutter,
+            &Worker::NextToProgram,
+            &Limits::default(),
+            |_, _| true,
+        )
+        .unwrap()
+    };
+
+    assert_eq!(run(&Exclusions::default()).added, 4);
+    let excluded = Exclusions {
+        folders: vec![catchword_engine::resolve_folder(&private).unwrap()],
+        patterns: Vec::new(),
+    };
+    assert_eq!(run(&excluded).removed, 1);
+    assert_eq!(run(&Exclusions::default()).added, 1);
 }

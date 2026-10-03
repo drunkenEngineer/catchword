@@ -5,6 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 import { createContext, useContext } from "react";
 import type { Folder } from "./contract/Folder";
 import type { SearchResponse } from "./contract/SearchResponse";
+import type { SettingsView } from "./contract/SettingsView";
 import type { Status } from "./contract/Status";
 
 export interface Engine {
@@ -16,6 +17,15 @@ export interface Engine {
   indexNow(): Promise<void>;
   /** Reads again the files whose reading failed, parked ones included. */
   retryFailed(): Promise<void>;
+  settings(): Promise<SettingsView>;
+  /** Opens the native folder dialog; null when the user cancels. */
+  excludeFolder(): Promise<Folder | null>;
+  includeFolder(id: number): Promise<void>;
+  /** Names to leave out; rejects with a reason when one cannot be used. */
+  setPatterns(patterns: string[]): Promise<void>;
+  finishFirstLaunch(): Promise<void>;
+  /** Deletes the index and the settings. The user's files stay. */
+  deleteAllData(): Promise<void>;
   /** The full text of a passage. */
   preview(id: number): Promise<string | null>;
   openFile(id: number): Promise<void>;
@@ -32,6 +42,12 @@ export const tauriEngine: Engine = {
   removeFolder: (id) => invoke("remove_folder", { id }),
   indexNow: () => invoke("index_now"),
   retryFailed: () => invoke("retry_failed"),
+  settings: () => invoke("settings"),
+  excludeFolder: () => invoke("exclude_folder"),
+  includeFolder: (id) => invoke("include_folder", { id }),
+  setPatterns: (patterns) => invoke("set_patterns", { patterns }),
+  finishFirstLaunch: () => invoke("finish_first_launch"),
+  deleteAllData: () => invoke("delete_all_data"),
   preview: (id) => invoke("preview", { id }),
   openFile: (id) => invoke("open_file", { id }),
   revealFile: (id) => invoke("reveal_file", { id }),

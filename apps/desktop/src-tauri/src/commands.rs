@@ -10,15 +10,16 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Instant;
 
 use anyhow::{anyhow, Context, Result};
+use catchword_engine::exclude::DEFAULT_PATTERNS;
 use catchword_engine::resolve_folder;
 use catchword_service::{group_by_file, search as search_index, Model, Worker};
 use catchword_store::Store;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
 
-use crate::contract::{Folder, Meaning, SearchResponse, Status};
+use crate::contract::{Folder, Meaning, SearchResponse, SettingsView, Status};
 use crate::indexing::{Indexer, Notify};
-use crate::settings::Settings;
+use crate::settings::{self, FolderEntry, Settings};
 use crate::{open, views};
 
 /// The event that tells the interface to fetch the status again.
@@ -28,6 +29,8 @@ pub struct AppState {
     pub indexer: Indexer,
     settings: Mutex<Settings>,
     config_dir: PathBuf,
+    /// The index database file.
+    index: PathBuf,
     /// A connection for searches, apart from the indexer's: reads never
     /// wait for writes (WAL).
     reader: Mutex<Store>,
@@ -48,9 +51,10 @@ impl AppState {
         let (settings, notice) = Settings::load(&config_dir);
         let reader = Store::open(&index).context("cannot open the index")?;
         Ok(Self {
-            indexer: Indexer::new(index, worker),
+            indexer: Indexer::new(index.clone(), worker),
             settings: Mutex::new(settings),
             config_dir,
+            index,
             reader: Mutex::new(reader),
             notice: Mutex::new(notice),
         })
@@ -65,7 +69,104 @@ impl AppState {
     }
 
     pub fn start_indexing(&self, notify: Notify) {
-        self.indexer.start(self.folders(), notify);
+        let exclusions = lock(&self.settings).exclusions();
+        self.indexer.start(self.folders(), exclusions, notify);
+    }
+
+    /// Change the settings, save them, and index again so the change takes
+    /// effect at once (UI-4). Returns what `change` returned.
+    fn change_settings<T>(
+        &self,
+        notify: Notify,
+        change: impl FnOnce(&mut Settings) -> Result<T>,
+    ) -> Result<T> {
+        let mut settings = lock(&self.settings);
+        let mut changed = settings.clone();
+        let result = change(&mut changed)?;
+        changed.save(&self.config_dir)?;
+        *settings = changed;
+        drop(settings);
+        self.start_indexing(notify);
+        Ok(result)
+    }
+
+    pub fn settings(&self) -> Result<SettingsView> {
+        let settings = lock(&self.settings);
+        let index_bytes = ["", "-wal"]
+            .iter()
+            .filter_map(|suffix| {
+                std::fs::metadata(format!("{}{suffix}", self.index.display())).ok()
+            })
+            .map(|meta| meta.len())
+            .sum();
+        Ok(SettingsView {
+            excluded_folders: settings.excluded_folders.iter().map(folder_view).collect(),
+            patterns: settings.patterns.clone(),
+            default_patterns: DEFAULT_PATTERNS.iter().map(|p| p.to_string()).collect(),
+            data_folder: self
+                .index
+                .parent()
+                .unwrap_or(&self.index)
+                .to_string_lossy()
+                .to_string(),
+            index_bytes,
+        })
+    }
+
+    /// Leave out a folder the user chose in the native dialog. Its text
+    /// leaves the index on the run that follows.
+    pub fn exclude_folder(&self, chosen: &Path, notify: Notify) -> Result<Option<Folder>> {
+        let path = resolve_folder(chosen)
+            .with_context(|| format!("cannot open folder {}", chosen.display()))?;
+        let entry = self.change_settings(notify, |settings| {
+            settings.exclude_folder(path).map_err(|why| anyhow!(why))
+        })?;
+        Ok(entry.as_ref().map(folder_view))
+    }
+
+    pub fn include_folder(&self, id: u32, notify: Notify) -> Result<()> {
+        self.change_settings(notify, |settings| {
+            settings
+                .include_folder(id)
+                .map(drop)
+                .ok_or_else(|| anyhow!("no excluded folder with id {id}"))
+        })
+    }
+
+    pub fn set_patterns(&self, patterns: &[String], notify: Notify) -> Result<()> {
+        self.change_settings(notify, |settings| {
+            settings.set_patterns(patterns).map_err(|why| anyhow!(why))
+        })
+    }
+
+    /// The first-launch steps are done; they are not shown again.
+    pub fn finish_first_launch(&self) -> Result<()> {
+        let mut settings = lock(&self.settings);
+        settings.welcomed = true;
+        settings.save(&self.config_dir)?;
+        Ok(())
+    }
+
+    /// Delete the index and the settings, as if the app were new (APP-4).
+    /// The user's own files are not touched.
+    pub fn delete_all_data(&self) -> Result<()> {
+        self.indexer.stop_and_wait();
+        // The settings first: with no folders left, nothing is indexed again.
+        {
+            let mut settings = lock(&self.settings);
+            for name in settings::FILES {
+                remove_if_there(&self.config_dir.join(name))?;
+            }
+            *settings = Settings::default();
+        }
+        let mut reader = lock(&self.reader);
+        // Close the index, so its files can be deleted.
+        *reader = Store::open_in_memory()?;
+        for suffix in ["", "-wal", "-shm"] {
+            remove_if_there(Path::new(&format!("{}{suffix}", self.index.display())))?;
+        }
+        *reader = Store::open(&self.index).context("cannot create a new index")?;
+        Ok(())
     }
 
     pub fn status(&self) -> Result<Status> {
@@ -78,26 +179,28 @@ impl AppState {
                 reason: reason.clone(),
             },
         };
+        // One lock at a time: a guard lives to the end of its statement.
+        let (folders, first_launch) = {
+            let settings = lock(&self.settings);
+            let folders = settings.folders.iter().map(folder_view).collect();
+            (folders, !settings.welcomed)
+        };
+        let not_indexed = lock(&self.reader)
+            .problems()?
+            .iter()
+            .map(views::not_indexed)
+            .collect();
+        let problem = lock(&self.notice).take().or(snapshot.problem);
         Ok(Status {
-            folders: lock(&self.settings)
-                .folders
-                .iter()
-                .map(|folder| Folder {
-                    id: folder.id,
-                    path: folder.path.to_string_lossy().to_string(),
-                })
-                .collect(),
+            folders,
             work: snapshot.work,
             files: counts.files,
             passages: counts.passages,
             searchable_by_meaning: counts.vectors,
             meaning,
-            not_indexed: lock(&self.reader)
-                .problems()?
-                .iter()
-                .map(views::not_indexed)
-                .collect(),
-            problem: lock(&self.notice).take().or(snapshot.problem),
+            not_indexed,
+            problem,
+            first_launch,
         })
     }
 
@@ -128,10 +231,7 @@ impl AppState {
         settings.save(&self.config_dir)?;
         drop(settings);
         self.start_indexing(notify);
-        Ok(Some(Folder {
-            id: entry.id,
-            path: entry.path.to_string_lossy().to_string(),
-        }))
+        Ok(Some(folder_view(&entry)))
     }
 
     /// Stop indexing, forget the folder and purge its text and vectors
@@ -173,6 +273,20 @@ impl AppState {
             .file_of_passage(id)?
             .map(PathBuf::from)
             .ok_or_else(|| anyhow!("this result is no longer in the index"))
+    }
+}
+
+fn folder_view(entry: &FolderEntry) -> Folder {
+    Folder {
+        id: entry.id,
+        path: entry.path.to_string_lossy().to_string(),
+    }
+}
+
+fn remove_if_there(path: &Path) -> std::io::Result<()> {
+    match std::fs::remove_file(path) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error),
+        _ => Ok(()),
     }
 }
 
@@ -246,6 +360,66 @@ pub async fn index_now(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub async fn retry_failed(app: AppHandle) -> Result<(), String> {
     on_state(app, |app, state| state.retry_failed(notifier(app))).await
+}
+
+#[tauri::command]
+pub async fn settings(app: AppHandle) -> Result<SettingsView, String> {
+    on_state(app, |_, state| state.settings()).await
+}
+
+/// Opens the native folder dialog here, as add_folder does.
+#[tauri::command]
+pub async fn exclude_folder(app: AppHandle) -> Result<Option<Folder>, String> {
+    on_state(app, |app, state| {
+        let Some(chosen) = app
+            .dialog()
+            .file()
+            .set_title("Choose a folder to leave out")
+            .blocking_pick_folder()
+        else {
+            return Ok(None);
+        };
+        let chosen = chosen.into_path().map_err(|error| anyhow!("{error}"))?;
+        state.exclude_folder(&chosen, notifier(app))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn include_folder(app: AppHandle, id: u32) -> Result<(), String> {
+    on_state(app, move |app, state| {
+        state.include_folder(id, notifier(app))
+    })
+    .await
+}
+
+/// Patterns are names, not paths: they are checked, and never opened.
+#[tauri::command]
+pub async fn set_patterns(app: AppHandle, patterns: Vec<String>) -> Result<(), String> {
+    on_state(app, move |app, state| {
+        state.set_patterns(&patterns, notifier(app))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn finish_first_launch(app: AppHandle) -> Result<(), String> {
+    on_state(app, |app, state| {
+        state.finish_first_launch()?;
+        notifier(app)();
+        Ok(())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn delete_all_data(app: AppHandle) -> Result<(), String> {
+    on_state(app, |app, state| {
+        state.delete_all_data()?;
+        notifier(app)();
+        Ok(())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -352,6 +526,94 @@ mod tests {
         wait(&state);
         let listed = state.status().unwrap().not_indexed;
         assert!(listed[0].failed && !listed[0].parked);
+    }
+
+    #[test]
+    fn an_excluded_folder_leaves_the_index_and_comes_back_when_included() {
+        let (state, docs) = state("exclude");
+        std::fs::create_dir(docs.join("private")).unwrap();
+        std::fs::write(docs.join("private").join("diary.txt"), "the garden secret").unwrap();
+        state.add_folder(&docs, Arc::new(|| {})).unwrap();
+        wait(&state);
+        assert_eq!(state.status().unwrap().files, 3);
+
+        let excluded = state
+            .exclude_folder(&docs.join("private"), Arc::new(|| {}))
+            .unwrap()
+            .unwrap();
+        wait(&state);
+        assert_eq!(state.status().unwrap().files, 2);
+        assert!(state.search("garden secret").unwrap().files.is_empty());
+        assert_eq!(
+            state.settings().unwrap().excluded_folders,
+            vec![excluded.clone()]
+        );
+        // A folder outside the chosen ones cannot be excluded.
+        assert!(state
+            .exclude_folder(&std::env::temp_dir(), Arc::new(|| {}))
+            .is_err());
+
+        state.include_folder(excluded.id, Arc::new(|| {})).unwrap();
+        wait(&state);
+        assert_eq!(state.status().unwrap().files, 3);
+    }
+
+    #[test]
+    fn a_pattern_leaves_out_matching_files_and_bad_patterns_are_refused() {
+        let (state, docs) = state("patterns");
+        state.add_folder(&docs, Arc::new(|| {})).unwrap();
+        wait(&state);
+        assert_eq!(state.status().unwrap().files, 2);
+
+        let mut patterns = state.settings().unwrap().patterns;
+        patterns.push("invoice*".to_string());
+        state.set_patterns(&patterns, Arc::new(|| {})).unwrap();
+        wait(&state);
+        assert_eq!(state.status().unwrap().files, 1);
+
+        let refused = state.set_patterns(&["C:/docs".to_string()], Arc::new(|| {}));
+        assert!(refused.is_err());
+        assert!(state
+            .settings()
+            .unwrap()
+            .patterns
+            .contains(&"invoice*".to_string()));
+    }
+
+    #[test]
+    fn the_first_launch_is_shown_until_it_is_finished() {
+        let (state, docs) = state("first-launch");
+        assert!(state.status().unwrap().first_launch);
+        state.finish_first_launch().unwrap();
+        assert!(!state.status().unwrap().first_launch);
+        let data = docs.parent().unwrap().to_path_buf();
+        drop(state);
+        let again = AppState::open(&data, built_worker()).unwrap();
+        assert!(!again.status().unwrap().first_launch);
+    }
+
+    #[test]
+    fn deleting_all_data_empties_the_index_and_forgets_the_settings() {
+        let (state, docs) = state("delete-all");
+        state.add_folder(&docs, Arc::new(|| {})).unwrap();
+        state.finish_first_launch().unwrap();
+        wait(&state);
+        assert!(state.settings().unwrap().index_bytes > 0);
+
+        state.delete_all_data().unwrap();
+        let status = state.status().unwrap();
+        assert_eq!((status.files, status.folders.len()), (0, 0));
+        assert!(status.first_launch);
+        assert!(state.search("notice").unwrap().files.is_empty());
+        // The user's files are untouched.
+        assert!(docs.join("lease.txt").is_file());
+
+        // And nothing comes back after a restart.
+        let data = docs.parent().unwrap().to_path_buf();
+        drop(state);
+        let again = AppState::open(&data, built_worker()).unwrap();
+        assert!(again.folders().is_empty());
+        assert_eq!(again.status().unwrap().files, 0);
     }
 
     #[test]

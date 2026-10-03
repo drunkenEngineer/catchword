@@ -26,6 +26,25 @@ pub struct Status {
     pub not_indexed: Vec<NotIndexed>,
     /// The last thing that went wrong, in plain words.
     pub problem: Option<String>,
+    /// The first-launch steps are not done yet (APP-1).
+    pub first_launch: bool,
+}
+
+/// The settings the interface shows and changes (APP-3).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingsView {
+    /// Folders inside the chosen ones that are left out.
+    pub excluded_folders: Vec<Folder>,
+    /// Names of files and folders that are left out.
+    pub patterns: Vec<String>,
+    /// The patterns a new install starts with.
+    pub default_patterns: Vec<String>,
+    /// Where the index is stored (COV-3).
+    pub data_folder: String,
+    /// The size of the index on disk, in bytes.
+    #[ts(type = "number")]
+    pub index_bytes: u64,
 }
 
 /// A folder the user chose. The path is shown, never sent back.
@@ -147,6 +166,7 @@ mod tests {
         }
         each!(
             Status,
+            SettingsView,
             Folder,
             Stage,
             Work,

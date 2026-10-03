@@ -6,7 +6,7 @@ Catchword finds passages in your own documents, by meaning as well as by exact w
 
 ## What works today
 
-A first desktop app for Windows, and a command-line tool. Both index text, Markdown and PDF files and search them by their words and by their meaning. The desktop app: add a folder, watch it being indexed, search, preview a passage, open the file or show it in its folder. To run it, see CONTRIBUTING. The command-line tool:
+A first desktop app for Windows, and a command-line tool. Both index text, Markdown and PDF files and search them by their words and by their meaning. The desktop app: a two-step first launch, add a folder, watch it being indexed, search, preview a passage, open the file or show it in its folder; in Settings, leave out folders and names, see where the index is, and delete all data. To run it, see CONTRIBUTING. The command-line tool:
 
 ```
 sh scripts/fetch-pdfium.sh
@@ -25,13 +25,14 @@ On Windows, run the two scripts from Git Bash. They download the PDFium library,
 - Every file that was not indexed is listed with the reason: a scan with no text, a password, a size limit, or damage. The index remembers it, so the file is not read again until it changes. A file whose reading failed gets a second try, then waits until you ask for a retry (the Library's Try again button, or `catchword index <folder> --retry`).
 - Identical copies of a file are stored once.
 - Moved, changed and deleted files are picked up on the next `index` run.
-- Hidden folders are skipped, and links are never followed out of the folder you chose.
+- Hidden and system files are skipped, and links are never followed out of the folder you chose.
+- Some names are left out by default: system files, development folders such as `node_modules`, and files that often hold passwords or keys (`*.kdbx`, `*.pem`, `id_rsa*`, `*passwords*` and others). In the desktop app you can change the list and leave out folders; the command-line tool uses the default list.
 
 Meaning search is slow to build: on a 2023 laptop about 20 passages a second, so a few hours for a large library. Search quality is measured on 2,544 judged queries in English, German, French and Arabic; see `eval/` and `docs/benchmarks/`.
 
 ## What comes next
 
-1. The rest of the desktop app: first-launch flow, settings and exclusions.
+1. Pause and resource modes, appearance settings, and the update check.
 2. An installer, and the Microsoft Store package.
 
 Scanned documents need OCR, which is planned for a later version. Until then they are listed as skipped, not searched.

@@ -10,9 +10,11 @@ use std::time::UNIX_EPOCH;
 use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 
+pub mod exclude;
 pub mod extract;
 pub mod fuse;
 
+pub use exclude::Exclusions;
 use extract::Reason;
 
 /// A piece of a document, small enough to index and later to embed.
@@ -74,12 +76,13 @@ pub fn resolve_folder(folder: &Path) -> io::Result<PathBuf> {
 /// List the files under `root`, sorted by path.
 ///
 /// Links are not followed, so a scan can never leave the folder the user chose.
-/// Hidden files and folders (names starting with a dot) are skipped.
-pub fn scan(root: &Path) -> Vec<FileMeta> {
+/// Hidden and system files and folders are skipped, and so is whatever
+/// `exclusions` leaves out. A folder that is skipped is not entered.
+pub fn scan(root: &Path, exclusions: &Exclusions) -> Vec<FileMeta> {
     let walker = WalkDir::new(root)
         .follow_links(false)
         .into_iter()
-        .filter_entry(|e| e.depth() == 0 || !e.file_name().to_string_lossy().starts_with('.'));
+        .filter_entry(|e| e.depth() == 0 || !(hidden(e) || exclusions.excludes(e.path())));
     let mut found = Vec::new();
     for entry in walker.filter_map(Result::ok) {
         if !entry.file_type().is_file() {
@@ -101,6 +104,25 @@ pub fn scan(root: &Path) -> Vec<FileMeta> {
     }
     found.sort_by(|a, b| a.path.cmp(&b.path));
     found
+}
+
+/// Hidden or system: on Windows by its attributes, read from the folder
+/// listing without opening the file; everywhere, a name starting with a dot.
+fn hidden(entry: &walkdir::DirEntry) -> bool {
+    if entry.file_name().to_string_lossy().starts_with('.') {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        use windows_sys::Win32::Storage::FileSystem::{
+            FILE_ATTRIBUTE_HIDDEN, FILE_ATTRIBUTE_SYSTEM,
+        };
+        if let Ok(meta) = entry.metadata() {
+            return meta.file_attributes() & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM) != 0;
+        }
+    }
+    false
 }
 
 /// Read a plain-text or Markdown file and return its text with the hash of
@@ -424,15 +446,77 @@ mod tests {
         fs::write(deep.join("note.txt"), "deep inside").unwrap();
 
         // A short folder with a long path below it.
-        let found = scan(&resolve_folder(&folder).unwrap());
+        let found = scan(&resolve_folder(&folder).unwrap(), &Exclusions::default());
         assert_eq!(found.len(), 1);
         assert!(found[0].path.as_os_str().len() > 260);
         assert_eq!(read_text(&found[0].path, 100).unwrap().0, "deep inside");
 
         // A folder whose own path is long.
-        let found = scan(&resolve_folder(&deep).unwrap());
+        let found = scan(&resolve_folder(&deep).unwrap(), &Exclusions::default());
         assert_eq!(found.len(), 1);
         assert_eq!(read_text(&found[0].path, 100).unwrap().0, "deep inside");
+        fs::remove_dir_all(&folder).unwrap();
+    }
+
+    #[test]
+    fn a_scan_leaves_out_excluded_folders_patterns_and_hidden_files() {
+        let folder = test_folder("excluded");
+        for sub in ["private", "work", ".git", "work/node_modules"] {
+            fs::create_dir_all(folder.join(sub)).unwrap();
+        }
+        for file in [
+            "private/diary.txt",
+            "work/plan.md",
+            "work/passwords.txt",
+            "work/node_modules/readme.md",
+            ".git/notes.txt",
+            "kept.txt",
+        ] {
+            fs::write(folder.join(file), "text").unwrap();
+        }
+        let root = resolve_folder(&folder).unwrap();
+        let mut exclusions = Exclusions::with_default_patterns();
+        exclusions.folders.push(root.join("private"));
+        let names = |found: Vec<FileMeta>| -> Vec<String> {
+            found
+                .iter()
+                .map(|f| {
+                    f.path
+                        .strip_prefix(&root)
+                        .unwrap()
+                        .to_string_lossy()
+                        .replace('\\', "/")
+                })
+                .collect()
+        };
+        assert_eq!(
+            names(scan(&root, &exclusions)),
+            vec!["kept.txt", "work/plan.md"]
+        );
+        // Without exclusions only the dot folder is skipped.
+        assert_eq!(scan(&root, &Exclusions::default()).len(), 5);
+        fs::remove_dir_all(&folder).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn files_hidden_by_windows_are_skipped() {
+        let folder = test_folder("hidden-attribute");
+        fs::write(folder.join("shown.txt"), "text").unwrap();
+        fs::write(folder.join("hidden.txt"), "text").unwrap();
+        let status = std::process::Command::new("attrib")
+            .arg("+h")
+            .arg(folder.join("hidden.txt"))
+            .status()
+            .unwrap();
+        assert!(status.success());
+        let found = scan(&resolve_folder(&folder).unwrap(), &Exclusions::default());
+        assert_eq!(found.len(), 1);
+        assert!(found[0].path.ends_with("shown.txt"));
+        let _ = std::process::Command::new("attrib")
+            .arg("-h")
+            .arg(folder.join("hidden.txt"))
+            .status();
         fs::remove_dir_all(&folder).unwrap();
     }
 

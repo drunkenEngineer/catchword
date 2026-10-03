@@ -70,9 +70,51 @@ export const strings = {
 
   settings: {
     title: "Settings",
+    leaveOutTitle: "What to leave out",
+    leaveOutText: "Catchword does not read what is left out, and removes it from the index.",
+    excludedFolders: "Folders left out",
+    noExcludedFolders: "No folders are left out.",
+    excludeFolder: "Leave out a folder…",
+    includeFolder: "Include again",
+    patterns: "Names to leave out, one per line. * stands for any characters and ? for one.",
+    save: "Save names",
+    saved: "Saved. Indexing again.",
+    restoreDefaults: "Restore the defaults",
+    dataTitle: "Your data",
+    dataPlace: (folder: string, size: string) => `The index is stored in ${folder} (${size}). It holds the text of your documents, so it stays on this computer.`,
+    deleteAll: "Delete all data",
+    confirmDeleteAll:
+      "Delete the index and forget your folders and settings? Catchword starts again as new. Your own files are not touched.",
+    keep: "Keep",
     privacyTitle: "Privacy",
     privacy:
       "Your files never leave this computer. Catchword sends no document text, search, file name or usage data anywhere, and has no account.",
-    moreLater: "Folder exclusions, resource use and appearance settings arrive in a later version.",
+    moreLater: "Resource use, updates and appearance settings arrive in a later version.",
   },
+
+  welcome: {
+    step: (step: number, of: number) => `Step ${step} of ${of}`,
+    promiseTitle: "Your files never leave this computer",
+    promise: "Catchword reads the folders you choose and builds a search index on this computer.",
+    points: [
+      "No document text, search, file name or usage data is sent anywhere.",
+      "There is no account and no cloud service.",
+      "Your files are never changed, moved or deleted.",
+    ],
+    continue: "Continue",
+    foldersTitle: "Choose the folders to search",
+    foldersText: "Pick the folders that hold your documents. You can change them later in Library.",
+    addFolder: "Add a folder",
+    addAnother: "Add another folder",
+    start: "Start searching",
+    skip: "Skip for now",
+    leftOut: "System files and files that often hold passwords or keys are left out. You can change this in Settings.",
+  },
+
+  bytes: (bytes: number) =>
+    bytes < 1024 * 1024
+      ? `${Math.max(1, Math.round(bytes / 1024)).toLocaleString()} KB`
+      : bytes < 1024 * 1024 * 1024
+        ? `${(bytes / (1024 * 1024)).toLocaleString(undefined, { maximumFractionDigits: 1 })} MB`
+        : `${(bytes / (1024 * 1024 * 1024)).toLocaleString(undefined, { maximumFractionDigits: 1 })} GB`,
 };

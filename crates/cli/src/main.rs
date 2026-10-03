@@ -14,7 +14,7 @@ use std::process::ExitCode;
 use anyhow::{bail, Context, Result};
 use catchword_engine::extract::Limits;
 use catchword_engine::fuse::Found;
-use catchword_engine::without_controls;
+use catchword_engine::{without_controls, Exclusions};
 use catchword_service::{embed_missing, index_folder, search, Cutter, Model, Worker};
 use catchword_store::Store;
 
@@ -107,6 +107,7 @@ fn index(index_file: &Path, folder: &Path, retry: bool) -> Result<()> {
     let report = index_folder(
         &mut store,
         folder,
+        &Exclusions::with_default_patterns(),
         &cutter,
         &Worker::NextToProgram,
         &Limits::default(),

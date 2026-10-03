@@ -51,7 +51,8 @@ body {
 }
 
 button,
-input {
+input,
+textarea {
   font: inherit;
   color: inherit;
 }
@@ -280,8 +281,17 @@ mark {
 
 .confirm {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
+}
+
+.settings h3,
+.label {
+  display: block;
+  margin: 16px 0 4px;
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .bar {
@@ -297,6 +307,33 @@ mark {
 
 .problem {
   color: var(--danger);
+}
+
+.patterns {
+  display: block;
+  width: 100%;
+  max-width: 420px;
+  margin: 6px 0 8px;
+  padding: 8px;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.welcome {
+  max-width: 520px;
+  margin: 64px auto;
+  padding: 0 24px;
+}
+
+.welcome h1 {
+  font-size: 22px;
+  margin: 4px 0 12px;
+}
+
+.welcome .actions {
+  margin: 20px 0 12px;
 }
 
 /* Contrast themes: let Windows choose every colour. */

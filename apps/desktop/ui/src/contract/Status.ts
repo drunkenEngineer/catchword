@@ -19,4 +19,8 @@ notIndexed: Array<NotIndexed>,
 /**
  * The last thing that went wrong, in plain words.
  */
-problem: string | null, };
+problem: string | null, 
+/**
+ * The first-launch steps are not done yet (APP-1).
+ */
+firstLaunch: boolean, };
