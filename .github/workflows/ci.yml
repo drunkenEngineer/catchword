@@ -40,6 +40,9 @@ jobs:
       - name: Fetch ONNX Runtime and the embedding model
         shell: bash
         run: sh scripts/fetch-embedding.sh
+      - name: Fetch the evaluation data and the baseline model
+        shell: bash
+        run: sh scripts/fetch-eval.sh
       - name: Format
         run: cargo fmt --all -- --check
       - name: Lint
