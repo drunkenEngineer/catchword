@@ -12,7 +12,7 @@ use std::process::ExitCode;
 use anyhow::{bail, Context, Result};
 use catchword_embed::{Embedder, DEFAULT_MODEL};
 use catchword_engine::extract::{self, Limits, Outcome, Reason};
-use catchword_engine::fuse::Found;
+use catchword_engine::fuse::{Found, CANDIDATES};
 use catchword_engine::{
     chunk, chunk_pages, document_kind, hash_file, read_text, resolve_folder, scan,
     without_controls, DocumentKind, FileMeta, Passage, Tokenizer, WordTokenizer,
@@ -25,8 +25,6 @@ const MAX_WORDS: usize = 200;
 const OVERLAP_WORDS: usize = 30;
 /// Passages embedded between two saves, so an interrupted run loses little.
 const EMBED_BATCH: usize = 32;
-/// Results each kind of search contributes before they are combined.
-const CANDIDATES: usize = 50;
 const DEFAULT_INDEX: &str = "catchword-index.db";
 
 const USAGE: &str = "Catchword: search your own files. Nothing leaves this computer.

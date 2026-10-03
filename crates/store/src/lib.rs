@@ -19,6 +19,10 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction};
 /// and records how passages were cut and which model made the vectors.
 pub const SCHEMA_VERSION: i64 = 3;
 
+/// Words found in more than this share of passages are left out of keyword
+/// queries (ADR-20).
+const COMMON_SHARE: f64 = 0.05;
+
 pub struct Store {
     conn: Connection,
     was_reset: bool,
@@ -141,6 +145,12 @@ impl Store {
         conn.execute(
             "INSERT OR IGNORE INTO meta(key, value) VALUES ('schema_version', ?1)",
             params![SCHEMA_VERSION.to_string()],
+        )?;
+        // How many passages hold each word, read from the keyword index. A
+        // temporary view for this connection only: nothing is stored.
+        conn.execute_batch(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS temp.passage_words
+                 USING fts5vocab(main, passages_fts, 'row');",
         )?;
         Ok(Self { conn, was_reset })
     }
@@ -454,13 +464,26 @@ impl Store {
             .optional()
     }
 
-    /// Keyword search: every word must appear, ranked by BM25.
+    /// Keyword search: passages with any of the words, ranked by BM25, so
+    /// passages with more of the words, and rarer ones, come first.
     ///
     /// Identical copies of a file share one content, so they appear once.
     pub fn search_keyword(&self, query: &str, limit: usize) -> rusqlite::Result<Vec<Hit>> {
-        let Some(fts_query) = to_fts_query(query) else {
+        let words = self.uncommon(query_words(query))?;
+        if words.is_empty() {
             return Ok(Vec::new());
-        };
+        }
+        let fts_query = words
+            .iter()
+            .map(|word| format!("\"{}\"", word.replace('"', "\"\"")))
+            .collect::<Vec<_>>()
+            .join(" OR ");
+        // A passage must hold at least half of the query's distinct words.
+        // Below that, matches are mostly chance: an English question against
+        // an Arabic passage shares only a year or a name (ADR-20).
+        let needed = words.len().div_ceil(2);
+        // highlight() marks each word the keyword index matched, between
+        // two control characters that passage text never contains.
         let mut statement = self.conn.prepare(
             "SELECT p.id,
                     (SELECT MIN(path) FROM files f WHERE f.hash = p.hash),
@@ -469,15 +492,16 @@ impl Store {
                     p.start_line,
                     p.end_line,
                     snippet(passages_fts, 0, '[', ']', ' ... ', 24),
-                    bm25(passages_fts)
+                    bm25(passages_fts),
+                    highlight(passages_fts, 0, char(2), char(3))
              FROM passages_fts
              JOIN passages p ON p.id = passages_fts.rowid
              WHERE passages_fts MATCH ?1
              ORDER BY bm25(passages_fts)
              LIMIT ?2",
         )?;
-        let hits = statement.query_map(params![fts_query, limit as i64], |row| {
-            Ok(Hit {
+        let rows = statement.query_map(params![fts_query, (limit * 5 + 20) as i64], |row| {
+            let hit = Hit {
                 passage_id: row.get(0)?,
                 path: row.get(1)?,
                 copies: row.get(2)?,
@@ -487,9 +511,65 @@ impl Store {
                 snippet: row.get(6)?,
                 // SQLite's bm25() is lower-is-better; flip it.
                 score: -row.get::<_, f64>(7)?,
-            })
+            };
+            let marked: String = row.get(8)?;
+            Ok((hit, matched_words(&marked)))
         })?;
-        hits.collect()
+        let mut hits = Vec::new();
+        for row in rows {
+            let (hit, matched) = row?;
+            if matched >= needed {
+                hits.push(hit);
+                if hits.len() == limit {
+                    break;
+                }
+            }
+        }
+        Ok(hits)
+    }
+
+    /// Leave out words found in more than COMMON_SHARE of passages, such as
+    /// "the" or "de": they barely change the ranking, but scoring the
+    /// passages they match made a keyword search ten times slower (ADR-20).
+    /// If every word is that common, the rarest one is kept.
+    fn uncommon(&self, words: Vec<String>) -> rusqlite::Result<Vec<String>> {
+        let passages: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM passages", (), |row| row.get(0))?;
+        let limit = (passages as f64 * COMMON_SHARE).max(1.0);
+        let mut counted = Vec::new();
+        for word in words {
+            // The index keeps words in lower case. A word it splits further,
+            // or stores without accents, is not found here and simply kept.
+            let key: String = word
+                .trim_matches(|c: char| !c.is_alphanumeric())
+                .to_lowercase();
+            let holding: i64 = self
+                .conn
+                .query_row(
+                    "SELECT doc FROM temp.passage_words WHERE term = ?1",
+                    params![key],
+                    |row| row.get(0),
+                )
+                .optional()?
+                .unwrap_or(0);
+            counted.push((word, holding));
+        }
+        let rarest = counted.iter().map(|(_, holding)| *holding).min();
+        let kept: Vec<String> = counted
+            .iter()
+            .filter(|(_, holding)| (*holding as f64) <= limit)
+            .map(|(word, _)| word.clone())
+            .collect();
+        if !kept.is_empty() {
+            return Ok(kept);
+        }
+        Ok(counted
+            .into_iter()
+            .filter(|(_, holding)| Some(*holding) == rarest)
+            .map(|(word, _)| word)
+            .take(1)
+            .collect())
     }
 
     pub fn counts(&self) -> rusqlite::Result<Counts> {
@@ -644,20 +724,37 @@ fn drop_orphans(tx: &Transaction<'_>) -> rusqlite::Result<()> {
     Ok(())
 }
 
-/// Turn free text into a safe keyword query: each word quoted, all required.
-///
-/// Quoting means the user's text is never read as query syntax.
-fn to_fts_query(query: &str) -> Option<String> {
-    let terms: Vec<String> = query
-        .split_whitespace()
-        .filter(|word| word.chars().any(char::is_alphanumeric))
-        .map(|word| format!("\"{}\"", word.replace('"', "\"\"")))
-        .collect();
-    if terms.is_empty() {
-        None
-    } else {
-        Some(terms.join(" "))
+/// The words of a query that keyword search looks for: those with a letter
+/// or digit, each once, whatever its case. Each becomes a quoted term, so
+/// the user's text is never read as query syntax.
+fn query_words(query: &str) -> Vec<String> {
+    let mut words: Vec<String> = Vec::new();
+    for word in query.split_whitespace() {
+        if word.chars().any(char::is_alphanumeric)
+            && !words
+                .iter()
+                .any(|w| w.to_lowercase() == word.to_lowercase())
+        {
+            words.push(word.to_string());
+        }
     }
+    words
+}
+
+/// How many different words highlight() marked, between char(2) and char(3).
+fn matched_words(marked: &str) -> usize {
+    let mut found: Vec<String> = Vec::new();
+    for piece in marked.split('\u{2}').skip(1) {
+        let word = piece
+            .split('\u{3}')
+            .next()
+            .unwrap_or_default()
+            .to_lowercase();
+        if !found.contains(&word) {
+            found.push(word);
+        }
+    }
+    found.len()
 }
 
 #[cfg(test)]
@@ -700,16 +797,81 @@ mod tests {
         assert_eq!(hits[0].copies, 2);
     }
 
+    /// `documents` plus 50 filler passages that all contain "the", so word
+    /// counts look like a real library's, where few words are common.
+    fn store_with_filler(documents: &[(&str, &str, &str)]) -> Store {
+        let filler: Vec<(String, String, String)> = (0..50)
+            .map(|n| {
+                (
+                    format!("/filler/{n}.txt"),
+                    format!("filler{n}"),
+                    format!("the filler number{n}"),
+                )
+            })
+            .collect();
+        let mut all: Vec<(&str, &str, &str)> = documents.to_vec();
+        all.extend(
+            filler
+                .iter()
+                .map(|(path, hash, text)| (path.as_str(), hash.as_str(), text.as_str())),
+        );
+        store_with(&all)
+    }
+
     #[test]
-    fn search_requires_every_word_and_survives_odd_input() {
-        let store = store_with(&[
+    fn very_common_words_are_left_out_of_keyword_search() {
+        let store = store_with_filler(&[
+            ("/a.txt", "h1", "the notice of termination"),
+            ("/b.txt", "h2", "the termination clause"),
+        ]);
+        // "the" is in every passage: it is left out, so only the two
+        // passages about termination match, not all 52.
+        let hits = store.search_keyword("the termination", 60).unwrap();
+        let mut paths: Vec<&str> = hits.iter().map(|hit| hit.path.as_str()).collect();
+        paths.sort();
+        assert_eq!(paths, vec!["/a.txt", "/b.txt"]);
+        // A query of common words only still searches, by its rarest word.
+        assert!(!store.search_keyword("the", 10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn matched_words_are_counted_once_each() {
+        let marked = "the \u{2}Rent\u{3} is due; \u{2}rent\u{3} and \u{2}notice\u{3} apply";
+        assert_eq!(matched_words(marked), 2);
+        assert_eq!(matched_words("nothing marked"), 0);
+    }
+
+    #[test]
+    fn keyword_search_needs_half_the_words_and_survives_odd_input() {
+        let store = store_with_filler(&[
             ("/a.txt", "h1", "notice of termination sent in March"),
             ("/b.txt", "h2", "termination clause, thirty days"),
         ]);
         assert_eq!(store.search_keyword("termination", 10).unwrap().len(), 2);
+        // Two words: one is enough. Both passages match "termination"; the
+        // one that also has "march" leads.
         let hits = store.search_keyword("termination march", 10).unwrap();
-        assert_eq!(hits.len(), 1);
+        assert_eq!(hits.len(), 2);
         assert_eq!(hits[0].path, "/a.txt");
+        // A word found nowhere does not hide the passages that match.
+        assert_eq!(
+            store.search_keyword("termination zebra", 10).unwrap().len(),
+            2
+        );
+        // Five words: a passage needs three. Only /a.txt has them.
+        let hits = store
+            .search_keyword("notice of termination in March", 10)
+            .unwrap();
+        let paths: Vec<&str> = hits.iter().map(|hit| hit.path.as_str()).collect();
+        assert_eq!(paths, vec!["/a.txt"]);
+        // The same word twice counts once.
+        assert_eq!(
+            store
+                .search_keyword("Termination termination", 10)
+                .unwrap()
+                .len(),
+            2
+        );
         assert!(store
             .search_keyword("\"unbalanced (quote* AND", 10)
             .unwrap()

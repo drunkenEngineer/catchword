@@ -13,6 +13,7 @@ use std::process::ExitCode;
 
 use anyhow::{bail, Context, Result};
 use catchword_embed::{ModelManifest, DEFAULT_MODEL, E5_SMALL, GRANITE_97M};
+use catchword_engine::fuse::CANDIDATES;
 use catchword_engine::{PASSAGE_OVERLAP_TOKENS, PASSAGE_TOKENS};
 
 use crate::run::Config;
@@ -29,6 +30,7 @@ Options:
   --model granite|e5   Model for run (default: the app's)
   --tokens <n>         Passage size for run (default: the app's)
   --overlap <n>        Overlap for run (default: the app's)
+  --candidates <n>     Results each search adds before combining (default: the app's)
   --passages <n>       Size of the scale index (default: 250000)
   --out <file>         Also write the report to a file
 
@@ -75,6 +77,7 @@ fn start() -> Result<ExitCode> {
                 model,
                 tokens: number("--tokens", PASSAGE_TOKENS)?,
                 overlap: number("--overlap", PASSAGE_OVERLAP_TOKENS)?,
+                candidates: number("--candidates", CANDIDATES)?,
             };
             let set = load_set()?;
             let outcome = run::evaluate(&set, &config, &vendor)?;
@@ -130,6 +133,7 @@ fn benchmark(vendor: &Path) -> Result<String> {
                 model,
                 tokens,
                 overlap,
+                candidates: CANDIDATES,
             };
             eprintln!("Scoring {} ...", config.label());
             outcomes.push(run::evaluate(&set, &config, vendor)?);
@@ -155,6 +159,7 @@ fn check(vendor: &Path) -> Result<ExitCode> {
         model: DEFAULT_MODEL,
         tokens: PASSAGE_TOKENS,
         overlap: PASSAGE_OVERLAP_TOKENS,
+        candidates: CANDIDATES,
     };
     let outcome = run::evaluate(&set, &config, vendor)?;
     let failed = report::check(&set, &outcome, &thresholds)?;

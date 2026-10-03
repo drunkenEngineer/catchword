@@ -14,22 +14,20 @@ use catchword_store::{Hit, Store};
 use crate::metrics::{Judged, K};
 use crate::set::{one_line, EvalSet, Query};
 
-/// Results each kind of search contributes before they are combined, as in
-/// the app.
-const CANDIDATES: usize = 50;
-
 #[derive(Debug, Clone, Copy)]
 pub struct Config {
     pub model: ModelManifest,
     pub tokens: usize,
     pub overlap: usize,
+    /// Results each kind of search contributes to the combined list.
+    pub candidates: usize,
 }
 
 impl Config {
     pub fn label(&self) -> String {
         format!(
-            "{}, {} tokens (overlap {})",
-            self.model.name, self.tokens, self.overlap
+            "{}, {} tokens (overlap {}), {} candidates",
+            self.model.name, self.tokens, self.overlap, self.candidates
         )
     }
 }
@@ -137,7 +135,7 @@ pub fn evaluate(set: &EvalSet, config: &Config, vendor: &Path) -> Result<Outcome
         let words = store.search_keyword(&query.text, K)?;
         let meaning = store.search_vector(&vector, K)?;
         let combined: Vec<Hit> = store
-            .search_combined(&query.text, Some(&vector), CANDIDATES)?
+            .search_combined(&query.text, Some(&vector), config.candidates)?
             .into_iter()
             .take(K)
             .map(|(hit, _)| hit)

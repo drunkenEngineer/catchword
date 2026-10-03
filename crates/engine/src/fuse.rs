@@ -11,6 +11,10 @@ use std::hash::Hash;
 /// The usual constant. Larger values flatten the difference between ranks.
 pub const K: f64 = 60.0;
 
+/// Results each kind of search contributes before they are combined.
+/// Chosen by the evaluation (ADR-20).
+pub const CANDIDATES: usize = 50;
+
 /// How a result was found.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Found {
