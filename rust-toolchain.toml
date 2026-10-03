@@ -1,0 +1,5 @@
+# Every machine and CI job builds with the same Rust. rustup reads this file
+# and installs this version on first use. Raise it deliberately, in its own change.
+[toolchain]
+channel = "1.99.0"
+components = ["rustfmt", "clippy"]
