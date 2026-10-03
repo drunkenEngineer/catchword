@@ -8,7 +8,8 @@ Thank you for helping. The project is small and run by one maintainer, so please
 2. Clone the repository.
 3. In the project folder, run `rustup toolchain install`. It installs the exact Rust version pinned in `rust-toolchain.toml`.
 4. Run `sh scripts/fetch-pdfium.sh` (on Windows, from Git Bash). It downloads the pinned PDFium library into `vendor/pdfium/` and refuses it if its checksum does not match.
-5. Run `cargo test --workspace`. Everything should pass.
+5. Run `sh scripts/fetch-embedding.sh` the same way. It downloads the pinned ONNX Runtime library and the embedding model (about 200 MB) into `vendor/`, with the same checks.
+6. Run `cargo test --workspace`. Everything should pass.
 
 ## Before you open a pull request
 

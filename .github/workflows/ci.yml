@@ -28,9 +28,18 @@ jobs:
           cargo fmt --version
           cargo clippy --version
       - uses: Swatinem/rust-cache@v2
+      # The pinned downloads (about 200 MB) are kept between runs. A change to
+      # a fetch script, and so to a pin, starts a fresh cache.
+      - uses: actions/cache@v4
+        with:
+          path: vendor
+          key: vendor-${{ runner.os }}-${{ hashFiles('scripts/fetch-*.sh') }}
       - name: Fetch PDFium
         shell: bash
         run: sh scripts/fetch-pdfium.sh
+      - name: Fetch ONNX Runtime and the embedding model
+        shell: bash
+        run: sh scripts/fetch-embedding.sh
       - name: Format
         run: cargo fmt --all -- --check
       - name: Lint
