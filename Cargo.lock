@@ -51,6 +51,7 @@ dependencies = [
  "dunce",
  "sha2",
  "walkdir",
+ "windows-sys",
 ]
 
 [[package]]

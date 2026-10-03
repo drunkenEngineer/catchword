@@ -9,3 +9,20 @@ license.workspace = true
 dunce.workspace = true
 sha2.workspace = true
 walkdir.workspace = true
+
+# This test program also plays misbehaving workers, so it needs full control
+# of its own output and has its own small runner.
+[[test]]
+name = "supervisor"
+harness = false
+
+# Job objects: the Windows feature that limits the extraction worker.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_IO",
+    "Win32_System_JobObjects",
+    "Win32_System_SystemServices",
+    "Win32_System_Threading",
+] }

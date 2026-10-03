@@ -13,3 +13,4 @@ dunce = "1"
 rusqlite = { version = "0.31", features = ["bundled"] }
 sha2 = "0.10"
 walkdir = "2"
+windows-sys = "0.61"
