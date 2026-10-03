@@ -33,6 +33,18 @@ The `ort` binding can download ONNX Runtime by itself while compiling, from its 
 - `scripts/fetch-embedding.sh` downloads both into `vendor/` (not committed) and refuses any file whose SHA-256 differs from the value in the script. CI runs it and caches the result.
 - The engine checks the model's checksums again each time it loads the model, and refuses a mismatch (section 12, "model checksum mismatch").
 
+## Findings from the first build (3 October 2026)
+
+Measured on the owner's PC: Intel i7-13620H, 6 performance and 4 efficiency cores, 16 GB of RAM.
+
+- **One passage at a time.** The 8-bit model sets its rounding scale from everything in one run. So a passage run together with others, or padded to their length, gets a different vector:
+  - similarity 0.98 next to an equal-length passage;
+  - 0.84 when padded next to a long one.
+
+  Running passages together was no faster (13.2 against 12.8 passages a second), so each passage and query is embedded on its own. A test guards this.
+- **Speed: about 13 passages a second** for 350-token passages. Thread-count and graph-optimisation settings made no improvement. That is about 5 hours for the spec's 250,000-passage reference library. Keyword search works meanwhile, as the spec requires. The Phase 0 benchmark must weigh this: the spec's rule moves to the baseline model below 20 passages a second, if the baseline is faster.
+- **Loading takes about 1.9 seconds:** the checksum of the model about 0.2 s, reading the 25 MB tokenizer about 1 s, the rest starting ONNX Runtime. Debug builds now optimise third-party libraries; without that, loading took 5 seconds.
+
 ## Not covered yet
 
 - The model choice is still provisional. The Phase 0 benchmark (task 4, ARC-5) compares it with multilingual-e5-small, and may also change the passage size.

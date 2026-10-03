@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/engine", "crates/store", "crates/cli", "crates/worker", "crates/test-support"]
+members = ["crates/engine", "crates/store", "crates/cli", "crates/worker", "crates/embed", "crates/test-support"]
 
 [workspace.package]
 version = "0.0.1"
@@ -10,9 +10,19 @@ license = "Apache-2.0"
 [workspace.dependencies]
 anyhow = "1"
 dunce = "1"
+# ONNX Runtime binding. Loads the runtime by full path; its own build-time
+# download stays off (ADR-18).
+ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "load-dynamic"] }
 # PDFium binding. The image feature is off: only text is extracted.
 pdfium-render = { version = "0.9.4", default-features = false, features = ["pdfium_latest"] }
 rusqlite = { version = "0.31", features = ["bundled"] }
 sha2 = "0.10"
+# The model's tokenizer. No download feature; Oniguruma for its regular expressions.
+tokenizers = { version = "0.23.2", default-features = false, features = ["onig"] }
 walkdir = "2"
 windows-sys = "0.61"
+
+# Libraries are optimised even in debug builds: hashing the model and parsing
+# its tokenizer take seconds without it. Catchword's own code stays debuggable.
+[profile.dev.package."*"]
+opt-level = 3
