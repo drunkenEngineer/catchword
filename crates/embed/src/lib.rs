@@ -66,7 +66,7 @@ pub const GRANITE_97M: ModelManifest = ModelManifest {
     tokenizer_sha256: "4f2842d568e2724370aec203652a42ac783c7937f8347a1a2cc7506d71f1582f",
 };
 
-/// The model the app uses. Chosen by the benchmark (ADR-20).
+/// The model the app uses. The benchmark recommends keeping it (ADR-20).
 pub const DEFAULT_MODEL: ModelManifest = GRANITE_97M;
 
 /// The baseline the provisional model must beat (ADR-6). It averages all

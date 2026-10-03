@@ -52,3 +52,7 @@ jobs:
       - name: Privacy invariant
         if: runner.os == 'Linux'
         run: sh scripts/check-no-network.sh
+      # Search quality must stay above eval/thresholds.txt (ADR-19, ADR-20).
+      - name: Retrieval evaluation
+        if: runner.os == 'Linux'
+        run: cargo run -p catchword-eval -- check

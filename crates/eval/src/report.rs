@@ -194,3 +194,74 @@ pub fn check(set: &EvalSet, outcome: &Outcome, thresholds: &str) -> Result<Vec<S
     }
     Ok(failed)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::metrics::Judged;
+    use crate::run::{Config, Outcome};
+    use std::collections::HashMap;
+
+    fn query(kind: Kind) -> Query {
+        Query {
+            source: Source::Domain,
+            kind,
+            language: "en".into(),
+            text: "q".into(),
+            doc: "d.txt".into(),
+            doc_language: "en".into(),
+            line: 1,
+            answer: "a".into(),
+        }
+    }
+
+    /// Two queries: the exact one is found first, the descriptive one not at all.
+    fn example() -> (EvalSet, Outcome) {
+        let set = EvalSet {
+            docs: Vec::new(),
+            queries: vec![query(Kind::Exact), query(Kind::Descriptive)],
+        };
+        let judged = |hit: bool| {
+            Search::ALL
+                .into_iter()
+                .map(|search| {
+                    let relevant = vec![hit];
+                    (search, Judged { relevant, total: 1 })
+                })
+                .collect::<HashMap<_, _>>()
+        };
+        let outcome = Outcome {
+            config: Config {
+                model: catchword_embed::GRANITE_97M,
+                tokens: 350,
+                overlap: 50,
+                candidates: 50,
+            },
+            passages: 1,
+            load_seconds: 1.0,
+            embed_seconds: 1.0,
+            query_seconds: 1.0,
+            judged: vec![judged(true), judged(false)],
+        };
+        (set, outcome)
+    }
+
+    #[test]
+    fn the_check_reports_every_threshold_that_is_not_met() {
+        let (set, outcome) = example();
+        let thresholds = "# comment\n\
+                          combined kind:exact recall@10 0.9\n\
+                          combined all recall@10 0.6\n";
+        let failed = check(&set, &outcome, thresholds).unwrap();
+        // Exact: 1.0, met. All: 0.5, below 0.6.
+        assert_eq!(failed, vec!["combined all recall@10 0.6".to_string()]);
+    }
+
+    #[test]
+    fn a_malformed_threshold_is_an_error_not_a_pass() {
+        let (set, outcome) = example();
+        assert!(check(&set, &outcome, "combined all recall@10").is_err());
+        assert!(check(&set, &outcome, "combined nowhere recall@10 0.5").is_err());
+        assert!(check(&set, &outcome, "combined all speed 0.5").is_err());
+    }
+}

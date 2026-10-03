@@ -27,12 +27,11 @@ On Windows, run the two scripts from Git Bash. They download the PDFium library,
 - Moved, changed and deleted files are picked up on the next `index` run.
 - Hidden folders are skipped, and links are never followed out of the folder you chose.
 
-Meaning search is slow to build: on a 2023 laptop about 13 passages a second, so several hours for a large library. The model choice and passage size are still provisional.
+Meaning search is slow to build: on a 2023 laptop about 20 passages a second, so a few hours for a large library. Search quality is measured on 2,544 judged queries in English, German, French and Arabic; see `eval/` and `docs/benchmarks/`.
 
 ## What comes next
 
-1. An evaluation set and benchmark, to choose the model and passage size by measurement.
-2. The desktop app for Windows, distributed through the Microsoft Store.
+1. The desktop app for Windows, distributed through the Microsoft Store.
 
 Scanned documents need OCR, which is planned for a later version. Until then they are listed as skipped, not searched.
 

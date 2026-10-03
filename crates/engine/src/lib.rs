@@ -159,7 +159,8 @@ fn to_hex(digest: &[u8]) -> String {
 }
 
 /// The passage size the app uses, in the embedding model's tokens, and the
-/// overlap between neighbouring passages. Chosen by the benchmark (ADR-20).
+/// overlap between neighbouring passages. The benchmark found 200, 350 and
+/// 500 within a point of each other; 350 stays for now (ADR-20).
 pub const PASSAGE_TOKENS: usize = 350;
 pub const PASSAGE_OVERLAP_TOKENS: usize = 50;
 

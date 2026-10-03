@@ -12,7 +12,7 @@ use std::hash::Hash;
 pub const K: f64 = 60.0;
 
 /// Results each kind of search contributes before they are combined.
-/// Chosen by the evaluation (ADR-20).
+/// 10 and 20 were measured too (ADR-20).
 pub const CANDIDATES: usize = 50;
 
 /// How a result was found.

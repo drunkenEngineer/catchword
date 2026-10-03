@@ -1,0 +1,16 @@
+# Minimum scores for the app's settings: Granite, 350 tokens, 50 candidates.
+# Each is the score measured on 3 October 2026 (ADR-20) minus two points.
+# A change that goes below one needs a written justification (ADR-19).
+#
+# search    group                  metric     minimum
+combined    all                    recall@10  0.909
+combined    all                    mrr@10     0.758
+combined    all                    ndcg@10    0.786
+combined    kind:descriptive       recall@10  0.956
+combined    kind:exact             recall@10  0.965
+combined    kind:cross-language    recall@10  0.855
+combined    language:ar            recall@10  0.928
+combined    script:latin           recall@10  0.900
+combined    source:written         recall@10  0.980
+meaning     all                    recall@10  0.868
+words       kind:exact             recall@10  0.965
