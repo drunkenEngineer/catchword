@@ -328,6 +328,13 @@ impl Store {
         passages: &[Passage],
     ) -> rusqlite::Result<bool> {
         let tx = self.conn.transaction()?;
+        let old_hash: Option<String> = tx
+            .query_row(
+                "SELECT hash FROM files WHERE path = ?1",
+                params![path],
+                |row| row.get(0),
+            )
+            .optional()?;
         let is_new = tx
             .query_row(
                 "SELECT 1 FROM contents WHERE hash = ?1",
@@ -365,7 +372,13 @@ impl Store {
                  hash = excluded.hash",
             params![path, size as i64, modified_secs, hash],
         )?;
-        drop_orphans(&tx)?;
+        // Only the content this file pointed to before can have lost its last
+        // file. Checking just that one keeps each write the same cost however
+        // large the index grows; a scan of the whole index here made indexing
+        // time grow with the square of the library size (ADR-20).
+        if let Some(old_hash) = old_hash.filter(|old| old != hash) {
+            drop_content_if_unused(&tx, &old_hash)?;
+        }
         tx.commit()?;
         Ok(is_new)
     }
@@ -568,6 +581,40 @@ fn stored_version(conn: &Connection) -> rusqlite::Result<Option<i64>> {
         .optional()?;
     // A missing or unreadable version is treated as the oldest.
     Ok(Some(value.and_then(|v| v.parse().ok()).unwrap_or(0)))
+}
+
+/// Remove one content, with its passages, their keyword entries and vectors,
+/// if no file refers to it any more.
+fn drop_content_if_unused(tx: &Transaction<'_>, hash: &str) -> rusqlite::Result<()> {
+    let still_used = tx
+        .query_row(
+            "SELECT 1 FROM files WHERE hash = ?1 LIMIT 1",
+            params![hash],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    if still_used {
+        return Ok(());
+    }
+    if has_table(tx, "passage_vectors")? {
+        let ids: Vec<i64> = tx
+            .prepare("SELECT id FROM passages WHERE hash = ?1")?
+            .query_map(params![hash], |row| row.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        for id in ids {
+            tx.execute("DELETE FROM passage_vectors WHERE rowid = ?1", params![id])?;
+        }
+    }
+    // The keyword index is told about each deletion first, with the old text.
+    tx.execute(
+        "INSERT INTO passages_fts(passages_fts, rowid, text)
+         SELECT 'delete', id, text FROM passages WHERE hash = ?1",
+        params![hash],
+    )?;
+    tx.execute("DELETE FROM passages WHERE hash = ?1", params![hash])?;
+    tx.execute("DELETE FROM contents WHERE hash = ?1", params![hash])?;
+    Ok(())
 }
 
 /// Remove passages, their vectors and contents that no file refers to any more.
@@ -835,6 +882,44 @@ mod tests {
             .collect();
         store.put_vectors(&vectors).unwrap();
         store
+    }
+
+    #[test]
+    fn a_changed_file_drops_its_old_text_and_vectors_unless_shared() {
+        let mut store = store_with_vectors();
+        // A copy of rent.txt shares its content.
+        store
+            .put_file(
+                "/copy.txt",
+                1,
+                1,
+                "h1",
+                &chunk("the rent is due monthly", 50, 5, &WordTokenizer),
+            )
+            .unwrap();
+        // Both files change: tax.txt's old content is used by nothing else, so
+        // it goes; rent.txt's old content is still used by the copy, so it stays.
+        for path in ["/tax.txt", "/rent.txt"] {
+            store
+                .put_file(
+                    path,
+                    2,
+                    2,
+                    &format!("new {path}"),
+                    &chunk("fresh text", 50, 5, &WordTokenizer),
+                )
+                .unwrap();
+        }
+        assert!(store.search_keyword("refund", 10).unwrap().is_empty());
+        assert_eq!(
+            store.search_keyword("monthly", 10).unwrap()[0].path,
+            "/copy.txt"
+        );
+        let counts = store.counts().unwrap();
+        // h1 (rent, kept for the copy), h3 (cat), and the two new contents.
+        assert_eq!(counts.contents, 4);
+        // The tax passage's vector went with it; rent's and cat's remain.
+        assert_eq!(counts.vectors, 2);
     }
 
     #[test]

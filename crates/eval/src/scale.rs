@@ -1,6 +1,10 @@
 //! Search speed and index size at the spec's reference size (section 14),
 //! with synthetic passages: random words and random unit vectors. No model
 //! is involved, so this measures the store alone.
+//!
+//! Words follow Zipf's law, like real text: a few words are in nearly every
+//! passage, as "the" is, and most are rare. Queries are six such words,
+//! like a typed question.
 
 use std::fmt::Write;
 use std::fs;
@@ -16,6 +20,7 @@ const WORDS_PER_PASSAGE: usize = 60;
 const PASSAGES_PER_FILE: usize = 25;
 const VOCABULARY: usize = 20_000;
 const QUERIES: usize = 50;
+const WORDS_PER_QUERY: usize = 6;
 
 /// A small, fixed random number generator (xorshift), so every run
 /// builds the same index.
@@ -29,16 +34,40 @@ impl Random {
         self.0
     }
 
-    fn below(&mut self, n: usize) -> usize {
-        (self.next() % n as u64) as usize
-    }
-
     fn unit_vector(&mut self) -> Vec<f32> {
         let raw: Vec<f32> = (0..DIMENSIONS)
             .map(|_| (self.next() % 2001) as f32 / 1000.0 - 1.0)
             .collect();
         let length = raw.iter().map(|x| x * x).sum::<f32>().sqrt();
         raw.iter().map(|x| x / length).collect()
+    }
+}
+
+/// Picks word n about 1 / (n + 1) times as often as word 0.
+struct Zipf {
+    cumulative: Vec<f64>,
+}
+
+impl Zipf {
+    fn new(words: usize) -> Self {
+        let mut total = 0.0;
+        let mut cumulative: Vec<f64> = (0..words)
+            .map(|n| {
+                total += 1.0 / (n as f64 + 1.0);
+                total
+            })
+            .collect();
+        for value in &mut cumulative {
+            *value /= total;
+        }
+        Self { cumulative }
+    }
+
+    fn pick(&self, random: &mut Random) -> usize {
+        let share = (random.next() >> 11) as f64 / (1u64 << 53) as f64;
+        self.cumulative
+            .partition_point(|&value| value < share)
+            .min(self.cumulative.len() - 1)
     }
 }
 
@@ -64,7 +93,14 @@ pub fn run(passages: usize, folder: &Path) -> Result<String> {
         let _ = fs::remove_file(format!("{}{suffix}", path.display()));
     }
     let vocabulary: Vec<String> = (0..VOCABULARY).map(word).collect();
+    let zipf = Zipf::new(VOCABULARY);
     let mut random = Random(0x9E37_79B9_7F4A_7C15);
+    let words = |random: &mut Random, count: usize| {
+        (0..count)
+            .map(|_| vocabulary[zipf.pick(random)].as_str())
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
 
     let started = Instant::now();
     let mut store = Store::open(&path)?;
@@ -77,10 +113,7 @@ pub fn run(passages: usize, folder: &Path) -> Result<String> {
                 page: None,
                 start_line: ordinal as u32 + 1,
                 end_line: ordinal as u32 + 1,
-                text: (0..WORDS_PER_PASSAGE)
-                    .map(|_| vocabulary[random.below(VOCABULARY)].as_str())
-                    .collect::<Vec<_>>()
-                    .join(" "),
+                text: words(&mut random, WORDS_PER_PASSAGE),
             })
             .collect();
         store.put_file(
@@ -104,19 +137,15 @@ pub fn run(passages: usize, folder: &Path) -> Result<String> {
     }
     let vector_seconds = started.elapsed().as_secs_f64();
 
-    let mut words = Vec::new();
+    let mut by_words = Vec::new();
     let mut meaning = Vec::new();
     let mut combined = Vec::new();
     for _ in 0..QUERIES {
-        let query = format!(
-            "{} {}",
-            vocabulary[random.below(VOCABULARY)],
-            vocabulary[random.below(VOCABULARY)]
-        );
+        let query = words(&mut random, WORDS_PER_QUERY);
         let vector = random.unit_vector();
         let started = Instant::now();
         store.search_keyword(&query, 10)?;
-        words.push(started.elapsed().as_secs_f64());
+        by_words.push(started.elapsed().as_secs_f64());
         let started = Instant::now();
         store.search_vector(&vector, 10)?;
         meaning.push(started.elapsed().as_secs_f64());
@@ -140,12 +169,12 @@ pub fn run(passages: usize, folder: &Path) -> Result<String> {
     let _ = writeln!(
         out,
         "| Keyword search, median | {} |",
-        ms(percentile(&mut words, 0.5))
+        ms(percentile(&mut by_words, 0.5))
     );
     let _ = writeln!(
         out,
         "| Keyword search, 95th percentile | {} |",
-        ms(percentile(&mut words, 0.95))
+        ms(percentile(&mut by_words, 0.95))
     );
     let _ = writeln!(
         out,
@@ -201,6 +230,20 @@ mod tests {
         assert_eq!(words.len(), VOCABULARY);
         assert_eq!(word(0), "ka");
         assert_eq!(word(27), "kbb");
+    }
+
+    #[test]
+    fn common_words_are_picked_far_more_often_than_rare_ones() {
+        let zipf = Zipf::new(1000);
+        let mut random = Random(42);
+        let mut counts = vec![0usize; 1000];
+        for _ in 0..100_000 {
+            counts[zipf.pick(&mut random)] += 1;
+        }
+        // Word 0 about twice as often as word 1, and ten times word 9.
+        let ratio = counts[0] as f64 / counts[1] as f64;
+        assert!((1.8..2.2).contains(&ratio), "{ratio}");
+        assert!(counts[0] > 8 * counts[9]);
     }
 
     #[test]
