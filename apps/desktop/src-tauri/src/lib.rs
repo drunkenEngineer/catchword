@@ -70,6 +70,7 @@ pub fn run() {
             commands::check_index,
             commands::notices,
             commands::set_appearance,
+            commands::set_limits,
             commands::pause_indexing,
             commands::resume_indexing,
             commands::set_resource_mode,

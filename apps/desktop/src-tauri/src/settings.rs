@@ -10,6 +10,8 @@ use catchword_engine::exclude::{check_pattern, MAX_PATTERNS};
 use catchword_engine::Exclusions;
 use serde::{Deserialize, Serialize};
 
+use catchword_engine::extract::Limits;
+
 use crate::contract::{ResourceMode, TextSize, Theme};
 
 const FILE: &str = "settings.json";
@@ -20,6 +22,20 @@ pub const FILES: [&str; 3] = [FILE, PREVIOUS, PARTIAL];
 
 /// Version 2 added exclusions and the first-launch flag.
 const VERSION: u32 = 2;
+
+/// The limits a new install starts with, and what the user may choose.
+pub const DEFAULT_MAX_FILE_MB: u32 = 200;
+pub const DEFAULT_MAX_PAGES: u32 = 5_000;
+const MAX_FILE_MB_RANGE: std::ops::RangeInclusive<u32> = 1..=2_048;
+const MAX_PAGES_RANGE: std::ops::RangeInclusive<u32> = 1..=100_000;
+
+fn default_max_file_mb() -> u32 {
+    DEFAULT_MAX_FILE_MB
+}
+
+fn default_max_pages() -> u32 {
+    DEFAULT_MAX_PAGES
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Settings {
@@ -47,6 +63,12 @@ pub struct Settings {
     pub theme: Theme,
     #[serde(default)]
     pub text_size: TextSize,
+    /// Larger files are skipped (SRC-7).
+    #[serde(default = "default_max_file_mb")]
+    pub max_file_mb: u32,
+    /// Pages past this many are not read from a PDF.
+    #[serde(default = "default_max_pages")]
+    pub max_pages: u32,
     next_id: u32,
 }
 
@@ -69,6 +91,8 @@ impl Default for Settings {
             paused: false,
             theme: Theme::System,
             text_size: TextSize::Normal,
+            max_file_mb: DEFAULT_MAX_FILE_MB,
+            max_pages: DEFAULT_MAX_PAGES,
             next_id: 1,
         }
     }
@@ -119,6 +143,36 @@ impl Settings {
             .retain(|pattern| check_pattern(pattern).is_ok());
         self.patterns.truncate(MAX_PATTERNS);
         Some(self)
+    }
+
+    /// How much of a file indexing reads.
+    pub fn limits(&self) -> Limits {
+        Limits {
+            max_file_bytes: u64::from(self.max_file_mb) << 20,
+            max_pages: self.max_pages,
+            ..Limits::default()
+        }
+    }
+
+    /// Change the limits, if both are within reason.
+    pub fn set_limits(&mut self, max_file_mb: u32, max_pages: u32) -> Result<(), String> {
+        if !MAX_FILE_MB_RANGE.contains(&max_file_mb) {
+            return Err(format!(
+                "The largest file must be between {} and {} MB.",
+                MAX_FILE_MB_RANGE.start(),
+                MAX_FILE_MB_RANGE.end()
+            ));
+        }
+        if !MAX_PAGES_RANGE.contains(&max_pages) {
+            return Err(format!(
+                "The most pages must be between {} and {}.",
+                MAX_PAGES_RANGE.start(),
+                MAX_PAGES_RANGE.end()
+            ));
+        }
+        self.max_file_mb = max_file_mb;
+        self.max_pages = max_pages;
+        Ok(())
     }
 
     /// What indexing leaves out.
@@ -267,6 +321,19 @@ mod tests {
         settings.exclude_folder("C:/docs/private".into()).unwrap();
         settings.remove_folder(docs.id);
         assert!(settings.excluded_folders.is_empty());
+    }
+
+    #[test]
+    fn limits_start_at_the_defaults_and_stay_within_reason() {
+        let mut settings = Settings::default();
+        assert_eq!(settings.limits().max_file_bytes, 200 << 20);
+        assert_eq!(settings.limits().max_pages, 5_000);
+        assert!(settings.set_limits(0, 10).is_err());
+        assert!(settings.set_limits(10, 0).is_err());
+        assert!(settings.set_limits(5_000, 10).is_err());
+        settings.set_limits(50, 300).unwrap();
+        assert_eq!(settings.limits().max_file_bytes, 50 << 20);
+        assert_eq!(settings.limits().max_pages, 300);
     }
 
     #[test]

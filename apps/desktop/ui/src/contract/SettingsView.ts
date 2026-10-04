@@ -35,4 +35,12 @@ detailedLogs: boolean, version: string, resourceMode: ResourceMode,
 /**
  * The cloud service that copies the data folder, if one does (PRIV-4).
  */
-dataSyncedBy: string | null, theme: Theme, textSize: TextSize, };
+dataSyncedBy: string | null, theme: Theme, textSize: TextSize, 
+/**
+ * Larger files are skipped (SRC-7).
+ */
+maxFileMb: number, 
+/**
+ * Pages past this many are not read from a PDF.
+ */
+maxPages: number, };

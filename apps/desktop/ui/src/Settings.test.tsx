@@ -136,6 +136,22 @@ describe("the settings screen", () => {
     expect(document.documentElement.dataset.theme).toBeUndefined();
   });
 
+  it("saves the file limits, and says why one is out of range", async () => {
+    const engine = createMockEngine();
+    const setLimits = vi.spyOn(engine, "setLimits");
+    renderWith(engine, <Settings />);
+    const size = (await screen.findByRole("spinbutton", { name: /Largest file/ })) as HTMLInputElement;
+    expect(size.value).toBe("200");
+    fireEvent.change(size, { target: { value: "500" } });
+    await click("Save limits");
+    expect(setLimits).toHaveBeenLastCalledWith(500, 5000);
+    expect(screen.getByText(/read again if they now fit/)).toBeTruthy();
+
+    fireEvent.change(screen.getByRole("spinbutton", { name: /Most pages/ }), { target: { value: "0" } });
+    await click("Save limits");
+    expect(screen.getByRole("alert").textContent).toContain("between 1 and 100000");
+  });
+
   it("turns detailed logs on and off", async () => {
     const engine = createMockEngine();
     const setDetailedLogs = vi.spyOn(engine, "setDetailedLogs");

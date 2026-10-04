@@ -18,6 +18,7 @@ fn main() {
         "check_index",
         "notices",
         "set_appearance",
+        "set_limits",
         "pause_indexing",
         "resume_indexing",
         "set_resource_mode",

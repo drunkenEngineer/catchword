@@ -105,6 +105,10 @@ pub struct SettingsView {
     pub data_synced_by: Option<String>,
     pub theme: Theme,
     pub text_size: TextSize,
+    /// Larger files are skipped (SRC-7).
+    pub max_file_mb: u32,
+    /// Pages past this many are not read from a PDF.
+    pub max_pages: u32,
 }
 
 /// A folder the user chose. The path is shown, never sent back.

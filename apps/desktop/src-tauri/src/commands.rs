@@ -104,6 +104,25 @@ impl AppState {
         Arc::clone(&self.log)
     }
 
+    /// Change how much of a file is read (SRC-7), then read again what the
+    /// old limits skipped as too large. The current run is stopped first, so
+    /// it cannot record them as too large again under the old limits.
+    pub fn set_limits(&self, max_file_mb: u32, max_pages: u32, notify: Notify) -> Result<()> {
+        self.indexer.stop_and_wait();
+        {
+            let mut settings = lock(&self.settings);
+            let mut changed = settings.clone();
+            changed
+                .set_limits(max_file_mb, max_pages)
+                .map_err(|why| anyhow!(why))?;
+            changed.save(&self.config_dir)?;
+            *settings = changed;
+        }
+        lock(&self.reader).forget(catchword_engine::extract::Reason::TooLarge)?;
+        self.start_indexing(notify);
+        Ok(())
+    }
+
     pub fn theme(&self) -> Theme {
         lock(&self.settings).theme
     }
@@ -190,7 +209,11 @@ impl AppState {
     }
 
     pub fn start_indexing(&self, notify: Notify) {
-        let exclusions = lock(&self.settings).exclusions();
+        let (exclusions, limits) = {
+            let settings = lock(&self.settings);
+            (settings.exclusions(), settings.limits())
+        };
+        self.indexer.set_limits(limits);
         self.indexer.start(self.folders(), exclusions, notify);
     }
 
@@ -241,6 +264,8 @@ impl AppState {
             data_synced_by: crate::disk::synced_by(&self.index).map(String::from),
             theme: settings.theme,
             text_size: settings.text_size,
+            max_file_mb: settings.max_file_mb,
+            max_pages: settings.max_pages,
         })
     }
 
@@ -886,6 +911,14 @@ pub async fn rebuild_index(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub async fn set_limits(app: AppHandle, max_file_mb: u32, max_pages: u32) -> Result<(), String> {
+    on_state(app, "set_limits", move |app, state| {
+        state.set_limits(max_file_mb, max_pages, notifier(app))
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn set_appearance(
     app: AppHandle,
     theme: Theme,
@@ -1361,6 +1394,28 @@ mod tests {
         assert!(notices_places()
             .iter()
             .any(|place| place.ends_with("target/notices/THIRD-PARTY-NOTICES.txt")));
+    }
+
+    #[test]
+    fn raising_the_size_limit_reads_what_was_too_large() {
+        let (state, docs) = state("limits");
+        // Two megabytes of text, against a limit of one.
+        let big: String = "word ".repeat(420_000);
+        std::fs::write(docs.join("big.txt"), big).unwrap();
+        state.set_limits(1, 5_000, Arc::new(|| {})).unwrap();
+        state.add_folder(&docs, Arc::new(|| {})).unwrap();
+        wait(&state);
+        let status = state.status().unwrap();
+        assert_eq!(status.files, 2);
+        assert_eq!(status.not_indexed[0].name, "big.txt");
+
+        state.set_limits(3, 5_000, Arc::new(|| {})).unwrap();
+        wait(&state);
+        let status = state.status().unwrap();
+        assert_eq!(status.files, 3);
+        assert!(status.not_indexed.is_empty());
+        assert_eq!(state.settings().unwrap().max_file_mb, 3);
+        assert!(state.set_limits(0, 5_000, Arc::new(|| {})).is_err());
     }
 
     #[test]

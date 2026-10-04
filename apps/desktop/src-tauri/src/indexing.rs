@@ -94,6 +94,7 @@ struct Control {
     again: bool,
     folders: Vec<PathBuf>,
     exclusions: Exclusions,
+    limits: Limits,
     paused: Option<PauseReason>,
 }
 
@@ -178,6 +179,11 @@ impl Indexer {
         lock(&self.shared.control).paused
     }
 
+    /// The limits the next run reads files within (SRC-7).
+    pub fn set_limits(&self, limits: Limits) {
+        lock(&self.shared.control).limits = limits;
+    }
+
     /// Lift a pause. The next `start` runs.
     pub fn resume(&self) {
         let mut control = lock(&self.shared.control);
@@ -219,11 +225,15 @@ impl Indexer {
         thread::spawn(move || {
             lower_priority();
             loop {
-                let (folders, exclusions) = {
+                let (folders, exclusions, limits) = {
                     let control = lock(&shared.control);
-                    (control.folders.clone(), control.exclusions.clone())
+                    (
+                        control.folders.clone(),
+                        control.exclusions.clone(),
+                        control.limits.clone(),
+                    )
                 };
-                run(&shared, &folders, &exclusions, &notify);
+                run(&shared, &folders, &exclusions, &limits, &notify);
                 let mut control = lock(&shared.control);
                 if control.again && !shared.stop.load(Ordering::SeqCst) && control.paused.is_none()
                 {
@@ -299,7 +309,13 @@ pub fn threads(mode: ResourceMode) -> Threads {
 }
 
 /// One run over all folders: words first, then meaning.
-fn run(shared: &Shared, folders: &[PathBuf], exclusions: &Exclusions, notify: &Notify) {
+fn run(
+    shared: &Shared,
+    folders: &[PathBuf],
+    exclusions: &Exclusions,
+    limits: &Limits,
+    notify: &Notify,
+) {
     let model = {
         let mut model = lock(&shared.model);
         loop {
@@ -365,7 +381,7 @@ fn run(shared: &Shared, folders: &[PathBuf], exclusions: &Exclusions, notify: &N
             exclusions,
             &cutter,
             &shared.worker,
-            &Limits::default(),
+            limits,
             |done, total| {
                 set_work(Stage::Words, done as u64, total as u64);
                 report(false);

@@ -791,18 +791,20 @@ impl Store {
     /// Forget the files whose reading failed, so the next run tries them
     /// again: the user's retry (COV-2). Returns how many.
     pub fn forget_failures(&mut self) -> rusqlite::Result<usize> {
-        let failures: Vec<&str> = Reason::ALL
-            .iter()
-            .filter(|reason| reason.is_failure())
-            .map(|reason| reason.code())
-            .collect();
         let mut forgotten = 0;
-        for code in failures {
-            forgotten += self
-                .conn
-                .execute("DELETE FROM problems WHERE reason = ?1", params![code])?;
+        for reason in Reason::ALL.into_iter().filter(|reason| reason.is_failure()) {
+            forgotten += self.forget(reason)?;
         }
         Ok(forgotten)
+    }
+
+    /// Forget the files not indexed for `reason`, so the next run reads
+    /// them again; for example the too-large ones after the limit is raised.
+    pub fn forget(&mut self, reason: Reason) -> rusqlite::Result<usize> {
+        self.conn.execute(
+            "DELETE FROM problems WHERE reason = ?1",
+            params![reason.code()],
+        )
     }
 
     /// The file a passage comes from: the first by path, if copies share it.
@@ -1652,6 +1654,25 @@ mod tests {
             .map(|p| p.reason)
             .collect();
         assert_eq!(left, vec![Reason::Encrypted, Reason::NeedsOcr]);
+    }
+
+    #[test]
+    fn problems_of_one_reason_can_be_forgotten() {
+        let mut store = Store::open_in_memory().unwrap();
+        store
+            .record_problem("/big.pdf", 5, 1, Reason::TooLarge)
+            .unwrap();
+        store
+            .record_problem("/scan.pdf", 5, 1, Reason::NeedsOcr)
+            .unwrap();
+        assert_eq!(store.forget(Reason::TooLarge).unwrap(), 1);
+        let left: Vec<Reason> = store
+            .problems()
+            .unwrap()
+            .into_iter()
+            .map(|p| p.reason)
+            .collect();
+        assert_eq!(left, vec![Reason::NeedsOcr]);
     }
 
     #[test]

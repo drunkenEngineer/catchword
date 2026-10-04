@@ -409,6 +409,26 @@ mark {
   margin-bottom: 4px;
 }
 
+.limits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 12px 0 4px;
+}
+
+.limits label {
+  display: grid;
+  gap: 4px;
+}
+
+.limits input {
+  width: 120px;
+  padding: 4px 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
 /* Read by screen readers, not shown. */
 .visually-hidden {
   position: absolute;

@@ -73,6 +73,8 @@ export function createMockEngine({ firstLaunch = false } = {}): Engine {
   let resourceMode: ResourceMode = "balanced";
   let theme: Theme = "system";
   let textSize: TextSize = "normal";
+  let maxFileMb = 200;
+  let maxPages = 5000;
   let report: string | null = null;
   const listeners = new Set<() => void>();
   const changed = () => listeners.forEach((listener) => listener());
@@ -172,6 +174,13 @@ export function createMockEngine({ firstLaunch = false } = {}): Engine {
       return true;
     },
 
+    async setLimits(nextMb: number, nextPages: number): Promise<void> {
+      if (nextMb < 1 || nextMb > 2048) throw "The largest file must be between 1 and 2048 MB.";
+      if (nextPages < 1 || nextPages > 100000) throw "The most pages must be between 1 and 100000.";
+      maxFileMb = nextMb;
+      maxPages = nextPages;
+    },
+
     async setAppearance(nextTheme: Theme, nextSize: TextSize): Promise<void> {
       theme = nextTheme;
       textSize = nextSize;
@@ -199,6 +208,8 @@ export function createMockEngine({ firstLaunch = false } = {}): Engine {
         dataSyncedBy: null,
         theme,
         textSize,
+        maxFileMb,
+        maxPages,
       };
     },
 

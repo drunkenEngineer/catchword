@@ -22,6 +22,9 @@ export function Settings() {
   // Which question was just called off: its button takes the focus back.
   const [kept, setKept] = useState<"rebuild" | "delete" | null>(null);
   const [checked, setChecked] = useState<boolean | null>(null);
+  // The limits being edited; null while they match what is saved.
+  const [limits, setLimits] = useState<{ mb: string; pages: string } | null>(null);
+  const [limitsSaved, setLimitsSaved] = useState(false);
   // undefined: not asked for yet; null: none shipped with this build.
   const [notices, setNotices] = useState<string | null | undefined>(undefined);
   const [includePaths, setIncludePaths] = useState(false);
@@ -170,6 +173,52 @@ export function Settings() {
           ))}
         </fieldset>
         <p className="muted">{strings.settings.modeNote}</p>
+        <div className="limits">
+          <label>
+            {strings.settings.maxFileMb}
+            <input
+              type="number"
+              min={1}
+              max={2048}
+              value={limits?.mb ?? String(view.maxFileMb)}
+              onChange={(event) => {
+                setLimits({ mb: event.target.value, pages: limits?.pages ?? String(view.maxPages) });
+                setLimitsSaved(false);
+              }}
+            />
+          </label>
+          <label>
+            {strings.settings.maxPages}
+            <input
+              type="number"
+              min={1}
+              max={100000}
+              value={limits?.pages ?? String(view.maxPages)}
+              onChange={(event) => {
+                setLimits({ mb: limits?.mb ?? String(view.maxFileMb), pages: event.target.value });
+                setLimitsSaved(false);
+              }}
+            />
+          </label>
+        </div>
+        <div className="actions">
+          <button
+            type="button"
+            disabled={limits === null}
+            onClick={() => {
+              if (!limits) return;
+              setProblem(null);
+              engine.setLimits(Number(limits.mb), Number(limits.pages)).then(() => {
+                setLimits(null);
+                setLimitsSaved(true);
+                load();
+              }, fail);
+            }}
+          >
+            {strings.settings.saveLimits}
+          </button>
+          {limitsSaved && <span role="status">{strings.settings.limitsSaved}</span>}
+        </div>
       </section>
 
       <section aria-labelledby="data-title">

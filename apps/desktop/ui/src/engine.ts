@@ -31,6 +31,8 @@ export interface Engine {
   /** The licences of everything shipped with the app; null if not packaged. */
   notices(): Promise<string | null>;
   setAppearance(theme: Theme, textSize: TextSize): Promise<void>;
+  /** Rejects with a reason when a limit is out of range. */
+  setLimits(maxFileMb: number, maxPages: number): Promise<void>;
   settings(): Promise<SettingsView>;
   /** Opens the native folder dialog; null when the user cancels. */
   excludeFolder(): Promise<Folder | null>;
@@ -68,6 +70,7 @@ export const tauriEngine: Engine = {
   checkIndex: () => invoke("check_index"),
   notices: () => invoke("notices"),
   setAppearance: (theme, textSize) => invoke("set_appearance", { theme, textSize }),
+  setLimits: (maxFileMb, maxPages) => invoke("set_limits", { maxFileMb, maxPages }),
   settings: () => invoke("settings"),
   excludeFolder: () => invoke("exclude_folder"),
   includeFolder: (id) => invoke("include_folder", { id }),

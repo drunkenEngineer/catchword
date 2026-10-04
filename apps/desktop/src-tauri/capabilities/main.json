@@ -22,6 +22,7 @@
     "allow-check-index",
     "allow-notices",
     "allow-set-appearance",
+    "allow-set-limits",
     "allow-pause-indexing",
     "allow-resume-indexing",
     "allow-set-resource-mode",
