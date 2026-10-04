@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SearchResponse } from "./contract/SearchResponse";
 import type { Status } from "./contract/Status";
@@ -72,6 +72,26 @@ describe("the search screen", () => {
     });
     expect(clipboard[0]).toContain("within 10 working days");
     expect(clipboard[0]).toContain("— tax-refund-letter.pdf, page 2");
+  });
+
+  it("folds a file's passages to its best one with Left, and unfolds them with Right", async () => {
+    await show(createMockEngine(), "tax amount");
+    const list = await screen.findByRole("listbox");
+    list.focus();
+    expect(within(list).getAllByRole("option")).toHaveLength(2);
+    fireEvent.keyDown(list, { key: "ArrowDown" });
+    fireEvent.keyDown(list, { key: "ArrowLeft" });
+    const options = within(list).getAllByRole("option");
+    expect(options).toHaveLength(1);
+    // The selection stays on the file, on its best passage.
+    expect(options[0].getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("group", { name: /1 more passage/ })).toBeTruthy();
+    fireEvent.keyDown(list, { key: "ArrowRight" });
+    expect(within(list).getAllByRole("option")).toHaveLength(2);
+    expect(screen.queryByText(/more passage/)).toBeNull();
+    // By mouse, on the file's name.
+    fireEvent.click(screen.getByText("tax-refund-letter.pdf", { selector: ".file-name" }));
+    expect(within(list).getAllByRole("option")).toHaveLength(1);
   });
 
   it("copies the chosen file's path, by button or Ctrl+Shift+C", async () => {

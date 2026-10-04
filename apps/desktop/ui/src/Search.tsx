@@ -23,6 +23,15 @@ interface Choice {
   passage: PassageHit;
 }
 
+/** The passages shown, in order: a folded file shows only its best one. */
+function listChoices(files: FileHit[], folded: ReadonlySet<string>): Choice[] {
+  return files.flatMap((file) => shown(file, folded).map((passage) => ({ file, passage })));
+}
+
+function shown(file: FileHit, folded: ReadonlySet<string>): PassageHit[] {
+  return folded.has(file.path) ? file.passages.slice(0, 1) : file.passages;
+}
+
 export function Search({ status, openLibrary }: { status: Status | null; openLibrary: () => void }) {
   const engine = useEngine();
   const [query, setQuery] = useState("");
@@ -30,6 +39,8 @@ export function Search({ status, openLibrary }: { status: Status | null; openLib
   const [filter, setFilter] = useState<SearchFilter>({ folder: null, kind: null });
   const filtered = filter.folder !== null || filter.kind !== null;
   const [selected, setSelected] = useState(0);
+  // Files, by path, whose passages are folded to the best one.
+  const [folded, setFolded] = useState<ReadonlySet<string>>(new Set());
   const [preview, setPreview] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   // A result's file that is no longer where the index says.
@@ -51,6 +62,7 @@ export function Search({ status, openLibrary }: { status: Status | null; openLib
           if (current) {
             setAnswer(found);
             setSelected(0);
+            setFolded(new Set());
           }
         },
         (error) => current && setMessage(String(error)),
@@ -62,10 +74,7 @@ export function Search({ status, openLibrary }: { status: Status | null; openLib
     };
   }, [query, engine, filter]);
 
-  const choices: Choice[] = useMemo(
-    () => answer?.files.flatMap((file) => file.passages.map((passage) => ({ file, passage }))) ?? [],
-    [answer],
-  );
+  const choices: Choice[] = useMemo(() => listChoices(answer?.files ?? [], folded), [answer, folded]);
   const chosen = choices[selected];
   const chosenId = chosen?.passage.id;
 
@@ -118,6 +127,18 @@ export function Search({ status, openLibrary }: { status: Status | null; openLib
     navigator.clipboard.writeText(choice.file.path).then(() => say(strings.search.copied), fail);
   };
 
+  // Fold a file's passages to its best one, or unfold them, keeping the
+  // selection on that file (spec section 8: Left and Right).
+  const fold = (file: FileHit, folding: boolean) => {
+    if (file.passages.length < 2 || folded.has(file.path) === folding) return;
+    const next = new Set(folded);
+    if (folding) next.add(file.path);
+    else next.delete(file.path);
+    const keep = folding || chosen?.file !== file ? file.passages[0].id : chosen.passage.id;
+    setFolded(next);
+    setSelected(listChoices(answer?.files ?? [], next).findIndex((choice) => choice.passage.id === keep));
+  };
+
   const onBoxKey = (event: React.KeyboardEvent) => {
     if (event.key === "Escape") {
       setQuery("");
@@ -135,6 +156,9 @@ export function Search({ status, openLibrary }: { status: Status | null; openLib
       event.preventDefault();
       if (selected === 0) box.current?.focus();
       setSelected((at) => Math.max(at - 1, 0));
+    } else if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && chosen) {
+      event.preventDefault();
+      fold(chosen.file, event.key === "ArrowLeft");
     } else if (event.key === "Enter") {
       event.preventDefault();
       if (event.ctrlKey) void reveal(chosen);
@@ -174,6 +198,7 @@ export function Search({ status, openLibrary }: { status: Status | null; openLib
         onKeyDown={onBoxKey}
         aria-keyshortcuts="Control+K"
         spellCheck={false}
+        data-pane
       />
       {status && status.folders.length > 0 && (
         <div className="filters">
@@ -278,10 +303,15 @@ export function Search({ status, openLibrary }: { status: Status | null; openLib
             aria-label={strings.search.results}
             aria-activedescendant={chosen ? `passage-${chosen.passage.id}` : undefined}
             onKeyDown={onListKey}
+            data-pane
           >
             {answer.files.map((file, fileIndex) => (
               <div key={`${file.folder}/${file.name}`} role="group" aria-labelledby={`file-${fileIndex}`}>
-                <div className="file" id={`file-${fileIndex}`}>
+                <div
+                  className={file.passages.length > 1 ? "file foldable" : "file"}
+                  id={`file-${fileIndex}`}
+                  onClick={() => fold(file, !folded.has(file.path))}
+                >
                   <span className="file-name" dir="auto">
                     {file.name}
                   </span>
@@ -290,8 +320,11 @@ export function Search({ status, openLibrary }: { status: Status | null; openLib
                   </span>
                   {file.modifiedSecs > 0 && <span className="file-date">{strings.search.modified(file.modifiedSecs)}</span>}
                   {file.copies > 1 && <span className="file-copies">{strings.search.copies(file.copies - 1)}</span>}
+                  {folded.has(file.path) && (
+                    <span className="file-more">{strings.search.folded(file.passages.length - 1)}</span>
+                  )}
                 </div>
-                {file.passages.map((passage) => {
+                {shown(file, folded).map((passage) => {
                   const index = choices.findIndex((choice) => choice.passage.id === passage.id);
                   return (
                     <div
@@ -313,7 +346,7 @@ export function Search({ status, openLibrary }: { status: Status | null; openLib
             ))}
           </div>
 
-          <section className="preview" aria-label={strings.search.preview}>
+          <section className="preview" aria-label={strings.search.preview} tabIndex={-1} data-pane>
             {chosen && (
               <>
                 <h2 dir="auto">{chosen.file.name}</h2>

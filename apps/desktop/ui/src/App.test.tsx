@@ -30,6 +30,33 @@ describe("the window", () => {
     expect(document.activeElement).toBe(screen.getByRole("searchbox"));
   });
 
+  it("moves between panes with F6, and back with Shift+F6", async () => {
+    renderWith(createMockEngine(), <App />);
+    await screen.findByRole("button", { name: "Up to date" });
+    const box = screen.getByRole("searchbox");
+    fireEvent.change(box, { target: { value: "tax" } });
+    const results = await screen.findByRole("listbox", {}, { timeout: 2000 });
+    const preview = screen.getByRole("region", { name: "Preview" });
+    // The navigation's pane takes the focus on its current destination.
+    const search = screen.getByRole("button", { name: "Search" });
+    box.focus();
+    for (const pane of [results, preview, search, box]) {
+      fireEvent.keyDown(window, { key: "F6" });
+      expect(document.activeElement).toBe(pane);
+    }
+    fireEvent.keyDown(window, { key: "F6", shiftKey: true });
+    expect(document.activeElement).toBe(search);
+    fireEvent.keyDown(window, { key: "F6", shiftKey: true });
+    expect(document.activeElement).toBe(preview);
+    // Library is one pane, after the navigation. Its heading is in neither,
+    // so F6 starts from the first.
+    fireEvent.keyDown(window, { key: "2", ctrlKey: true });
+    fireEvent.keyDown(window, { key: "F6" });
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Library" }));
+    fireEvent.keyDown(window, { key: "F6" });
+    expect(document.activeElement).toBe(screen.getByRole("main"));
+  });
+
   it("reaches its three destinations by keyboard", async () => {
     renderWith(createMockEngine(), <App />);
     fireEvent.keyDown(window, { key: "2", ctrlKey: true });

@@ -7,6 +7,7 @@ import { useEngine } from "./engine";
 import { Library } from "./Library";
 import { Search } from "./Search";
 import { Settings } from "./Settings";
+import { movePane } from "./panes";
 import { strings } from "./strings";
 import { Welcome } from "./Welcome";
 
@@ -47,7 +48,8 @@ export function App() {
     );
   }, [engine]);
 
-  // Ctrl+1, Ctrl+2 and Ctrl+3 move between destinations; F5 scans now.
+  // Ctrl+1, Ctrl+2 and Ctrl+3 move between destinations; F5 scans now;
+  // F6 and Shift+F6 move between panes.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       const index = ["1", "2", "3"].indexOf(event.key);
@@ -57,6 +59,9 @@ export function App() {
       } else if (event.key === "F5") {
         event.preventDefault();
         void engine.indexNow();
+      } else if (event.key === "F6") {
+        event.preventDefault();
+        movePane(event.shiftKey ? -1 : 1);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -74,7 +79,7 @@ export function App() {
 
   return (
     <div className="app">
-      <nav className="rail" aria-label={strings.navigation}>
+      <nav className="rail" aria-label={strings.navigation} data-pane>
         <div className="brand" aria-hidden="true">
           C
         </div>
@@ -104,7 +109,12 @@ export function App() {
             </span>
           </button>
         </header>
-        <main className="destination">
+        {/* Search marks its own panes; the other destinations are one each. */}
+        <main
+          className="destination"
+          data-pane={destination === "search" ? undefined : ""}
+          tabIndex={destination === "search" ? undefined : -1}
+        >
           {destination === "search" && (
             <Search status={status} openLibrary={() => setDestination("library")} />
           )}

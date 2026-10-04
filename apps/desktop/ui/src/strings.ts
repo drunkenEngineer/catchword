@@ -70,6 +70,8 @@ export const strings = {
     reveal: "Show in folder",
     copy: "Copy passage",
     copyPath: "Copy path",
+    /** A file's passages folded to its best one (Left folds, Right unfolds). */
+    folded: (n: number) => `${n} more ${n === 1 ? "passage" : "passages"}`,
     copied: "Copied",
   },
 
