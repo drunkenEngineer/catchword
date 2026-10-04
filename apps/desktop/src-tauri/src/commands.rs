@@ -1283,6 +1283,8 @@ mod tests {
         assert_eq!((status.paused, status.files), (None, 2));
     }
 
+    // Free space is read on Windows only (disk.rs); 0.1 is for Windows.
+    #[cfg(windows)]
     #[test]
     fn low_disk_space_pauses_until_there_is_room_again() {
         let (state, docs) = state("low-disk");

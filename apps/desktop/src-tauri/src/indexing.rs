@@ -765,6 +765,8 @@ mod tests {
         assert_eq!(Store::open(&store).unwrap().counts().unwrap().files, 3);
     }
 
+    // Free space is read on Windows only (disk.rs); 0.1 is for Windows.
+    #[cfg(windows)]
     #[test]
     fn low_disk_space_pauses_indexing() {
         let (indexer, store) = indexer("low-disk");
