@@ -22,6 +22,10 @@ export interface Engine {
   pauseIndexing(): Promise<void>;
   resumeIndexing(): Promise<void>;
   setResourceMode(mode: ResourceMode): Promise<void>;
+  /** Reads every file again; folders and settings stay. */
+  rebuildIndex(): Promise<void>;
+  /** The full integrity check: true if no damage was found. */
+  checkIndex(): Promise<boolean>;
   settings(): Promise<SettingsView>;
   /** Opens the native folder dialog; null when the user cancels. */
   excludeFolder(): Promise<Folder | null>;
@@ -55,6 +59,8 @@ export const tauriEngine: Engine = {
   pauseIndexing: () => invoke("pause_indexing"),
   resumeIndexing: () => invoke("resume_indexing"),
   setResourceMode: (mode) => invoke("set_resource_mode", { mode }),
+  rebuildIndex: () => invoke("rebuild_index"),
+  checkIndex: () => invoke("check_index"),
   settings: () => invoke("settings"),
   excludeFolder: () => invoke("exclude_folder"),
   includeFolder: (id) => invoke("include_folder", { id }),

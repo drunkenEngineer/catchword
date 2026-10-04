@@ -14,6 +14,8 @@ fn main() {
         "set_patterns",
         "finish_first_launch",
         "delete_all_data",
+        "rebuild_index",
+        "check_index",
         "pause_indexing",
         "resume_indexing",
         "set_resource_mode",

@@ -25,6 +25,7 @@ On Windows, run the two scripts from Git Bash. They download the PDFium library,
 - PDFs are read in a separate worker process with time and memory limits. Results show the page.
 - Every file that was not indexed is listed with the reason: a scan with no text, a password, a size limit, or damage. The index remembers it, so the file is not read again until it changes. A file whose reading failed gets a second try, then waits until you ask for a retry (the Library's Try again button, or `catchword index <folder> --retry`).
 - Identical copies of a file are stored once.
+- The index is checked at every start. A damaged one is rebuilt from your files by itself, and Settings can check it fully or rebuild it on demand. Your folders and settings are kept apart from it, so they survive.
 - Moved, changed and deleted files are picked up on the next `index` run.
 - Files kept only in the cloud (OneDrive and the like) are listed, never opened, so nothing is downloaded. A folder on an unplugged drive is shown as offline, and its files stay searchable.
 - Hidden and system files are skipped, and links are never followed out of the folder you chose.

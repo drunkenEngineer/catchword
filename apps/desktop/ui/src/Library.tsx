@@ -74,7 +74,11 @@ export function Library({ status }: { status: Status | null }) {
         <h2 id="progress-title">{strings.library.progress}</h2>
         {status.paused && (
           <p role="status">
-            {status.paused === "lowDisk" ? strings.library.pausedLowDisk : strings.library.pausedByYou}
+            {status.paused === "lowDisk"
+              ? strings.library.pausedLowDisk
+              : status.paused === "newerIndex"
+                ? strings.library.pausedNewerIndex
+                : strings.library.pausedByYou}
           </p>
         )}
         {words ? (
@@ -93,7 +97,11 @@ export function Library({ status }: { status: Status | null }) {
         )}
         {status.folders.length > 0 && (
           <div className="actions">
-            {status.paused ? (
+            {status.paused === "newerIndex" ? (
+              <button type="button" className="primary" onClick={() => engine.rebuildIndex().catch(fail)}>
+                {strings.library.rebuild}
+              </button>
+            ) : status.paused ? (
               <button type="button" className="primary" onClick={() => engine.resumeIndexing().catch(fail)}>
                 {strings.library.resume}
               </button>

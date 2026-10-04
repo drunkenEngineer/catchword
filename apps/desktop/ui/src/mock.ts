@@ -158,6 +158,15 @@ export function createMockEngine({ firstLaunch = false } = {}): Engine {
       resourceMode = mode;
     },
 
+    async rebuildIndex(): Promise<void> {
+      if (paused === "newerIndex") paused = null;
+      changed();
+    },
+
+    async checkIndex(): Promise<boolean> {
+      return true;
+    },
+
     async retryFailed(): Promise<void> {
       parked = false;
       changed();

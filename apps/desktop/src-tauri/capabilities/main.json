@@ -18,6 +18,8 @@
     "allow-set-patterns",
     "allow-finish-first-launch",
     "allow-delete-all-data",
+    "allow-rebuild-index",
+    "allow-check-index",
     "allow-pause-indexing",
     "allow-resume-indexing",
     "allow-set-resource-mode",

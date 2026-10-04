@@ -118,6 +118,10 @@ impl Indexer {
         pause(&self.shared, reason);
     }
 
+    pub fn paused(&self) -> Option<PauseReason> {
+        lock(&self.shared.control).paused
+    }
+
     /// Lift a pause. The next `start` runs.
     pub fn resume(&self) {
         let mut control = lock(&self.shared.control);

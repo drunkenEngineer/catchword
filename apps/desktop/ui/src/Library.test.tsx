@@ -84,6 +84,17 @@ describe("the library screen", () => {
     expect(screen.getByText(/less than 1 GB is free/)).toBeTruthy();
   });
 
+  it("offers a rebuild, not a resume, for an index from a newer version", async () => {
+    const engine = createMockEngine();
+    const rebuild = vi.spyOn(engine, "rebuildIndex");
+    const newer = { ...(await engine.status()), paused: "newerIndex" as const };
+    renderWith(engine, <Library status={newer} />);
+    expect(screen.getByText(/made by a newer version/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Resume" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Rebuild the index" }));
+    expect(rebuild).toHaveBeenCalled();
+  });
+
   it("says which folder is being scanned and which cannot be reached", async () => {
     const engine = createMockEngine();
     const status = await engine.status();

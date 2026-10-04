@@ -75,6 +75,9 @@ export const strings = {
     pausedByYou: "Indexing is paused. Search works with what is indexed so far.",
     pausedLowDisk:
       "Indexing is paused: less than 1 GB is free on the drive that holds the index. Free some space, then resume.",
+    pausedNewerIndex:
+      "This index was made by a newer version of Catchword, so this version leaves it alone. Update Catchword, or rebuild the index here: all your files are read again.",
+    rebuild: "Rebuild the index",
     attention: "Needs attention",
     nothingNeedsAttention: "Every supported file was indexed.",
     failed: "failed",
@@ -98,6 +101,12 @@ export const strings = {
     restoreDefaults: "Restore the defaults",
     dataTitle: "Your data",
     dataPlace: (folder: string, size: string) => `The index is stored in ${folder} (${size}). It holds the text of your documents, so it stays on this computer.`,
+    checkIndex: "Check the index",
+    indexSound: "No damage found.",
+    indexDamaged: "The index is damaged. Rebuild it to read your files again.",
+    rebuild: "Rebuild the index",
+    confirmRebuild:
+      "Rebuild the index? Catchword reads all your files again; search works with what is done so far. Your folders and settings stay.",
     deleteAll: "Delete all data",
     confirmDeleteAll:
       "Delete the index and forget your folders and settings? Catchword starts again as new. Your own files are not touched.",

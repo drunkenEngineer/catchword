@@ -12,6 +12,8 @@ use std::collections::HashMap;
 use catchword_engine::extract::Reason;
 use catchword_engine::fuse::{fuse, Found};
 use catchword_engine::Passage;
+/// The SQLite binding this crate's results and errors come from.
+pub use rusqlite;
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
 /// Bumped whenever the tables change. An older app must refuse a newer index.
@@ -25,6 +27,15 @@ pub const SCHEMA_VERSION: i64 = 5;
 /// The oldest layout that is upgraded in place. Older ones are cleared and
 /// refilled by the next scan: the index is derived data.
 const OLDEST_UPGRADABLE: i64 = 3;
+
+/// How the refusal of a newer index begins; see [`is_newer_layout`].
+const NEWER_LAYOUT: &str = "the index was made by a newer version of Catchword";
+
+/// True if opening failed because a newer version of Catchword made the
+/// index. Such an index is never written to; it is not damaged either.
+pub fn is_newer_layout(error: &rusqlite::Error) -> bool {
+    matches!(error, rusqlite::Error::SqliteFailure(_, Some(message)) if message.starts_with(NEWER_LAYOUT))
+}
 
 /// Words found in more than this share of passages are left out of keyword
 /// queries (ADR-20).
@@ -121,9 +132,8 @@ impl Store {
             return Err(rusqlite::Error::SqliteFailure(
                 rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CANTOPEN),
                 Some(format!(
-                    "the index was made by a newer version of Catchword (layout {found}; \
-                     this version reads {SCHEMA_VERSION}). Update Catchword, or delete \
-                     the index file to rebuild it"
+                    "{NEWER_LAYOUT} (layout {found}; this version reads {SCHEMA_VERSION}). \
+                     Update Catchword, or rebuild the index"
                 )),
             ));
         }
@@ -209,6 +219,40 @@ impl Store {
                  USING fts5vocab(main, passages_fts, 'row');",
         )?;
         Ok(Self { conn, was_reset })
+    }
+
+    /// A quick check of the file's structure, for every start: true if no
+    /// damage was found.
+    pub fn quick_check(&self) -> rusqlite::Result<bool> {
+        let result: String = self
+            .conn
+            .query_row("PRAGMA quick_check", (), |row| row.get(0))?;
+        Ok(result == "ok")
+    }
+
+    /// The full check, on demand: the file, then both keyword indexes
+    /// against the tables they index. True if no damage was found.
+    pub fn integrity_check(&self) -> rusqlite::Result<bool> {
+        let result: String = self
+            .conn
+            .query_row("PRAGMA integrity_check", (), |row| row.get(0))?;
+        if result != "ok" {
+            return Ok(false);
+        }
+        for table in ["passages_fts", "names_fts"] {
+            // A rank of 1 compares the index with the table it indexes, too.
+            let check = format!("INSERT INTO {table}({table}, rank) VALUES ('integrity-check', 1)");
+            match self.conn.execute(&check, ()) {
+                Ok(_) => {}
+                Err(rusqlite::Error::SqliteFailure(error, _))
+                    if error.code == rusqlite::ErrorCode::DatabaseCorrupt =>
+                {
+                    return Ok(false)
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(true)
     }
 
     /// True when the index was made by an older version and was cleared on
@@ -1778,6 +1822,54 @@ mod tests {
         let store = Store::open(&file).unwrap();
         assert!(!store.was_reset());
         assert_eq!(found_names(&store, "plumber"), vec!["/d/plumber.txt"]);
+    }
+
+    #[test]
+    fn a_sound_index_passes_both_checks() {
+        let store = named(&["/docs/a.txt", "/docs/b.txt"]);
+        assert!(store.quick_check().unwrap());
+        assert!(store.integrity_check().unwrap());
+    }
+
+    #[test]
+    fn a_keyword_index_out_of_step_fails_the_full_check() {
+        let store = named(&["/docs/a.txt", "/docs/b.txt"]);
+        // Remove a passage behind the keyword index's back.
+        store
+            .conn
+            .execute(
+                "DELETE FROM passages WHERE id = (SELECT MIN(id) FROM passages)",
+                (),
+            )
+            .unwrap();
+        assert!(store.quick_check().unwrap());
+        assert!(!store.integrity_check().unwrap());
+    }
+
+    #[test]
+    fn a_newer_index_is_told_apart_from_a_damaged_one() {
+        let file = std::env::temp_dir().join("catchword-store-test-newer-kind.db");
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{suffix}", file.display()));
+        }
+        {
+            let store = Store::open(&file).unwrap();
+            meta_set(
+                &store.conn,
+                "schema_version",
+                &(SCHEMA_VERSION + 1).to_string(),
+            )
+            .unwrap();
+        }
+        let error = Store::open(&file).err().unwrap();
+        assert!(is_newer_layout(&error), "{error}");
+
+        std::fs::write(&file, b"not a database at all, just some bytes").unwrap();
+        for suffix in ["-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{suffix}", file.display()));
+        }
+        let error = Store::open(&file).err().unwrap();
+        assert!(!is_newer_layout(&error), "{error}");
     }
 
     #[test]

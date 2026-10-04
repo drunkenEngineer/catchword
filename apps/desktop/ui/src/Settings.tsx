@@ -14,6 +14,8 @@ export function Settings() {
   const [draft, setDraft] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [confirmingRebuild, setConfirmingRebuild] = useState(false);
+  const [checked, setChecked] = useState<boolean | null>(null);
   const [includePaths, setIncludePaths] = useState(false);
   const [report, setReport] = useState<string | null>(null);
   const [reportSaved, setReportSaved] = useState<string | null>(null);
@@ -127,6 +129,41 @@ export function Settings() {
       <section aria-labelledby="data-title">
         <h2 id="data-title">{strings.settings.dataTitle}</h2>
         <p dir="auto">{strings.settings.dataPlace(view.dataFolder, strings.bytes(view.indexBytes))}</p>
+        <div className="actions">
+          <button type="button" onClick={() => engine.checkIndex().then(setChecked, fail)}>
+            {strings.settings.checkIndex}
+          </button>
+          {checked !== null && (
+            <span role="status" className={checked ? undefined : "problem"}>
+              {checked ? strings.settings.indexSound : strings.settings.indexDamaged}
+            </span>
+          )}
+        </div>
+        {confirmingRebuild ? (
+          <div className="confirm">
+            <span>{strings.settings.confirmRebuild}</span>
+            <button
+              type="button"
+              className="primary"
+              onClick={() => {
+                setConfirmingRebuild(false);
+                setChecked(null);
+                engine.rebuildIndex().then(load, fail);
+              }}
+            >
+              {strings.settings.rebuild}
+            </button>
+            <button type="button" onClick={() => setConfirmingRebuild(false)}>
+              {strings.settings.keep}
+            </button>
+          </div>
+        ) : (
+          <div className="actions">
+            <button type="button" onClick={() => setConfirmingRebuild(true)}>
+              {strings.settings.rebuild}
+            </button>
+          </div>
+        )}
         {confirmingDelete ? (
           <div className="confirm">
             <span>{strings.settings.confirmDeleteAll}</span>

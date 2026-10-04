@@ -74,6 +74,23 @@ describe("the settings screen", () => {
     expect(((await screen.findByRole("radio", { name: /Light/ })) as HTMLInputElement).checked).toBe(true);
   });
 
+  it("checks the index, and rebuilds it after one confirmation", async () => {
+    const engine = createMockEngine();
+    const rebuild = vi.spyOn(engine, "rebuildIndex");
+    renderWith(engine, <Settings />);
+    await screen.findByRole("heading", { name: "Your data" });
+    await click("Check the index");
+    expect(screen.getByText("No damage found.")).toBeTruthy();
+
+    await click("Rebuild the index");
+    await click("Keep");
+    expect(rebuild).not.toHaveBeenCalled();
+    await click("Rebuild the index");
+    expect(screen.getByText(/Your folders and settings stay/)).toBeTruthy();
+    await click("Rebuild the index");
+    expect(rebuild).toHaveBeenCalledTimes(1);
+  });
+
   it("turns detailed logs on and off", async () => {
     const engine = createMockEngine();
     const setDetailedLogs = vi.spyOn(engine, "setDetailedLogs");

@@ -68,11 +68,23 @@ impl AppState {
         if notice.is_some() {
             log.warn("settings.damaged", &[]);
         }
-        let reader = Store::open(&index).context("cannot open the index")?;
+        let (reader, opened) = open_index(&index, &log)?;
         let indexer = Indexer::new(index.clone(), worker, Arc::clone(&log));
         if settings.paused {
             indexer.pause(PauseReason::You);
         }
+        let notice = match opened {
+            Opened::Fine => notice,
+            Opened::Rebuilt => Some(
+                "The index was damaged, so it is being rebuilt from your files. \
+                 Your folders and settings are intact."
+                    .to_string(),
+            ),
+            Opened::Newer => {
+                indexer.pause(PauseReason::NewerIndex);
+                notice
+            }
+        };
         Ok(Self {
             indexer,
             settings: Mutex::new(settings),
@@ -316,10 +328,13 @@ impl AppState {
         let mut reader = lock(&self.reader);
         // Close the index, so its files can be deleted.
         *reader = Store::open_in_memory()?;
-        for suffix in ["", "-wal", "-shm"] {
-            remove_if_there(Path::new(&format!("{}{suffix}", self.index.display())))?;
-        }
+        remove_index_files(&self.index)?;
+        remove_if_there(&set_aside_path(&self.index))?;
         *reader = Store::open(&self.index).context("cannot create a new index")?;
+        drop(reader);
+        if self.indexer.paused() == Some(PauseReason::NewerIndex) {
+            self.indexer.resume();
+        }
         self.log.info("data.deleted", &[]);
         Ok(())
     }
@@ -442,6 +457,33 @@ impl AppState {
         Ok(())
     }
 
+    /// Delete the index and read every file again; folders and settings
+    /// stay (IDX-7). Also the way out of an index from a newer version.
+    pub fn rebuild_index(&self, notify: Notify) -> Result<()> {
+        self.indexer.stop_and_wait();
+        let mut reader = lock(&self.reader);
+        // Close the index, so its files can be deleted.
+        *reader = Store::open_in_memory()?;
+        remove_index_files(&self.index)?;
+        remove_if_there(&set_aside_path(&self.index))?;
+        *reader = Store::open(&self.index).context("cannot create a new index")?;
+        drop(reader);
+        if self.indexer.paused() == Some(PauseReason::NewerIndex) {
+            self.indexer.resume();
+        }
+        self.log.info("index.rebuilt", &[]);
+        self.start_indexing(notify);
+        Ok(())
+    }
+
+    /// The full integrity check, on demand: true if no damage was found.
+    pub fn check_index(&self) -> Result<bool> {
+        let sound = lock(&self.reader).integrity_check()?;
+        self.log
+            .info("index.checked", &[("sound", Value::Flag(sound))]);
+        Ok(sound)
+    }
+
     pub fn preview(&self, id: i64) -> Result<Option<String>> {
         Ok(lock(&self.reader).passage_text(id)?)
     }
@@ -453,6 +495,58 @@ impl AppState {
             .map(PathBuf::from)
             .ok_or_else(|| anyhow!("this result is no longer in the index"))
     }
+}
+
+/// How the index was found at start.
+enum Opened {
+    Fine,
+    /// It was damaged: set aside, and a fresh one made.
+    Rebuilt,
+    /// A newer version made it: untouched, and an empty one stands in.
+    Newer,
+}
+
+/// Open the index, after a quick check (section 12, corruption recovery).
+/// A damaged one is set aside and a fresh one is made, which the scan at
+/// start fills; the damaged one is deleted on the next good start, as it
+/// holds private text. An index from a newer version is never written to.
+fn open_index(index: &Path, log: &Logger) -> Result<(Store, Opened)> {
+    match Store::open(index) {
+        Ok(store) => {
+            if store.quick_check().unwrap_or(false) {
+                remove_if_there(&set_aside_path(index))?;
+                return Ok((store, Opened::Fine));
+            }
+        }
+        Err(error) if catchword_store::is_newer_layout(&error) => {
+            log.warn("index.newer", &[]);
+            return Ok((Store::open_in_memory()?, Opened::Newer));
+        }
+        Err(error) => log.error(
+            "index.unreadable",
+            &[("error", Value::Private(error.to_string()))],
+        ),
+    }
+    log.error("index.damaged", &[]);
+    let aside = set_aside_path(index);
+    remove_if_there(&aside)?;
+    std::fs::rename(index, &aside).context("cannot set the damaged index aside")?;
+    remove_index_files(index)?;
+    let store = Store::open(index).context("cannot create a new index")?;
+    Ok((store, Opened::Rebuilt))
+}
+
+/// Where a damaged index is kept until the next good start.
+fn set_aside_path(index: &Path) -> PathBuf {
+    index.with_file_name("index.damaged.db")
+}
+
+/// The index file and SQLite's two files beside it.
+fn remove_index_files(index: &Path) -> std::io::Result<()> {
+    for suffix in ["", "-wal", "-shm"] {
+        remove_if_there(Path::new(&format!("{}{suffix}", index.display())))?;
+    }
+    Ok(())
 }
 
 fn mode_code(mode: ResourceMode) -> &'static str {
@@ -700,6 +794,19 @@ pub async fn save_diagnostics(app: AppHandle) -> Result<Option<String>, String> 
             .map(|name| name.to_string_lossy().to_string()))
     })
     .await
+}
+
+#[tauri::command]
+pub async fn rebuild_index(app: AppHandle) -> Result<(), String> {
+    on_state(app, "rebuild_index", |app, state| {
+        state.rebuild_index(notifier(app))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn check_index(app: AppHandle) -> Result<bool, String> {
+    on_state(app, "check_index", |_, state| state.check_index()).await
 }
 
 #[tauri::command]
@@ -1040,6 +1147,94 @@ mod tests {
         drop(state);
         let again = AppState::open(&data, built_worker()).unwrap();
         assert_eq!(again.resource_mode(), ResourceMode::Light);
+    }
+
+    /// The data folder of a test state, and its index file.
+    fn index_of(docs: &Path) -> (PathBuf, PathBuf) {
+        let data = docs.parent().unwrap().to_path_buf();
+        let index = data.join("data").join("index.db");
+        (data, index)
+    }
+
+    #[test]
+    fn a_damaged_index_is_set_aside_and_rebuilt_with_settings_intact() {
+        let (state, docs) = state("damaged");
+        state.add_folder(&docs, Arc::new(|| {})).unwrap();
+        wait(&state);
+        let (data, index) = index_of(&docs);
+        drop(state);
+        remove_index_files(&index).unwrap();
+        std::fs::write(&index, b"this is not a database, just damage").unwrap();
+
+        let state = AppState::open(&data, built_worker()).unwrap();
+        state
+            .indexer
+            .set_model(Model::Unavailable("not needed".into()));
+        let status = state.status().unwrap();
+        assert!(status.problem.unwrap().contains("rebuilt"));
+        assert_eq!(status.folders.len(), 1);
+        assert!(set_aside_path(&index).is_file());
+        state.start_indexing(Arc::new(|| {}));
+        wait(&state);
+        assert_eq!(state.status().unwrap().files, 2);
+
+        // The next good start deletes the damaged copy: it holds private text.
+        drop(state);
+        let again = AppState::open(&data, built_worker()).unwrap();
+        assert!(!set_aside_path(&index).exists());
+        assert_eq!(again.status().unwrap().files, 2);
+    }
+
+    #[test]
+    fn an_index_from_a_newer_version_is_left_alone_until_rebuilt() {
+        let (state, docs) = state("newer");
+        state.add_folder(&docs, Arc::new(|| {})).unwrap();
+        wait(&state);
+        let (data, index) = index_of(&docs);
+        drop(state);
+        {
+            let store = Store::open(&index).unwrap();
+            drop(store);
+            let conn = catchword_store::rusqlite::Connection::open(&index).unwrap();
+            conn.execute(
+                "UPDATE meta SET value = '999' WHERE key = 'schema_version'",
+                (),
+            )
+            .unwrap();
+        }
+        let before = std::fs::read(&index).unwrap();
+
+        let state = AppState::open(&data, built_worker()).unwrap();
+        state
+            .indexer
+            .set_model(Model::Unavailable("not needed".into()));
+        state.start_indexing(Arc::new(|| {}));
+        wait(&state);
+        let status = state.status().unwrap();
+        assert_eq!(status.paused, Some(PauseReason::NewerIndex));
+        assert_eq!(status.files, 0);
+        assert_eq!(std::fs::read(&index).unwrap(), before);
+
+        state.rebuild_index(Arc::new(|| {})).unwrap();
+        wait(&state);
+        let status = state.status().unwrap();
+        assert_eq!((status.paused, status.files), (None, 2));
+    }
+
+    #[test]
+    fn rebuilding_reads_everything_again_and_keeps_the_folders() {
+        let (state, docs) = state("rebuild");
+        std::fs::write(docs.join("broken.pdf"), b"%PDF-1.7 and then nothing").unwrap();
+        state.add_folder(&docs, Arc::new(|| {})).unwrap();
+        wait(&state);
+        assert!(state.check_index().unwrap());
+        state.rebuild_index(Arc::new(|| {})).unwrap();
+        wait(&state);
+        let status = state.status().unwrap();
+        assert_eq!((status.files, status.folders.len()), (2, 1));
+        // The failed file was tried afresh: one attempt, not parked.
+        assert!(!status.not_indexed[0].parked);
+        assert!(state.check_index().unwrap());
     }
 
     #[test]

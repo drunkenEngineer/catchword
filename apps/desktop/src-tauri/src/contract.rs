@@ -39,6 +39,9 @@ pub enum PauseReason {
     You,
     /// Free space on the index's drive ran low.
     LowDisk,
+    /// The index was made by a newer version of Catchword. It is left
+    /// untouched until the user rebuilds it (REL-5).
+    NewerIndex,
 }
 
 /// How much of the processor indexing may use (IDX-5).
