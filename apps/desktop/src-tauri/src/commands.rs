@@ -18,10 +18,11 @@ use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::contract::{
-    Folder, FolderState, FolderStatus, Meaning, SearchResponse, SettingsView, Status,
+    Folder, FolderState, FolderStatus, Meaning, PauseReason, ResourceMode, SearchResponse,
+    SettingsView, Status,
 };
 use crate::diagnostics::{self, Facts};
-use crate::indexing::{Indexer, Notify};
+use crate::indexing::{self, Indexer, Notify};
 use crate::log::{self, Logger, Value};
 use crate::settings::{self, FolderEntry, Settings};
 use crate::{open, views};
@@ -68,8 +69,12 @@ impl AppState {
             log.warn("settings.damaged", &[]);
         }
         let reader = Store::open(&index).context("cannot open the index")?;
+        let indexer = Indexer::new(index.clone(), worker, Arc::clone(&log));
+        if settings.paused {
+            indexer.pause(PauseReason::You);
+        }
         Ok(Self {
-            indexer: Indexer::new(index.clone(), worker, Arc::clone(&log)),
+            indexer,
             settings: Mutex::new(settings),
             config_dir,
             index,
@@ -82,6 +87,55 @@ impl AppState {
 
     pub fn log(&self) -> Arc<Logger> {
         Arc::clone(&self.log)
+    }
+
+    pub fn resource_mode(&self) -> ResourceMode {
+        lock(&self.settings).resource_mode
+    }
+
+    /// Pause indexing until the user resumes it, even after a restart.
+    pub fn pause_indexing(&self) -> Result<()> {
+        let mut settings = lock(&self.settings);
+        settings.paused = true;
+        settings.save(&self.config_dir)?;
+        drop(settings);
+        self.indexer.pause(PauseReason::You);
+        self.log.info("index.paused", &[]);
+        Ok(())
+    }
+
+    /// Resume, whatever paused it. If disk space is still low, the run
+    /// pauses again at once and says so.
+    pub fn resume_indexing(&self, notify: Notify) -> Result<()> {
+        let mut settings = lock(&self.settings);
+        settings.paused = false;
+        settings.save(&self.config_dir)?;
+        drop(settings);
+        self.indexer.resume();
+        self.log.info("index.resumed", &[]);
+        self.start_indexing(notify);
+        Ok(())
+    }
+
+    /// Save the resource mode. Returns true if the model must be loaded
+    /// again for it to take effect (see `reload_model`).
+    pub fn set_resource_mode(&self, mode: ResourceMode) -> Result<bool> {
+        let mut settings = lock(&self.settings);
+        let changed = settings.resource_mode != mode;
+        settings.resource_mode = mode;
+        settings.save(&self.config_dir)?;
+        drop(settings);
+        self.log
+            .info("resources.mode", &[("mode", Value::Code(mode_code(mode)))]);
+        Ok(changed && matches!(self.indexer.model().as_deref(), Some(Model::Ready(_))))
+    }
+
+    /// Load the model again with the current resource mode's threads, then
+    /// carry on indexing. Searches use the old model meanwhile.
+    pub fn reload_model(&self, notify: Notify) {
+        self.indexer.stop_and_wait();
+        self.set_model(Model::load(indexing::threads(self.resource_mode())));
+        self.start_indexing(notify);
     }
 
     /// The model has loaded, or failed to.
@@ -151,6 +205,7 @@ impl AppState {
             index_bytes,
             detailed_logs: settings.detailed_logs,
             version: env!("CARGO_PKG_VERSION").to_string(),
+            resource_mode: settings.resource_mode,
         })
     }
 
@@ -315,6 +370,7 @@ impl AppState {
             not_indexed,
             problem,
             first_launch,
+            paused: snapshot.paused,
         })
     }
 
@@ -396,6 +452,14 @@ impl AppState {
             .file_of_passage(id)?
             .map(PathBuf::from)
             .ok_or_else(|| anyhow!("this result is no longer in the index"))
+    }
+}
+
+fn mode_code(mode: ResourceMode) -> &'static str {
+    match mode {
+        ResourceMode::Light => "light",
+        ResourceMode::Balanced => "balanced",
+        ResourceMode::Fast => "fast",
     }
 }
 
@@ -556,6 +620,40 @@ pub async fn delete_all_data(app: AppHandle) -> Result<(), String> {
     on_state(app, "delete_all_data", |app, state| {
         state.delete_all_data()?;
         notifier(app)();
+        Ok(())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn pause_indexing(app: AppHandle) -> Result<(), String> {
+    on_state(app, "pause_indexing", |app, state| {
+        state.pause_indexing()?;
+        notifier(app)();
+        Ok(())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn resume_indexing(app: AppHandle) -> Result<(), String> {
+    on_state(app, "resume_indexing", |app, state| {
+        state.resume_indexing(notifier(app))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn set_resource_mode(app: AppHandle, mode: ResourceMode) -> Result<(), String> {
+    on_state(app, "set_resource_mode", move |app, state| {
+        if state.set_resource_mode(mode)? {
+            // Loading the model takes a few seconds: not on this thread.
+            let app = app.clone();
+            std::thread::spawn(move || {
+                let state = app.state::<AppState>();
+                state.reload_model(notifier(&app));
+            });
+        }
         Ok(())
     })
     .await
@@ -885,6 +983,63 @@ mod tests {
         state.start_indexing(Arc::new(|| {}));
         wait(&state);
         assert_eq!(state.status().unwrap().folders[0].state, FolderState::Ready);
+    }
+
+    #[test]
+    fn a_pause_holds_until_resumed_even_across_a_restart() {
+        let (state, docs) = state("pause");
+        state.pause_indexing().unwrap();
+        state.add_folder(&docs, Arc::new(|| {})).unwrap();
+        wait(&state);
+        let status = state.status().unwrap();
+        assert_eq!((status.paused, status.files), (Some(PauseReason::You), 0));
+
+        let data = docs.parent().unwrap().to_path_buf();
+        drop(state);
+        let again = AppState::open(&data, built_worker()).unwrap();
+        again
+            .indexer
+            .set_model(Model::Unavailable("not needed".into()));
+        assert_eq!(again.status().unwrap().paused, Some(PauseReason::You));
+        again.resume_indexing(Arc::new(|| {})).unwrap();
+        wait(&again);
+        let status = again.status().unwrap();
+        assert_eq!((status.paused, status.files), (None, 2));
+    }
+
+    #[test]
+    fn low_disk_space_pauses_until_there_is_room_again() {
+        let (state, docs) = state("low-disk");
+        state.indexer.set_min_free_bytes(u64::MAX);
+        state.add_folder(&docs, Arc::new(|| {})).unwrap();
+        wait(&state);
+        assert_eq!(state.status().unwrap().paused, Some(PauseReason::LowDisk));
+
+        // Still no room: resuming pauses again, with the reason.
+        state.resume_indexing(Arc::new(|| {})).unwrap();
+        wait(&state);
+        assert_eq!(state.status().unwrap().paused, Some(PauseReason::LowDisk));
+
+        state.indexer.set_min_free_bytes(0);
+        state.resume_indexing(Arc::new(|| {})).unwrap();
+        wait(&state);
+        let status = state.status().unwrap();
+        assert_eq!((status.paused, status.files), (None, 2));
+    }
+
+    #[test]
+    fn the_resource_mode_is_saved() {
+        let (state, docs) = state("resource-mode");
+        assert_eq!(
+            state.settings().unwrap().resource_mode,
+            ResourceMode::Balanced
+        );
+        // No model is loaded here, so there is nothing to load again.
+        assert!(!state.set_resource_mode(ResourceMode::Light).unwrap());
+        let data = docs.parent().unwrap().to_path_buf();
+        drop(state);
+        let again = AppState::open(&data, built_worker()).unwrap();
+        assert_eq!(again.resource_mode(), ResourceMode::Light);
     }
 
     #[test]

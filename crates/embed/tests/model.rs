@@ -3,7 +3,9 @@
 
 use std::sync::{Mutex, OnceLock};
 
-use catchword_embed::{find, Embedder, ModelManifest, E5_SMALL, GRANITE_97M};
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use catchword_embed::{find, Embedder, ModelManifest, Threads, E5_SMALL, GRANITE_97M};
 use catchword_engine::{chunk, Tokenizer};
 
 /// The model takes a second or two to load, so the tests share one.
@@ -12,8 +14,42 @@ fn embedder() -> &'static Mutex<Embedder> {
     EMBEDDER.get_or_init(|| {
         let paths =
             find(&GRANITE_97M).expect("no model or runtime; run sh scripts/fetch-embedding.sh");
-        Mutex::new(Embedder::load(&paths, &GRANITE_97M).unwrap())
+        Mutex::new(Embedder::load(&paths, &GRANITE_97M, Threads::RUNTIME_DEFAULT).unwrap())
     })
+}
+
+#[test]
+fn background_threads_are_ours_and_give_the_same_vectors() {
+    static STARTED: AtomicUsize = AtomicUsize::new(0);
+    fn count_start() {
+        STARTED.fetch_add(1, Ordering::SeqCst);
+    }
+    let paths = find(&GRANITE_97M).expect("no model; run sh scripts/fetch-embedding.sh");
+    let background = Threads {
+        count: 2,
+        background: Some(count_start),
+    };
+    let mut model = Embedder::load(&paths, &GRANITE_97M, background).unwrap();
+    let text = "The notice period is three months.";
+    let vector = model.embed_passages(&[text]).unwrap();
+    // Two threads: the caller and one the runtime started through us.
+    assert_eq!(STARTED.load(Ordering::SeqCst), 1);
+    let expected = passages(&[text]);
+    let difference: f32 = vector[0]
+        .iter()
+        .zip(&expected[0])
+        .map(|(a, b)| (a - b).abs())
+        .sum();
+    assert!(difference < 1e-3, "{difference}");
+
+    // One thread: everything runs on the caller, nothing is started.
+    let single = Threads {
+        count: 1,
+        background: Some(count_start),
+    };
+    let mut model = Embedder::load(&paths, &GRANITE_97M, single).unwrap();
+    model.embed_passages(&[text]).unwrap();
+    assert_eq!(STARTED.load(Ordering::SeqCst), 1);
 }
 
 fn passages(texts: &[&str]) -> Vec<Vec<f32>> {
@@ -118,7 +154,7 @@ fn baseline() -> &'static Mutex<Embedder> {
 
 fn load(manifest: &ModelManifest, fetch: &str) -> Mutex<Embedder> {
     let paths = find(manifest).unwrap_or_else(|| panic!("model not found; run {fetch}"));
-    Mutex::new(Embedder::load(&paths, manifest).unwrap())
+    Mutex::new(Embedder::load(&paths, manifest, Threads::RUNTIME_DEFAULT).unwrap())
 }
 
 #[test]

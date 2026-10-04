@@ -5,7 +5,7 @@
 //! The interface speaks in ids: it never sends a file path to be read or
 //! opened. Paths here are for display only (section 9, rule 7).
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 /// Everything the interface shows about the index and its work.
@@ -28,6 +28,30 @@ pub struct Status {
     pub problem: Option<String>,
     /// The first-launch steps are not done yet (APP-1).
     pub first_launch: bool,
+    /// Why indexing is paused, if it is (IDX-5, RSC-3).
+    pub paused: Option<PauseReason>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum PauseReason {
+    /// The user paused it.
+    You,
+    /// Free space on the index's drive ran low.
+    LowDisk,
+}
+
+/// How much of the processor indexing may use (IDX-5).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum ResourceMode {
+    /// One core: slowest, kindest to a laptop on battery.
+    Light,
+    /// Half the processor: the default.
+    #[default]
+    Balanced,
+    /// All cores but one: soonest done.
+    Fast,
 }
 
 /// The settings the interface shows and changes (APP-3).
@@ -48,6 +72,7 @@ pub struct SettingsView {
     /// Logs also record file paths and error details.
     pub detailed_logs: bool,
     pub version: String,
+    pub resource_mode: ResourceMode,
 }
 
 /// A folder the user chose. The path is shown, never sent back.
@@ -192,6 +217,8 @@ mod tests {
             Folder,
             FolderStatus,
             FolderState,
+            PauseReason,
+            ResourceMode,
             Stage,
             Work,
             Meaning,

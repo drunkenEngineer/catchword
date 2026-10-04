@@ -87,7 +87,7 @@ fn results_by_words_are_grouped_by_file() {
 
 #[test]
 fn the_meaning_stage_can_stop_and_carry_on() {
-    let model = Model::load();
+    let model = Model::load(catchword_service::Threads::RUNTIME_DEFAULT);
     let Some(ready) = model.ready() else {
         panic!("no model; run sh scripts/fetch-embedding.sh");
     };

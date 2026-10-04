@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { createContext, useContext } from "react";
 import type { Folder } from "./contract/Folder";
+import type { ResourceMode } from "./contract/ResourceMode";
 import type { SearchResponse } from "./contract/SearchResponse";
 import type { SettingsView } from "./contract/SettingsView";
 import type { Status } from "./contract/Status";
@@ -17,6 +18,10 @@ export interface Engine {
   indexNow(): Promise<void>;
   /** Reads again the files whose reading failed, parked ones included. */
   retryFailed(): Promise<void>;
+  /** Stays paused, even after a restart, until resumed. */
+  pauseIndexing(): Promise<void>;
+  resumeIndexing(): Promise<void>;
+  setResourceMode(mode: ResourceMode): Promise<void>;
   settings(): Promise<SettingsView>;
   /** Opens the native folder dialog; null when the user cancels. */
   excludeFolder(): Promise<Folder | null>;
@@ -47,6 +52,9 @@ export const tauriEngine: Engine = {
   removeFolder: (id) => invoke("remove_folder", { id }),
   indexNow: () => invoke("index_now"),
   retryFailed: () => invoke("retry_failed"),
+  pauseIndexing: () => invoke("pause_indexing"),
+  resumeIndexing: () => invoke("resume_indexing"),
+  setResourceMode: (mode) => invoke("set_resource_mode", { mode }),
   settings: () => invoke("settings"),
   excludeFolder: () => invoke("exclude_folder"),
   includeFolder: (id) => invoke("include_folder", { id }),

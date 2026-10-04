@@ -92,6 +92,7 @@ export function App() {
 function chipText(status: Status | null): string {
   if (!status || status.meaning.state === "loading") return strings.chip.starting;
   if (status.folders.length === 0) return strings.chip.noFolders;
+  if (status.paused) return strings.chip.paused;
   if (status.work?.stage === "words") {
     return strings.chip.readingFiles(status.work.done, status.work.total);
   }

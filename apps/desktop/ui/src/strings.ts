@@ -12,6 +12,7 @@ export const strings = {
     readingFiles: (done: number, total: number) => `Reading files: ${done} of ${total}`,
     meaning: (percent: number) => `Searchable by meaning: ${percent}%`,
     upToDate: "Up to date",
+    paused: "Paused",
   },
 
   search: {
@@ -62,6 +63,11 @@ export const strings = {
       `Searchable by meaning: ${done.toLocaleString()} of ${total.toLocaleString()} passages`,
     meaningOff: (reason: string) => `Meaning search is off: ${reason}`,
     meaningLoading: "Meaning search is starting.",
+    pause: "Pause",
+    resume: "Resume",
+    pausedByYou: "Indexing is paused. Search works with what is indexed so far.",
+    pausedLowDisk:
+      "Indexing is paused: less than 1 GB is free on the drive that holds the index. Free some space, then resume.",
     attention: "Needs attention",
     nothingNeedsAttention: "Every supported file was indexed.",
     failed: "failed",
@@ -89,6 +95,14 @@ export const strings = {
     confirmDeleteAll:
       "Delete the index and forget your folders and settings? Catchword starts again as new. Your own files are not touched.",
     keep: "Keep",
+    indexingTitle: "Indexing",
+    resourceMode: "How much of the processor indexing may use",
+    modes: {
+      light: ["Light", "One core. Slowest; best on battery or on an older computer."],
+      balanced: ["Balanced", "Half the processor. The default."],
+      fast: ["Fast", "All cores but one. Finishes soonest; the computer may get warm and loud."],
+    } as Record<"light" | "balanced" | "fast", [string, string]>,
+    modeNote: "Indexing always runs at low priority, so your other work comes first.",
     diagnosticsTitle: "Diagnostics",
     version: (version: string) => `Catchword ${version}`,
     detailedLogs: "Detailed logs: also record file names and error details. Turn on only while tracking down a problem.",

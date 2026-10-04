@@ -9,6 +9,7 @@
 pub mod commands;
 pub mod contract;
 mod diagnostics;
+mod disk;
 mod indexing;
 mod log;
 mod open;
@@ -42,7 +43,7 @@ pub fn run() {
             let handle = app.handle().clone();
             thread::spawn(move || {
                 let state = handle.state::<AppState>();
-                state.set_model(Model::load());
+                state.set_model(Model::load(indexing::threads(state.resource_mode())));
                 let _ = handle.emit(STATUS_CHANGED, ());
                 state.start_indexing(notifier(&handle));
             });
@@ -61,6 +62,9 @@ pub fn run() {
             commands::set_patterns,
             commands::finish_first_launch,
             commands::delete_all_data,
+            commands::pause_indexing,
+            commands::resume_indexing,
+            commands::set_resource_mode,
             commands::set_detailed_logs,
             commands::diagnostics,
             commands::save_diagnostics,

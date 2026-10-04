@@ -72,6 +72,11 @@ export function Library({ status }: { status: Status | null }) {
 
       <section aria-labelledby="progress-title">
         <h2 id="progress-title">{strings.library.progress}</h2>
+        {status.paused && (
+          <p role="status">
+            {status.paused === "lowDisk" ? strings.library.pausedLowDisk : strings.library.pausedByYou}
+          </p>
+        )}
         {words ? (
           <Bar label={strings.library.reading(words.done, words.total)} value={words.done} max={words.total} />
         ) : (
@@ -85,6 +90,19 @@ export function Library({ status }: { status: Status | null }) {
             value={status.searchableByMeaning}
             max={Math.max(status.passages, 1)}
           />
+        )}
+        {status.folders.length > 0 && (
+          <div className="actions">
+            {status.paused ? (
+              <button type="button" className="primary" onClick={() => engine.resumeIndexing().catch(fail)}>
+                {strings.library.resume}
+              </button>
+            ) : (
+              <button type="button" onClick={() => engine.pauseIndexing().catch(fail)}>
+                {strings.library.pause}
+              </button>
+            )}
+          </div>
         )}
       </section>
 

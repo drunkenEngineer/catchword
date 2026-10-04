@@ -8,6 +8,7 @@ mod search;
 
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
+pub use catchword_embed::Threads;
 use catchword_embed::{Embedder, DEFAULT_MODEL};
 
 pub use index::{
@@ -26,8 +27,9 @@ pub enum Model {
 
 impl Model {
     /// Load the app's model from where it is installed (or, in development,
-    /// from vendor/). Never fails: without a model, keyword search works.
-    pub fn load() -> Model {
+    /// from vendor/), to run on `threads`. Never fails: without a model,
+    /// keyword search works.
+    pub fn load(threads: Threads) -> Model {
         let Some(paths) = catchword_embed::find(&DEFAULT_MODEL) else {
             return Model::Unavailable(
                 "the embedding model or ONNX Runtime was not found \
@@ -35,7 +37,7 @@ impl Model {
                     .to_string(),
             );
         };
-        match Embedder::load(&paths, &DEFAULT_MODEL) {
+        match Embedder::load(&paths, &DEFAULT_MODEL, threads) {
             Ok(model) => Model::Ready(Mutex::new(model)),
             Err(error) => Model::Unavailable(error.to_string()),
         }

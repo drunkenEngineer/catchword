@@ -12,9 +12,50 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
 use catchword_engine::Tokenizer;
+use ort::environment::ThreadManager;
 use ort::session::Session;
 use ort::value::Tensor;
 use sha2::{Digest, Sha256};
+
+/// How the runtime may use the processor.
+#[derive(Debug, Clone, Copy)]
+pub struct Threads {
+    /// Threads for one embedding, the calling one included. 0 lets the
+    /// runtime choose: one per physical core.
+    pub count: usize,
+    /// For work in the background: called first on each thread the runtime
+    /// starts, to lower its priority (RSC-2), and threads wait without
+    /// spinning between pieces of work.
+    pub background: Option<fn()>,
+}
+
+impl Threads {
+    /// The runtime's own choice, for the command-line tool and benchmarks.
+    pub const RUNTIME_DEFAULT: Threads = Threads {
+        count: 0,
+        background: None,
+    };
+}
+
+/// Starts the runtime's threads, calling a function on each one first.
+struct BackgroundThreads(fn());
+
+impl ThreadManager for BackgroundThreads {
+    type Thread = std::thread::JoinHandle<()>;
+
+    fn create(&self, work: impl FnOnce() + Send + 'static) -> ort::Result<Self::Thread> {
+        let first = self.0;
+        Ok(std::thread::spawn(move || {
+            first();
+            work();
+        }))
+    }
+
+    fn join(thread: Self::Thread) -> ort::Result<()> {
+        let _ = thread.join();
+        Ok(())
+    }
+}
 
 /// How a model turns its per-token output into one vector.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -126,6 +167,13 @@ impl From<ort::Error> for EmbedError {
     }
 }
 
+/// A failed session setting; the half-built session is not needed back.
+impl From<ort::Error<ort::session::builder::SessionBuilder>> for EmbedError {
+    fn from(error: ort::Error<ort::session::builder::SessionBuilder>) -> Self {
+        EmbedError::Runtime(error.to_string())
+    }
+}
+
 /// Where the runtime library and a model's files are.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Paths {
@@ -172,13 +220,23 @@ pub struct Embedder {
 
 impl Embedder {
     /// Check the model files against their pinned checksums, then load them.
-    pub fn load(paths: &Paths, manifest: &ModelManifest) -> Result<Self, EmbedError> {
+    pub fn load(
+        paths: &Paths,
+        manifest: &ModelManifest,
+        threads: Threads,
+    ) -> Result<Self, EmbedError> {
         let model = paths.model.join("model.onnx");
         let tokenizer = paths.model.join("tokenizer.json");
         verify(&model, manifest.model_sha256)?;
         verify(&tokenizer, manifest.tokenizer_sha256)?;
         start_runtime(&paths.runtime)?;
-        let session = Session::builder()?.commit_from_file(&model)?;
+        let mut builder = Session::builder()?.with_intra_threads(threads.count)?;
+        if let Some(first) = threads.background {
+            builder = builder
+                .with_intra_op_spinning(false)?
+                .with_thread_manager(BackgroundThreads(first))?;
+        }
+        let session = builder.commit_from_file(&model)?;
         let tokenizer = tokenizers::Tokenizer::from_file(&tokenizer)
             .map_err(|error| EmbedError::Tokenizer(error.to_string()))?;
         let tokenizer = ModelTokenizer(Arc::new(tokenizer));

@@ -3,6 +3,8 @@
 import type { Folder } from "./contract/Folder";
 import type { FileHit } from "./contract/FileHit";
 import type { PassageHit } from "./contract/PassageHit";
+import type { PauseReason } from "./contract/PauseReason";
+import type { ResourceMode } from "./contract/ResourceMode";
 import type { SearchResponse } from "./contract/SearchResponse";
 import type { SettingsView } from "./contract/SettingsView";
 import type { Span } from "./contract/Span";
@@ -65,6 +67,8 @@ export function createMockEngine({ firstLaunch = false } = {}): Engine {
   let excludedFolders: Folder[] = [];
   let patterns = [...DEFAULT_PATTERNS];
   let detailedLogs = false;
+  let paused: PauseReason | null = null;
+  let resourceMode: ResourceMode = "balanced";
   let report: string | null = null;
   const listeners = new Set<() => void>();
   const changed = () => listeners.forEach((listener) => listener());
@@ -100,6 +104,7 @@ export function createMockEngine({ firstLaunch = false } = {}): Engine {
               ],
         problem: null,
         firstLaunch: !welcomed,
+        paused,
       };
     },
 
@@ -139,6 +144,20 @@ export function createMockEngine({ firstLaunch = false } = {}): Engine {
       changed();
     },
 
+    async pauseIndexing(): Promise<void> {
+      paused = "you";
+      changed();
+    },
+
+    async resumeIndexing(): Promise<void> {
+      paused = null;
+      changed();
+    },
+
+    async setResourceMode(mode: ResourceMode): Promise<void> {
+      resourceMode = mode;
+    },
+
     async retryFailed(): Promise<void> {
       parked = false;
       changed();
@@ -153,6 +172,7 @@ export function createMockEngine({ firstLaunch = false } = {}): Engine {
         indexBytes: folders.length === 0 ? 4096 : 18_350_080,
         detailedLogs,
         version: "0.0.1",
+        resourceMode,
       };
     },
 

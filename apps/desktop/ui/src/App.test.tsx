@@ -29,6 +29,16 @@ describe("the window", () => {
     expect(heading()).toBe("Search");
   });
 
+  it("shows when indexing is paused", async () => {
+    const engine = createMockEngine();
+    renderWith(engine, <App />);
+    await screen.findByText("Up to date");
+    await act(async () => {
+      await engine.pauseIndexing();
+    });
+    expect(await screen.findByText("Paused")).toBeTruthy();
+  });
+
   it("shows the index status, which opens Library", async () => {
     renderWith(createMockEngine(), <App />);
     const chip = await screen.findByText("Up to date");

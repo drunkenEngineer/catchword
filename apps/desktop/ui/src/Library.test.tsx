@@ -64,6 +64,26 @@ describe("the library screen", () => {
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
   });
 
+  it("pauses and resumes indexing, and says why it is paused", async () => {
+    const engine = createMockEngine();
+    const pause = vi.spyOn(engine, "pauseIndexing");
+    const resume = vi.spyOn(engine, "resumeIndexing");
+    renderWith(engine, <Library status={await engine.status()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Pause" }));
+    expect(pause).toHaveBeenCalled();
+
+    cleanup();
+    renderWith(engine, <Library status={await engine.status()} />);
+    expect(screen.getByText(/Indexing is paused\./)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Resume" }));
+    expect(resume).toHaveBeenCalled();
+
+    cleanup();
+    const lowDisk = { ...(await engine.status()), paused: "lowDisk" as const };
+    renderWith(engine, <Library status={lowDisk} />);
+    expect(screen.getByText(/less than 1 GB is free/)).toBeTruthy();
+  });
+
   it("says which folder is being scanned and which cannot be reached", async () => {
     const engine = createMockEngine();
     const status = await engine.status();

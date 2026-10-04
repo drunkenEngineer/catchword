@@ -61,6 +61,19 @@ describe("the settings screen", () => {
     expect(await screen.findByText(/AppData.*Catchword.*17[.,]5 MB/)).toBeTruthy();
   });
 
+  it("chooses how much of the processor indexing uses", async () => {
+    const engine = createMockEngine();
+    const setResourceMode = vi.spyOn(engine, "setResourceMode");
+    renderWith(engine, <Settings />);
+    const balanced = (await screen.findByRole("radio", { name: /Balanced/ })) as HTMLInputElement;
+    expect(balanced.checked).toBe(true);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("radio", { name: /Light/ }));
+    });
+    expect(setResourceMode).toHaveBeenCalledWith("light");
+    expect(((await screen.findByRole("radio", { name: /Light/ })) as HTMLInputElement).checked).toBe(true);
+  });
+
   it("turns detailed logs on and off", async () => {
     const engine = createMockEngine();
     const setDetailedLogs = vi.spyOn(engine, "setDetailedLogs");

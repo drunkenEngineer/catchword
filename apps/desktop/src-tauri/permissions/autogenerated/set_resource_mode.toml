@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-resource-mode"
+description = "Enables the set_resource_mode command without any pre-configured scope."
+commands.allow = ["set_resource_mode"]
+
+[[permission]]
+identifier = "deny-set-resource-mode"
+description = "Denies the set_resource_mode command without any pre-configured scope."
+commands.deny = ["set_resource_mode"]

@@ -3,23 +3,31 @@
 //! One run indexes every folder by words, then embeds what is new. Asking
 //! for a run while one is going schedules another right after it. Each file
 //! and each batch of vectors is saved as it goes, so stopping loses nothing.
+//!
+//! Indexing can be paused, by the user or when free disk space runs low;
+//! a paused indexer starts no run until it is resumed (IDX-5, RSC-3).
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use catchword_engine::extract::Limits;
 use catchword_engine::Exclusions;
-use catchword_service::{embed_missing, index_folder, Cutter, Model, Report, Unreachable, Worker};
+use catchword_service::{
+    embed_missing, index_folder, Cutter, Model, Report, Threads, Unreachable, Worker,
+};
 use catchword_store::Store;
 
-use crate::contract::{Stage, Work};
+use crate::contract::{PauseReason, ResourceMode, Stage, Work};
+use crate::disk;
 use crate::log::{Logger, Value};
 
 /// How often progress is reported to the interface, at most.
 const REPORT_EVERY: Duration = Duration::from_millis(250);
+/// How often free disk space is checked during a run.
+const DISK_CHECK_EVERY: Duration = Duration::from_secs(2);
 
 /// Called when there is news for the interface.
 pub type Notify = Arc<dyn Fn() + Send + Sync>;
@@ -30,6 +38,7 @@ struct Control {
     again: bool,
     folders: Vec<PathBuf>,
     exclusions: Exclusions,
+    paused: Option<PauseReason>,
 }
 
 #[derive(Default, Clone)]
@@ -40,16 +49,24 @@ pub struct Snapshot {
     pub scanning: Option<PathBuf>,
     /// Folders that could not be reached on their last scan (SRC-5).
     pub offline: Vec<PathBuf>,
+    pub paused: Option<PauseReason>,
 }
 
 struct Shared {
     store_path: PathBuf,
     worker: Worker,
     log: Arc<Logger>,
-    model: OnceLock<Arc<Model>>,
+    /// None while the model loads. Replaced when the resource mode changes.
+    model: Mutex<Option<Arc<Model>>>,
+    model_ready: Condvar,
     control: Mutex<Control>,
     finished: Condvar,
+    /// Stop the current run, for a moment (stop_and_wait).
     stop: AtomicBool,
+    /// Stop the current run, until resumed (a pause).
+    halt: AtomicBool,
+    /// Pause below this much free disk space.
+    min_free: AtomicU64,
     snapshot: Mutex<Snapshot>,
 }
 
@@ -70,10 +87,13 @@ impl Indexer {
                 store_path,
                 worker,
                 log,
-                model: OnceLock::new(),
+                model: Mutex::new(None),
+                model_ready: Condvar::new(),
                 control: Mutex::new(Control::default()),
                 finished: Condvar::new(),
                 stop: AtomicBool::new(false),
+                halt: AtomicBool::new(false),
+                min_free: AtomicU64::new(disk::MIN_FREE_BYTES),
                 snapshot: Mutex::new(Snapshot::default()),
             }),
         }
@@ -81,13 +101,34 @@ impl Indexer {
 
     /// The model once it has loaded, or None while it is loading.
     pub fn model(&self) -> Option<Arc<Model>> {
-        self.shared.model.get().cloned()
+        lock(&self.shared.model).clone()
     }
 
     /// Runs wait for this: passages must be cut with the model's tokenizer
-    /// from the start, or the index would be rebuilt once it arrives.
+    /// from the start, or the index would be rebuilt once it arrives. A new
+    /// model replaces the old one; a search holding the old one finishes.
     pub fn set_model(&self, model: Model) {
-        let _ = self.shared.model.set(Arc::new(model));
+        *lock(&self.shared.model) = Some(Arc::new(model));
+        self.shared.model_ready.notify_all();
+    }
+
+    /// Pause: the current run stops after its file or batch, and no run
+    /// starts until `resume`.
+    pub fn pause(&self, reason: PauseReason) {
+        pause(&self.shared, reason);
+    }
+
+    /// Lift a pause. The next `start` runs.
+    pub fn resume(&self) {
+        let mut control = lock(&self.shared.control);
+        control.paused = None;
+        self.shared.halt.store(false, Ordering::SeqCst);
+        lock(&self.shared.snapshot).paused = None;
+    }
+
+    #[cfg(test)]
+    pub fn set_min_free_bytes(&self, bytes: u64) {
+        self.shared.min_free.store(bytes, Ordering::SeqCst);
     }
 
     pub fn snapshot(&self) -> Snapshot {
@@ -100,10 +141,14 @@ impl Indexer {
 
     /// Index `folders`, leaving out `exclusions`, on a background thread.
     /// If a run is going, another follows it, with the latest of both.
+    /// While paused, they are kept for when indexing resumes.
     pub fn start(&self, folders: Vec<PathBuf>, exclusions: Exclusions, notify: Notify) {
         let mut control = lock(&self.shared.control);
         control.folders = folders;
         control.exclusions = exclusions;
+        if control.paused.is_some() {
+            return;
+        }
         if control.running {
             control.again = true;
             return;
@@ -120,7 +165,8 @@ impl Indexer {
                 };
                 run(&shared, &folders, &exclusions, &notify);
                 let mut control = lock(&shared.control);
-                if control.again && !shared.stop.load(Ordering::SeqCst) {
+                if control.again && !shared.stop.load(Ordering::SeqCst) && control.paused.is_none()
+                {
                     control.again = false;
                     continue;
                 }
@@ -153,9 +199,62 @@ impl Indexer {
     }
 }
 
+fn pause(shared: &Shared, reason: PauseReason) {
+    let mut control = lock(&shared.control);
+    control.paused = Some(reason);
+    shared.halt.store(true, Ordering::SeqCst);
+    lock(&shared.snapshot).paused = Some(reason);
+}
+
+/// True if free space on the index's drive is below the minimum; then
+/// indexing pauses (RSC-3). Where free space cannot be told, it is not low.
+fn low_disk(shared: &Shared) -> bool {
+    let Some(free) = disk::free_bytes(&shared.store_path) else {
+        return false;
+    };
+    if free >= shared.min_free.load(Ordering::SeqCst) {
+        return false;
+    }
+    shared
+        .log
+        .warn("index.low_disk", &[("free_mb", Value::Number(free >> 20))]);
+    pause(shared, PauseReason::LowDisk);
+    true
+}
+
+/// The threads embedding may use in a resource mode, all at below-normal
+/// priority (RSC-2). The default mode uses at most half the logical cores
+/// (section 14).
+pub fn threads(mode: ResourceMode) -> Threads {
+    let logical = thread::available_parallelism().map_or(2, |n| n.get());
+    let count = match mode {
+        ResourceMode::Light => 1,
+        ResourceMode::Balanced => (logical / 2).max(1),
+        ResourceMode::Fast => logical.saturating_sub(1).max(1),
+    };
+    Threads {
+        count,
+        background: Some(lower_priority),
+    }
+}
+
 /// One run over all folders: words first, then meaning.
 fn run(shared: &Shared, folders: &[PathBuf], exclusions: &Exclusions, notify: &Notify) {
-    let model = Arc::clone(shared.model.wait());
+    let model = {
+        let mut model = lock(&shared.model);
+        loop {
+            if let Some(model) = model.as_ref() {
+                break Arc::clone(model);
+            }
+            model = shared
+                .model_ready
+                .wait(model)
+                .unwrap_or_else(PoisonError::into_inner);
+        }
+    };
+    if low_disk(shared) {
+        return;
+    }
     let set_work = |stage, done: u64, total: u64| {
         lock(&shared.snapshot).work = Some(Work { stage, done, total });
     };
@@ -183,6 +282,16 @@ fn run(shared: &Shared, folders: &[PathBuf], exclusions: &Exclusions, notify: &N
             notify();
         }
     };
+    let mut last_disk_check = Instant::now();
+    let mut keep_going = || {
+        if last_disk_check.elapsed() >= DISK_CHECK_EVERY {
+            last_disk_check = Instant::now();
+            if low_disk(shared) {
+                return false;
+            }
+        }
+        !shared.stop.load(Ordering::SeqCst) && !shared.halt.load(Ordering::SeqCst)
+    };
 
     let mut problem = None;
     for (number, folder) in folders.iter().enumerate() {
@@ -198,7 +307,7 @@ fn run(shared: &Shared, folders: &[PathBuf], exclusions: &Exclusions, notify: &N
             |done, total| {
                 set_work(Stage::Words, done as u64, total as u64);
                 report(false);
-                !shared.stop.load(Ordering::SeqCst)
+                keep_going()
             },
         );
         lock(&shared.snapshot).scanning = None;
@@ -235,6 +344,10 @@ fn run(shared: &Shared, folders: &[PathBuf], exclusions: &Exclusions, notify: &N
                         ("error", Value::Private(format!("{error:#}"))),
                     ],
                 );
+                // A full disk shows as an error: then it is a pause.
+                if low_disk(shared) {
+                    return;
+                }
                 problem = Some(format!("{error:#}"));
             }
         }
@@ -247,7 +360,7 @@ fn run(shared: &Shared, folders: &[PathBuf], exclusions: &Exclusions, notify: &N
         let result = embed_missing(&mut store, ready, |done, total| {
             set_work(Stage::Meaning, done.max(0) as u64, total.max(0) as u64);
             report(false);
-            !shared.stop.load(Ordering::SeqCst)
+            keep_going()
         });
         match result {
             Ok(done) => {
@@ -270,6 +383,9 @@ fn run(shared: &Shared, folders: &[PathBuf], exclusions: &Exclusions, notify: &N
                     "embed.failed",
                     &[("error", Value::Private(format!("{error:#}")))],
                 );
+                if low_disk(shared) {
+                    return;
+                }
                 problem = Some(format!("{error:#}"));
             }
         }
@@ -315,7 +431,7 @@ fn log_folder(log: &Logger, number: usize, done: &Report, started: Instant) {
 
 /// Background indexing yields to the user's own work (RSC-2).
 #[cfg(windows)]
-fn lower_priority() {
+pub fn lower_priority() {
     use windows_sys::Win32::System::Threading::{
         GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_BELOW_NORMAL,
     };
@@ -327,7 +443,7 @@ fn lower_priority() {
 }
 
 #[cfg(not(windows))]
-fn lower_priority() {}
+pub fn lower_priority() {}
 
 #[cfg(test)]
 mod tests {
@@ -407,6 +523,55 @@ mod tests {
         assert_eq!(snapshot.scanning, None);
         // Offline is a state, not a problem.
         assert_eq!(snapshot.problem, None);
+    }
+
+    #[test]
+    fn a_paused_indexer_starts_nothing_until_resumed() {
+        let (indexer, store) = indexer("paused");
+        indexer.pause(PauseReason::You);
+        indexer.start(
+            vec![folder_with("paused", 3)],
+            Exclusions::default(),
+            Arc::new(|| {}),
+        );
+        wait_until_idle(&indexer);
+        assert_eq!(indexer.snapshot().paused, Some(PauseReason::You));
+        assert_eq!(Store::open(&store).unwrap().counts().unwrap().files, 0);
+
+        indexer.resume();
+        indexer.start(
+            vec![folder_with("paused", 3)],
+            Exclusions::default(),
+            Arc::new(|| {}),
+        );
+        wait_until_idle(&indexer);
+        assert_eq!(indexer.snapshot().paused, None);
+        assert_eq!(Store::open(&store).unwrap().counts().unwrap().files, 3);
+    }
+
+    #[test]
+    fn low_disk_space_pauses_indexing() {
+        let (indexer, store) = indexer("low-disk");
+        indexer.set_min_free_bytes(u64::MAX);
+        indexer.start(
+            vec![folder_with("low-disk", 3)],
+            Exclusions::default(),
+            Arc::new(|| {}),
+        );
+        wait_until_idle(&indexer);
+        assert_eq!(indexer.snapshot().paused, Some(PauseReason::LowDisk));
+        assert_eq!(Store::open(&store).unwrap().counts().unwrap().files, 0);
+    }
+
+    #[test]
+    fn resource_modes_use_more_or_fewer_threads() {
+        let logical = thread::available_parallelism().unwrap().get();
+        assert_eq!(threads(ResourceMode::Light).count, 1);
+        let balanced = threads(ResourceMode::Balanced).count;
+        assert!(balanced >= 1 && balanced <= logical.div_ceil(2));
+        assert!(threads(ResourceMode::Fast).count >= balanced);
+        assert!(threads(ResourceMode::Fast).count < logical.max(2));
+        assert!(threads(ResourceMode::Balanced).background.is_some());
     }
 
     #[test]

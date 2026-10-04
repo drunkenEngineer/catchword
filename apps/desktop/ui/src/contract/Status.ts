@@ -2,6 +2,7 @@
 import type { FolderStatus } from "./FolderStatus";
 import type { Meaning } from "./Meaning";
 import type { NotIndexed } from "./NotIndexed";
+import type { PauseReason } from "./PauseReason";
 import type { Work } from "./Work";
 
 /**
@@ -23,4 +24,8 @@ problem: string | null,
 /**
  * The first-launch steps are not done yet (APP-1).
  */
-firstLaunch: boolean, };
+firstLaunch: boolean, 
+/**
+ * Why indexing is paused, if it is (IDX-5, RSC-3).
+ */
+paused: PauseReason | null, };

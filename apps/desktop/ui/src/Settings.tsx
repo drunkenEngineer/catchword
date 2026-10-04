@@ -2,6 +2,7 @@
 // and how to delete it, and the privacy statement. Every change is saved at
 // once and takes effect without a restart.
 import { useCallback, useEffect, useState } from "react";
+import type { ResourceMode } from "./contract/ResourceMode";
 import type { SettingsView } from "./contract/SettingsView";
 import { useEngine } from "./engine";
 import { strings } from "./strings";
@@ -99,6 +100,28 @@ export function Settings() {
           </button>
           {saved && <span role="status">{strings.settings.saved}</span>}
         </div>
+      </section>
+
+      <section aria-labelledby="indexing-title">
+        <h2 id="indexing-title">{strings.settings.indexingTitle}</h2>
+        <fieldset className="modes">
+          <legend>{strings.settings.resourceMode}</legend>
+          {(["light", "balanced", "fast"] as ResourceMode[]).map((mode) => (
+            <label key={mode} className="check">
+              <input
+                type="radio"
+                name="resource-mode"
+                value={mode}
+                checked={view.resourceMode === mode}
+                onChange={() => engine.setResourceMode(mode).then(load, fail)}
+              />
+              <span>
+                <strong>{strings.settings.modes[mode][0]}</strong> {strings.settings.modes[mode][1]}
+              </span>
+            </label>
+          ))}
+        </fieldset>
+        <p className="muted">{strings.settings.modeNote}</p>
       </section>
 
       <section aria-labelledby="data-title">

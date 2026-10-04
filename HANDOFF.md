@@ -20,7 +20,7 @@ A free, open-source desktop app for Windows that searches a person's own documen
   - `apps/desktop/ui`: the React and TypeScript interface: first launch, Search, Library and Settings.
   - `crates/eval`: the retrieval evaluation and benchmark tool (`catchword-eval`), never shipped. The evaluation set is in `eval/` (ADR-19).
   - `crates/test-support`: test PDFs written by code, never shipped.
-- **Verified on Windows 11 with Rust 1.99.0** (pinned in `rust-toolchain.toml`): 175 Rust tests and 32 interface tests pass, and format, lint, type check and the privacy check are clean. PDFium, ONNX Runtime and the model come from `scripts/fetch-pdfium.sh` and `scripts/fetch-embedding.sh` (ADR-14, ADR-18).
+- **Verified on Windows 11 with Rust 1.99.0** (pinned in `rust-toolchain.toml`): 183 Rust tests and 35 interface tests pass, and format, lint, type check and the privacy check are clean. PDFium, ONNX Runtime and the model come from `scripts/fetch-pdfium.sh` and `scripts/fetch-embedding.sh` (ADR-14, ADR-18).
 - **Not built yet:** pause and resource modes, appearance settings, cloud-placeholder handling (SRC-4), OCR, the updater (and so the first launch's update-check step), the GitHub installer, notices for the Rust libraries, and the Store listing. An MSIX package builds (`docs/packaging.md`).
 
 ## Decisions already made
@@ -65,7 +65,7 @@ Next, in the order of the spec's Phase 2 (section 20):
 The rest of Phase 2: the MUST requirements of sections 6 and 7 that are still open, in the order of the Phase 2 feature list:
 
 10. ~~**Cloud-only files and offline folders** (SRC-4, SRC-5).~~ Done, 4 October 2026: the scan reads attributes from folder listings only; cloud-only and archived files are recorded as `cloud-only`, never opened, and read once they are on the computer again. A folder that cannot be reached is an `Unreachable` error that changes nothing; Library shows it as offline, its files still searchable. Files under a sub-folder that cannot be listed are kept. Windows attribute code sits in `crates/engine/src/attributes.rs` (PORT-4).
-11. **Pause, resume and resource mode** (IDX-5, RSC-3): pause and resume indexing; a resource mode; stop and warn when free disk space runs low.
+11. ~~**Pause, resume and resource mode** (IDX-5, RSC-3).~~ Done, 4 October 2026: Library pauses and resumes indexing, and a user's pause outlasts a restart. Settings offers Light (1 thread), Balanced (half the logical cores, the default) and Fast (all but one); a change loads the model again with the new thread count. ONNX Runtime's own threads are now started by us at below-normal priority, without busy waiting (RSC-2 was only half met before). Indexing pauses when less than 1 GB is free on the index's drive, and Library says why.
 12. **Results: names and dates** (SEA-1, SEA-2): match file and folder names; show each result's modified date.
 13. **Rebuild** (IDX-7): rebuild the index on demand, and automatically after unrecoverable damage, with a quick integrity check at startup.
 14. **Text encodings** (EXT-2): detect the encoding of plain-text files. Needs a dependency, so it waits for an OK.

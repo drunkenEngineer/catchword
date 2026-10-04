@@ -10,6 +10,8 @@ use catchword_engine::exclude::{check_pattern, MAX_PATTERNS};
 use catchword_engine::Exclusions;
 use serde::{Deserialize, Serialize};
 
+use crate::contract::ResourceMode;
+
 const FILE: &str = "settings.json";
 const PREVIOUS: &str = "settings.previous.json";
 const PARTIAL: &str = "settings.json.partial";
@@ -36,6 +38,11 @@ pub struct Settings {
     /// Logs also record file paths and error details (PRIV-3).
     #[serde(default)]
     pub detailed_logs: bool,
+    #[serde(default)]
+    pub resource_mode: ResourceMode,
+    /// The user paused indexing; it stays paused after a restart.
+    #[serde(default)]
+    pub paused: bool,
     next_id: u32,
 }
 
@@ -54,6 +61,8 @@ impl Default for Settings {
             patterns: Exclusions::with_default_patterns().patterns,
             welcomed: false,
             detailed_logs: false,
+            resource_mode: ResourceMode::Balanced,
+            paused: false,
             next_id: 1,
         }
     }

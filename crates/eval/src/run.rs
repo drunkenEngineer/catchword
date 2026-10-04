@@ -80,8 +80,12 @@ pub fn vendor_paths(vendor: &Path, model: &ModelManifest) -> Paths {
 
 pub fn evaluate(set: &EvalSet, config: &Config, vendor: &Path) -> Result<Outcome> {
     let started = Instant::now();
-    let mut model = Embedder::load(&vendor_paths(vendor, &config.model), &config.model)
-        .with_context(|| format!("cannot load {}", config.model.name))?;
+    let mut model = Embedder::load(
+        &vendor_paths(vendor, &config.model),
+        &config.model,
+        catchword_embed::Threads::RUNTIME_DEFAULT,
+    )
+    .with_context(|| format!("cannot load {}", config.model.name))?;
     let load_seconds = started.elapsed().as_secs_f64();
 
     let mut store = Store::open_in_memory()?;

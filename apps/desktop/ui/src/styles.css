@@ -364,6 +364,17 @@ mark {
   color: var(--danger);
 }
 
+.modes {
+  border: none;
+  margin: 0;
+  padding: 0;
+}
+
+.modes legend {
+  padding: 0;
+  margin-bottom: 4px;
+}
+
 /* Contrast themes: let Windows choose every colour. */
 @media (forced-colors: active) {
   .passage[aria-selected="true"],

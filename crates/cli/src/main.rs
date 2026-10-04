@@ -15,7 +15,7 @@ use anyhow::{bail, Context, Result};
 use catchword_engine::extract::Limits;
 use catchword_engine::fuse::Found;
 use catchword_engine::{without_controls, Exclusions};
-use catchword_service::{embed_missing, index_folder, search, Cutter, Model, Worker};
+use catchword_service::{embed_missing, index_folder, search, Cutter, Model, Threads, Worker};
 use catchword_store::Store;
 
 const DEFAULT_INDEX: &str = "catchword-index.db";
@@ -99,7 +99,7 @@ fn index(index_file: &Path, folder: &Path, retry: bool) -> Result<()> {
         let forgotten = store.forget_failures()?;
         println!("Files that failed before, to read again: {forgotten}");
     }
-    let model = Model::load();
+    let model = Model::load(Threads::RUNTIME_DEFAULT);
     if let Model::Unavailable(why) = &model {
         println!("Note: meaning search is off: {why}.");
     }
@@ -177,7 +177,7 @@ fn open_store(index_file: &Path) -> Result<Store> {
 /// Search by words and by meaning, combined by rank (ADR-5).
 fn search_index(index_file: &Path, query: &str, limit: usize) -> Result<()> {
     let store = open_store(index_file)?;
-    let answer = search(&store, &Model::load(), query)?;
+    let answer = search(&store, &Model::load(Threads::RUNTIME_DEFAULT), query)?;
     for note in &answer.notes {
         println!("Note: {}", note.describe());
     }
