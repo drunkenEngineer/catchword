@@ -27,7 +27,7 @@ Last updated: 2026-10-04.
 
 ## 2. Current Status
 
-Overall health: **good**. On 2026-10-04, on Windows 11: 233 Rust tests and 49 interface tests pass; format, lint, type check and the privacy check are clean; the retrieval evaluation meets all 11 thresholds. CI has never been seen to run (see section 8).
+Overall health: **good**. On 2026-10-04, on Windows 11: 238 Rust tests and 49 interface tests pass; format, lint, type check and the privacy check are clean; the retrieval evaluation meets all 11 thresholds. CI has never been seen to run (see section 8).
 
 | Area | Status |
 | --- | --- |
@@ -40,6 +40,7 @@ Overall health: **good**. On 2026-10-04, on Windows 11: 233 Rust tests and 49 in
 | Pause/resume, resource modes, low-disk pause | `[DONE]` |
 | Rebuild on demand, quick check at start, damaged-index recovery, newer-index refusal | `[DONE]` |
 | Safe mode after two unclean ends in a row (spec section 19) | `[DONE]` |
+| Hostile-input tests (REL-2, start of Phase 3): worker answers, decoding, cutting, patterns, queries | `[DONE]`; hostile PDFs and fuzzing tools `[TODO]` |
 | Desktop app: first launch, Search, Library, Settings (exclusions, limits, appearance, data, diagnostics, About) | `[DONE]` |
 | Local logs, diagnostics report, crash reports | `[DONE]` |
 | Keyboard use and focus (A11Y-1); screen-reader announcements (A11Y-2, automated part) | `[DONE]` |
@@ -305,6 +306,7 @@ The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23
 - **Batching embeddings** (several passages per ONNX call): measured 1, 2, 4, 8, 16 per call; all within a few percent. Do not build it expecting speed (`docs/benchmarks/2026-10-04-app.md`).
 - **Tokenizing a whole long text in one call:** the tokenizer stops counting at 32,768 tokens, so long texts became a few giant passages (a 20 MB file gave 110 passages instead of about 11,000). Count tokens in blocks (`BLOCK_WORDS` = 2,000 in `crates/engine/src/lib.rs`).
 - **Asking about a pause only between blocks:** splitting a long text into words came first and took long enough to make a pause late. Ask during splitting too.
+- **Passing a query with control characters to FTS5:** it reads its query as C text, so a NUL ends it early and leaves a quote open ("unterminated string"), and the search fails. Found by the hostile-query test; queries now have control characters turned into spaces (`without_controls` in `crates/store/src/lib.rs`).
 - **Timing-only test assertions:** flaky when other programs load the machine. Assert the behaviour (for example "the half-read file is not in the index") and keep time bounds generous.
 - **Committing without gating on the checks' exit status:** one commit (48efc39) went in with a failing test, repaired by abca015. Commit only inside `if <checks pass>; then git commit; fi`.
 - **The opener plugin to open files:** it runs PowerShell (threat T15). Use ShellExecuteW (`open.rs`).
@@ -401,7 +403,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 
 ## 13. Testing
 
-- Coverage on 2026-10-04: 233 Rust tests and 49 interface tests pass. There are three ignored tests: the packaged-files test and two measurements.
+- Coverage on 2026-10-04: 238 Rust tests and 49 interface tests pass. There are three ignored tests: the packaged-files test and two measurements.
 - The evaluation meets all 11 thresholds; combined recall@10 is 92.5%.
 - Rust tests:
   - unit tests in each crate;
@@ -417,7 +419,8 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
   - offline folders;
   - quoted phrases;
   - filters;
-  - keyboard focus around confirmations.
+  - keyboard focus around confirmations;
+  - hostile input from a seeded generator, so a failure repeats exactly: 5,000 malformed worker answers and a valid one cut and corrupted at every byte, 3,000 byte strings decoded, 2,000 awkward texts cut, 5,000 name patterns (`crates/engine/tests/hostile.rs`), 3,000 queries on every kind of search (`no_query_makes_a_search_fail` in `crates/store/src/lib.rs`).
 - Currently failing: none known.
 - Manual verification:
   - install, update-uninstall and uninstall of the NSIS build (done once);
@@ -542,7 +545,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
   - CI results unseen (gh not logged in).
 - Current state: everything committed; all checks pass.
 - Next step: CI results; the owner's decisions; the "High" items in section 10.
-- Later the same day: `HANDOVER.md` written; 11 commits pushed; the two low-disk tests limited to Windows (free space is read on Windows only, so CI on Linux and macOS would fail them); safe mode added and verified in a release build.
+- Later the same day: `HANDOVER.md` written; 11 commits pushed; the two low-disk tests limited to Windows (free space is read on Windows only, so CI on Linux and macOS would fail them); safe mode added and verified in a release build; hostile-input tests added, which found that a NUL in a query made search fail (fixed).
 
 ---
 

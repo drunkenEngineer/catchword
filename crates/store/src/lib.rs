@@ -1212,7 +1212,7 @@ fn drop_orphans(tx: &Transaction<'_>) -> rusqlite::Result<()> {
 /// the user's text is never read as query syntax.
 fn query_words(query: &str) -> Vec<String> {
     let mut words: Vec<String> = Vec::new();
-    for word in query.split_whitespace() {
+    for word in without_controls(query).split_whitespace() {
         if word.chars().any(char::is_alphanumeric)
             && !words
                 .iter()
@@ -1228,7 +1228,7 @@ fn query_words(query: &str) -> Vec<String> {
 /// other words. Straight and curly quotes both count; a quote left open is
 /// ignored, and so is a phrase with no letters or digits.
 fn parse_query(query: &str) -> (Vec<String>, Vec<String>) {
-    let straight = query.replace(['\u{201c}', '\u{201d}', '\u{201e}'], "\"");
+    let straight = without_controls(query).replace(['\u{201c}', '\u{201d}', '\u{201e}'], "\"");
     let parts: Vec<&str> = straight.split('"').collect();
     // With every quote closed there is an odd number of parts, and every
     // other part, from the second, is inside quotes.
@@ -1245,6 +1245,16 @@ fn parse_query(query: &str) -> (Vec<String>, Vec<String>) {
         }
     }
     (phrases, query_words(&rest))
+}
+
+/// The query with control characters turned into spaces. The keyword
+/// index reads its query as C text, so a NUL would end it early and leave
+/// a quote open: a pasted document can carry one.
+fn without_controls(query: &str) -> String {
+    query
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect()
 }
 
 /// Text as an FTS5 phrase: its words, in order, side by side.
@@ -1454,6 +1464,86 @@ mod tests {
             extensions: vec!["md".into()],
         };
         assert_eq!(paths(&markdown), vec!["/b/rent.md"]);
+    }
+
+    /// Queries a person, or a pasted document, could type: quotes, keyword
+    /// operators, brackets, control characters, other scripts. None may
+    /// make a search fail (REL-2); the keyword index's own query language
+    /// must never leak through.
+    #[test]
+    fn no_query_makes_a_search_fail() {
+        const PIECES: [&str; 26] = [
+            "lease",
+            "notice",
+            "\"",
+            "\u{201c}",
+            "\u{201d}",
+            "*",
+            "(",
+            ")",
+            "AND",
+            "OR",
+            "NOT",
+            "NEAR",
+            "NEAR(",
+            ":",
+            "^",
+            "-",
+            "+",
+            "\0",
+            "\u{1b}",
+            "\t",
+            " ",
+            "\u{0639}\u{0642}\u{062f}",
+            "e\u{301}",
+            "\u{1f600}",
+            "\\",
+            "'",
+        ];
+        let store = store_with_filler(&[
+            (
+                "/docs/lease.txt",
+                "h1",
+                "the notice period of the lease is three months",
+            ),
+            (
+                "/docs/NEAR-AND.txt",
+                "h2",
+                "a file whose name holds query words",
+            ),
+        ]);
+        let filter = Filter {
+            folders: vec!["/docs".into()],
+            extensions: vec!["txt".into()],
+        };
+        let mut state: u64 = 5;
+        for _ in 0..3_000 {
+            let mut query = String::new();
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1);
+            for _ in 0..(state >> 33) % 8 {
+                state = state
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1);
+                query.push_str(PIECES[(state >> 33) as usize % PIECES.len()]);
+                if state.is_multiple_of(3) {
+                    query.push(' ');
+                }
+            }
+            for result in [
+                store.search_keyword(&query, 10).map(|_| ()),
+                store.search_names(&query, 10).map(|_| ()),
+                store
+                    .search_with_names(&query, None, 10, &Filter::default())
+                    .map(|_| ()),
+                store
+                    .search_with_names(&query, None, 10, &filter)
+                    .map(|_| ()),
+            ] {
+                assert!(result.is_ok(), "{query:?}: {result:?}");
+            }
+        }
     }
 
     #[test]
