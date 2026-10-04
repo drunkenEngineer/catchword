@@ -259,9 +259,14 @@ pub fn chunk_while(
         "overlap must be smaller than the passage"
     );
 
+    // Asked every block of words from the very start: splitting a long
+    // text takes time too.
     let mut words: Vec<(u32, &str)> = Vec::new();
     for (index, line) in text.lines().enumerate() {
         for word in line.split_whitespace() {
+            if words.len() % BLOCK_WORDS == BLOCK_WORDS - 1 && !keep_going() {
+                return None;
+            }
             words.push((index as u32 + 1, word));
         }
     }
@@ -273,7 +278,10 @@ pub fn chunk_while(
     // is counted against the word its last byte falls in.
     let mut joined = String::new();
     let mut starts = Vec::with_capacity(words.len());
-    for (_, word) in &words {
+    for (count, (_, word)) in words.iter().enumerate() {
+        if count % BLOCK_WORDS == BLOCK_WORDS - 1 && !keep_going() {
+            return None;
+        }
         if !joined.is_empty() {
             joined.push(' ');
         }

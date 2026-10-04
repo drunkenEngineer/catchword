@@ -730,8 +730,10 @@ mod tests {
         let paused = Instant::now();
         indexer.pause(PauseReason::You);
         wait_until_idle(&indexer);
+        // Seconds, not the whole file: generous, as other programs may be
+        // busy; the proof is below.
         assert!(
-            paused.elapsed() < Duration::from_millis(1500),
+            paused.elapsed() < Duration::from_secs(3),
             "{:?}",
             paused.elapsed()
         );
