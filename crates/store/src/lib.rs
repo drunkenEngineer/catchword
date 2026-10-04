@@ -596,6 +596,11 @@ impl Store {
         } else {
             Vec::new()
         };
+        // A quoted phrase asks for those words as written: what meaning or a
+        // name found counts only if its passage has them too.
+        let (phrases, _) = parse_query(words);
+        let by_meaning = self.holding(&phrases, by_meaning)?;
+        let by_name = self.holding(&phrases, by_name)?;
         let ids = |hits: &[Hit]| hits.iter().map(|hit| hit.passage_id).collect::<Vec<_>>();
         let order = fuse(&ids(&by_words), &ids(&by_meaning), &ids(&by_name));
         let mut hits: HashMap<i64, Hit> = HashMap::new();
@@ -622,6 +627,31 @@ impl Store {
             results.push((hit, fused.found));
         }
         Ok(results)
+    }
+
+    /// The hits whose passage holds every one of `phrases`.
+    fn holding(&self, phrases: &[String], hits: Vec<Hit>) -> rusqlite::Result<Vec<Hit>> {
+        if phrases.is_empty() {
+            return Ok(hits);
+        }
+        let all = phrases
+            .iter()
+            .map(|p| fts_phrase(p))
+            .collect::<Vec<_>>()
+            .join(" AND ");
+        let mut kept = Vec::new();
+        for hit in hits {
+            let has: bool = self.conn.query_row(
+                "SELECT EXISTS (SELECT 1 FROM passages_fts
+                                WHERE passages_fts MATCH ?1 AND rowid = ?2)",
+                params![all, hit.passage_id],
+                |row| row.get(0),
+            )?;
+            if has {
+                kept.push(hit);
+            }
+        }
+        Ok(kept)
     }
 
     fn modified_secs(&self, path: &str) -> rusqlite::Result<i64> {
@@ -838,19 +868,34 @@ impl Store {
     ///
     /// Identical copies of a file share one content, so they appear once.
     pub fn search_keyword(&self, query: &str, limit: usize) -> rusqlite::Result<Vec<Hit>> {
-        let words = self.uncommon(query_words(query))?;
-        if words.is_empty() {
+        let (phrases, words) = parse_query(query);
+        let words = self.uncommon(words)?;
+        if phrases.is_empty() && words.is_empty() {
             return Ok(Vec::new());
         }
-        let fts_query = words
+        let any = phrases
             .iter()
-            .map(|word| format!("\"{}\"", word.replace('"', "\"\"")))
+            .chain(&words)
+            .map(|text| fts_phrase(text))
             .collect::<Vec<_>>()
             .join(" OR ");
-        // A passage must hold at least half of the query's distinct words.
-        // Below that, matches are mostly chance: an English question against
-        // an Arabic passage shares only a year or a name (ADR-20).
-        let needed = words.len().div_ceil(2);
+        // Each quoted phrase must be there, as written (SEA-5); all words,
+        // phrases included, count for the ranking.
+        let fts_query = if phrases.is_empty() {
+            any
+        } else {
+            let required: Vec<String> = phrases.iter().map(|p| fts_phrase(p)).collect();
+            format!("{} AND ({any})", required.join(" AND "))
+        };
+        // Without a phrase, a passage must hold at least half of the
+        // query's distinct words. Below that, matches are mostly chance: an
+        // English question against an Arabic passage shares only a year or a
+        // name (ADR-20). A phrase is a sharper test of its own.
+        let needed = if phrases.is_empty() {
+            words.len().div_ceil(2)
+        } else {
+            0
+        };
         // highlight() marks each word the keyword index matched, between
         // two control characters that passage text never contains.
         let mut statement = self.conn.prepare(
@@ -1111,6 +1156,34 @@ fn query_words(query: &str) -> Vec<String> {
     words
 }
 
+/// A query's quoted phrases, which must appear as written (SEA-5), and its
+/// other words. Straight and curly quotes both count; a quote left open is
+/// ignored, and so is a phrase with no letters or digits.
+fn parse_query(query: &str) -> (Vec<String>, Vec<String>) {
+    let straight = query.replace(['\u{201c}', '\u{201d}', '\u{201e}'], "\"");
+    let parts: Vec<&str> = straight.split('"').collect();
+    // With every quote closed there is an odd number of parts, and every
+    // other part, from the second, is inside quotes.
+    let all_closed = parts.len() % 2 == 1;
+    let mut phrases = Vec::new();
+    let mut rest = String::new();
+    for (index, part) in parts.iter().enumerate() {
+        let inside = index % 2 == 1 && (all_closed || index + 1 < parts.len());
+        if inside && part.chars().any(char::is_alphanumeric) {
+            phrases.push(part.split_whitespace().collect::<Vec<_>>().join(" "));
+        } else {
+            rest.push(' ');
+            rest.push_str(part);
+        }
+    }
+    (phrases, query_words(&rest))
+}
+
+/// Text as an FTS5 phrase: its words, in order, side by side.
+fn fts_phrase(text: &str) -> String {
+    format!("\"{}\"", text.replace('"', "\"\""))
+}
+
 /// How many different words highlight() marked, between char(2) and char(3).
 fn matched_words(marked: &str) -> usize {
     let mut found: Vec<String> = Vec::new();
@@ -1202,6 +1275,64 @@ mod tests {
         assert_eq!(paths, vec!["/a.txt", "/b.txt"]);
         // A query of common words only still searches, by its rarest word.
         assert!(!store.search_keyword("the", 10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn quoted_phrases_are_found_apart_from_the_other_words() {
+        assert_eq!(
+            parse_query("\"notice period\" lease"),
+            (vec!["notice period".to_string()], vec!["lease".to_string()])
+        );
+        assert_eq!(
+            parse_query("\u{201c}three  months\u{201d} and \"rent\""),
+            (
+                vec!["three months".to_string(), "rent".to_string()],
+                vec!["and".to_string()]
+            )
+        );
+        // An open quote is ignored; so is a phrase of punctuation.
+        assert_eq!(
+            parse_query("\"notice period"),
+            (vec![], vec!["notice".to_string(), "period".to_string()])
+        );
+        assert_eq!(parse_query("\"--\" rent").0, Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_quoted_phrase_must_appear_as_written() {
+        let store = store_with_filler(&[
+            ("/a.txt", "h1", "the notice period is three months"),
+            ("/b.txt", "h2", "the period of notice is long"),
+        ]);
+        assert_eq!(store.search_keyword("notice period", 10).unwrap().len(), 2);
+        let exact = store.search_keyword("\"notice period\"", 10).unwrap();
+        assert_eq!(exact.len(), 1);
+        assert_eq!(exact[0].path, "/a.txt");
+        // Other words only rank: they are not required.
+        assert_eq!(
+            store
+                .search_keyword("\"notice period\" holiday", 10)
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn with_a_phrase_meaning_counts_only_where_the_phrase_is() {
+        let store = store_with_vectors();
+        // The vector points at the rent passage; the phrase is in the tax one.
+        let found = store
+            .search_combined("\"tax refund\"", Some(&toward(0)), 10)
+            .unwrap();
+        let paths: Vec<&str> = found.iter().map(|(hit, _)| hit.path.as_str()).collect();
+        assert_eq!(paths, vec!["/tax.txt"]);
+        // Without quotes, meaning finds the rent passage too.
+        assert!(store
+            .search_combined("tax refund", Some(&toward(0)), 10)
+            .unwrap()
+            .iter()
+            .any(|(hit, _)| hit.path == "/rent.txt"));
     }
 
     #[test]

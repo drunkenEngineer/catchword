@@ -71,7 +71,8 @@ pub fn search(store: &Store, model: &Model, query: &str) -> Result<Answer> {
                 }
                 Some(
                     lock(model)
-                        .embed_query(query)
+                        // Quotes ask for exact words; the meaning is in the words.
+                        .embed_query(&query.replace(['"', '\u{201c}', '\u{201d}'], ""))
                         .context("cannot embed the query")?,
                 )
             }

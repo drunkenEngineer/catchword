@@ -174,6 +174,7 @@ export function Search({ status, openLibrary }: { status: Status | null; openLib
               </li>
             ))}
           </ul>
+          <p className="muted">{strings.search.tip}</p>
         </section>
       )}
 

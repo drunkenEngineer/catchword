@@ -23,6 +23,7 @@ export const strings = {
     noFoldersText: "Catchword searches the folders you choose. Nothing leaves this computer.",
     addFolder: "Add a folder",
     examplesTitle: "Try, for example:",
+    tip: "Put words in quotes to find them exactly as written, for example “notice period”.",
     examples: ["the letter about my tax refund", "notice period in the lease", "invoice number"],
     summary: (files: number) => `${files.toLocaleString()} files ready to search.`,
     partial: "Indexing is under way, so results may be incomplete.",
