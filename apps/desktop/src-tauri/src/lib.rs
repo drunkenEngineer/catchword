@@ -24,6 +24,7 @@ use tauri::{Emitter, Manager};
 use crate::commands::{notifier, AppState, STATUS_CHANGED};
 
 pub fn run() {
+    log::mark_start();
     tauri::Builder::default()
         // First, so a second start only brings this window forward.
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {

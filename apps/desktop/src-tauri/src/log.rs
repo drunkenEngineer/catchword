@@ -293,6 +293,23 @@ pub fn record_panics(log: std::sync::Arc<Logger>) {
     }));
 }
 
+/// When the program started, for start-up times in the log (PERF-1).
+static STARTED: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+
+/// Note the start. Called first thing; later calls change nothing.
+pub fn mark_start() {
+    STARTED.get_or_init(std::time::Instant::now);
+}
+
+/// Milliseconds since the start was noted.
+pub fn since_start() -> u64 {
+    STARTED
+        .get_or_init(std::time::Instant::now)
+        .elapsed()
+        .as_millis()
+        .min(u128::from(u64::MAX)) as u64
+}
+
 /// True if a log line holds private values.
 pub fn is_private(line: &str) -> bool {
     serde_json::from_str::<Map<String, Json>>(line)

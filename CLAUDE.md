@@ -16,6 +16,7 @@ The full plan is `docs/specification.md` (26 sections). Before any work, read se
 - Desktop app (after `cargo build --workspace`): `cd apps/desktop && ./ui/node_modules/.bin/tauri dev`
 - Command contract changed: `UPDATE_CONTRACT=1 cargo test -p catchword-desktop contract`
 - Licence notices: `node scripts/notices.mjs` (needs `cargo install cargo-about --locked --features cli`)
+- Measure start-up and memory: `powershell -ExecutionPolicy Bypass -File scripts/measure-app.ps1` (see `docs/benchmarks/2026-10-04-app.md`)
 - Windows packages: `sh scripts/package-nsis.sh` (GitHub installer) and `sh scripts/package-msix.sh` (Store package), then `cargo test -p catchword --test package -- --ignored` (see `docs/packaging.md`)
 
 ## Rules

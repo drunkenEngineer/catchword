@@ -27,6 +27,10 @@ tauri-plugin-single-instance = "2.5.2"
 tauri-plugin-window-state = "2.5.0"
 ts-rs = "12.0.1"
 
+[dev-dependencies]
+# The embedding speed measurement loads the model directly.
+catchword-embed = { path = "../../../crates/embed" }
+
 # Opening files through the shell API (threat T15), a lower priority for
 # background indexing (RSC-2), the Windows version for diagnostics, and free
 # disk space (RSC-3).

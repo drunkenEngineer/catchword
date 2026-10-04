@@ -42,6 +42,8 @@ pub struct AppState {
     /// Said once, then cleared: why the settings were restored.
     notice: Mutex<Option<String>>,
     log: Arc<Logger>,
+    /// The interface has asked for the status: it is up (PERF-1).
+    interface_up: std::sync::atomic::AtomicBool,
     /// The diagnostics report the user last read, which is what is saved.
     report: Mutex<Option<String>>,
 }
@@ -93,6 +95,7 @@ impl AppState {
             reader: Mutex::new(reader),
             notice: Mutex::new(notice),
             log,
+            interface_up: std::sync::atomic::AtomicBool::new(false),
             report: Mutex::new(None),
         })
     }
@@ -167,7 +170,10 @@ impl AppState {
     /// The model has loaded, or failed to.
     pub fn set_model(&self, model: Model) {
         match &model {
-            Model::Ready(_) => self.log.info("model.ready", &[]),
+            Model::Ready(_) => self.log.info(
+                "model.ready",
+                &[("millis", Value::Number(log::since_start()))],
+            ),
             Model::Unavailable(why) => self
                 .log
                 .warn("model.off", &[("reason", Value::Private(why.clone()))]),
@@ -364,6 +370,16 @@ impl AppState {
     }
 
     pub fn status(&self) -> Result<Status> {
+        // The interface's first question: the window is up and usable.
+        if !self
+            .interface_up
+            .swap(true, std::sync::atomic::Ordering::SeqCst)
+        {
+            self.log.info(
+                "interface.ready",
+                &[("millis", Value::Number(log::since_start()))],
+            );
+        }
         let snapshot = self.indexer.snapshot();
         let counts = lock(&self.reader).counts()?;
         let meaning = match self.indexer.model().as_deref() {
@@ -1366,6 +1382,21 @@ mod tests {
         );
         assert_eq!(window_theme(Theme::Dark), Some(tauri::Theme::Dark));
         assert_eq!(window_theme(Theme::System), None);
+    }
+
+    #[test]
+    fn the_log_says_when_the_interface_first_asked_for_the_status() {
+        let (state, _) = state("interface-ready");
+        state.status().unwrap();
+        state.status().unwrap();
+        let ready: Vec<String> = state
+            .log
+            .last_lines(100)
+            .into_iter()
+            .filter(|line| line.contains(r#""event":"interface.ready""#))
+            .collect();
+        assert_eq!(ready.len(), 1, "{ready:?}");
+        assert!(ready[0].contains(r#""millis":"#));
     }
 
     #[test]

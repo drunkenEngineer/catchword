@@ -642,6 +642,51 @@ mod tests {
         assert!((now - last).abs() < 60);
     }
 
+    /// A measurement, not a check: run it in a release build.
+    /// `cargo test --release -p catchword-desktop measure -- --ignored --nocapture`
+    #[test]
+    #[ignore = "a measurement, with the real model"]
+    fn measure_embedding_speed_in_each_resource_mode() {
+        use catchword_embed::{Embedder, Paths, DEFAULT_MODEL};
+        let vendor = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../vendor");
+        let paths = Paths {
+            runtime: vendor.join("onnxruntime/onnxruntime.dll"),
+            model: vendor.join("models").join(DEFAULT_MODEL.name),
+        };
+        // Passages of about 300 words, as the cutter makes them.
+        let words = [
+            "lease", "notice", "period", "invoice", "payment", "contract", "tenant", "landlord",
+            "months", "refund", "tax", "letter", "bank", "account", "the", "of", "and", "within",
+            "days", "after",
+        ];
+        let passages: Vec<String> = (0..120)
+            .map(|p| {
+                (0..300)
+                    .map(|w| words[(p * 7 + w * 13) % words.len()])
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
+            .collect();
+        for mode in [
+            ResourceMode::Light,
+            ResourceMode::Balanced,
+            ResourceMode::Fast,
+        ] {
+            let threads = threads(mode);
+            let mut model = Embedder::load(&paths, &DEFAULT_MODEL, threads).unwrap();
+            model.embed_passages(&[passages[0].as_str()]).unwrap();
+            let started = Instant::now();
+            for passage in &passages {
+                model.embed_passages(&[passage.as_str()]).unwrap();
+            }
+            let per_second = passages.len() as f64 / started.elapsed().as_secs_f64();
+            println!(
+                "{mode:?}: {} threads, {per_second:.1} passages a second",
+                threads.count
+            );
+        }
+    }
+
     #[test]
     fn a_pause_takes_effect_within_a_long_file() {
         let (indexer, store) = indexer("pause-soon");
