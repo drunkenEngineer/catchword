@@ -20,7 +20,7 @@ A free, open-source desktop app for Windows that searches a person's own documen
   - `apps/desktop/ui`: the React and TypeScript interface: first launch, Search, Library and Settings.
   - `crates/eval`: the retrieval evaluation and benchmark tool (`catchword-eval`), never shipped. The evaluation set is in `eval/` (ADR-19).
   - `crates/test-support`: test PDFs written by code, never shipped.
-- **Verified on Windows 11 with Rust 1.99.0** (pinned in `rust-toolchain.toml`): 215 Rust tests and 42 interface tests pass, and format, lint, type check and the privacy check are clean. PDFium, ONNX Runtime and the model come from `scripts/fetch-pdfium.sh` and `scripts/fetch-embedding.sh` (ADR-14, ADR-18).
+- **Verified on Windows 11 with Rust 1.99.0** (pinned in `rust-toolchain.toml`): 216 Rust tests and 44 interface tests pass, and format, lint, type check and the privacy check are clean. PDFium, ONNX Runtime and the model come from `scripts/fetch-pdfium.sh` and `scripts/fetch-embedding.sh` (ADR-14, ADR-18).
 - **Not built yet:** pause and resource modes, appearance settings, cloud-placeholder handling (SRC-4), OCR, the updater (and so the first launch's update-check step), the GitHub installer, notices for the Rust libraries, and the Store listing. An MSIX package builds (`docs/packaging.md`).
 
 ## Decisions already made
@@ -79,7 +79,7 @@ Waiting for the owner: the updater (APP-2, REL-3, which needs an update signing 
 
 Next, the MUST requirements still open that need no decision from the owner, then two SHOULDs from the Phase 2 feature list:
 
-19. **Appearance** (APP-3): theme (follow Windows, light, dark) and text size, saved and applied at once.
+19. ~~**Appearance** (APP-3).~~ Done, 4 October 2026: Settings chooses colours (as Windows is set, light, dark) and text size (100, 115, 130%), saved with the settings and applied at once; the window frame follows the theme, and the interface applies the saved choice at start. Language waits for translations (1.0).
 20. **Keyboard and focus** (A11Y-1): every function works by keyboard alone, with visible focus; a test walks each screen by keyboard.
 21. **Conformance tests** (MNT-2): the PDF reader, the index store and the embedding runtime each behind an interface with a shared conformance suite.
 22. **Speed and memory** (PERF-1, RSC-1): measure start-up, first query, search and memory against section 14, and write it down.

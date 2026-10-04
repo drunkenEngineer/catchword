@@ -19,7 +19,7 @@ use tauri_plugin_dialog::DialogExt;
 
 use crate::contract::{
     Folder, FolderState, FolderStatus, Meaning, PauseReason, ResourceMode, SearchResponse,
-    SettingsView, Status,
+    SettingsView, Status, TextSize, Theme,
 };
 use crate::diagnostics::{self, Facts};
 use crate::indexing::{self, Indexer, Notify};
@@ -99,6 +99,20 @@ impl AppState {
 
     pub fn log(&self) -> Arc<Logger> {
         Arc::clone(&self.log)
+    }
+
+    pub fn theme(&self) -> Theme {
+        lock(&self.settings).theme
+    }
+
+    /// Save how the interface looks (APP-3). The interface applies it; the
+    /// window's own frame follows the theme (see `window_theme`).
+    pub fn set_appearance(&self, theme: Theme, text_size: TextSize) -> Result<()> {
+        let mut settings = lock(&self.settings);
+        settings.theme = theme;
+        settings.text_size = text_size;
+        settings.save(&self.config_dir)?;
+        Ok(())
     }
 
     pub fn resource_mode(&self) -> ResourceMode {
@@ -219,6 +233,8 @@ impl AppState {
             version: env!("CARGO_PKG_VERSION").to_string(),
             resource_mode: settings.resource_mode,
             data_synced_by: crate::disk::synced_by(&self.index).map(String::from),
+            theme: settings.theme,
+            text_size: settings.text_size,
         })
     }
 
@@ -589,6 +605,15 @@ fn remove_index_files(index: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// The window frame's theme: None follows Windows.
+pub fn window_theme(theme: Theme) -> Option<tauri::Theme> {
+    match theme {
+        Theme::System => None,
+        Theme::Light => Some(tauri::Theme::Light),
+        Theme::Dark => Some(tauri::Theme::Dark),
+    }
+}
+
 fn mode_code(mode: ResourceMode) -> &'static str {
     match mode {
         ResourceMode::Light => "light",
@@ -840,6 +865,22 @@ pub async fn save_diagnostics(app: AppHandle) -> Result<Option<String>, String> 
 pub async fn rebuild_index(app: AppHandle) -> Result<(), String> {
     on_state(app, "rebuild_index", |app, state| {
         state.rebuild_index(notifier(app))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn set_appearance(
+    app: AppHandle,
+    theme: Theme,
+    text_size: TextSize,
+) -> Result<(), String> {
+    on_state(app, "set_appearance", move |app, state| {
+        state.set_appearance(theme, text_size)?;
+        if let Some(window) = app.get_webview_window("main") {
+            window.set_theme(window_theme(theme))?;
+        }
+        Ok(())
     })
     .await
 }
@@ -1304,6 +1345,27 @@ mod tests {
         assert!(notices_places()
             .iter()
             .any(|place| place.ends_with("target/notices/THIRD-PARTY-NOTICES.txt")));
+    }
+
+    #[test]
+    fn the_appearance_is_saved() {
+        let (state, docs) = state("appearance");
+        let view = state.settings().unwrap();
+        assert_eq!(
+            (view.theme, view.text_size),
+            (Theme::System, TextSize::Normal)
+        );
+        state.set_appearance(Theme::Dark, TextSize::Larger).unwrap();
+        let data = docs.parent().unwrap().to_path_buf();
+        drop(state);
+        let again = AppState::open(&data, built_worker()).unwrap();
+        let view = again.settings().unwrap();
+        assert_eq!(
+            (view.theme, view.text_size),
+            (Theme::Dark, TextSize::Larger)
+        );
+        assert_eq!(window_theme(Theme::Dark), Some(tauri::Theme::Dark));
+        assert_eq!(window_theme(Theme::System), None);
     }
 
     #[test]

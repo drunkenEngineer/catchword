@@ -1,6 +1,7 @@
 // The window: a rail with three destinations, and a status chip that opens
 // Library (spec, section 8). Search is home.
 import { useCallback, useEffect, useState } from "react";
+import { applyAppearance } from "./appearance";
 import type { Status } from "./contract/Status";
 import { useEngine } from "./engine";
 import { Library } from "./Library";
@@ -25,6 +26,14 @@ export function App() {
     refresh();
     return engine.onStatusChanged(refresh);
   }, [engine, refresh]);
+
+  // The saved theme and text size, before anything else is seen.
+  useEffect(() => {
+    engine.settings().then(
+      (view) => applyAppearance(view.theme, view.textSize),
+      () => undefined,
+    );
+  }, [engine]);
 
   // Ctrl+1, Ctrl+2 and Ctrl+3 move between destinations; F5 scans now.
   useEffect(() => {

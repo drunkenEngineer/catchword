@@ -7,6 +7,8 @@ import type { Folder } from "./contract/Folder";
 import type { ResourceMode } from "./contract/ResourceMode";
 import type { SearchResponse } from "./contract/SearchResponse";
 import type { SettingsView } from "./contract/SettingsView";
+import type { TextSize } from "./contract/TextSize";
+import type { Theme } from "./contract/Theme";
 import type { Status } from "./contract/Status";
 
 export interface Engine {
@@ -28,6 +30,7 @@ export interface Engine {
   checkIndex(): Promise<boolean>;
   /** The licences of everything shipped with the app; null if not packaged. */
   notices(): Promise<string | null>;
+  setAppearance(theme: Theme, textSize: TextSize): Promise<void>;
   settings(): Promise<SettingsView>;
   /** Opens the native folder dialog; null when the user cancels. */
   excludeFolder(): Promise<Folder | null>;
@@ -64,6 +67,7 @@ export const tauriEngine: Engine = {
   rebuildIndex: () => invoke("rebuild_index"),
   checkIndex: () => invoke("check_index"),
   notices: () => invoke("notices"),
+  setAppearance: (theme, textSize) => invoke("set_appearance", { theme, textSize }),
   settings: () => invoke("settings"),
   excludeFolder: () => invoke("exclude_folder"),
   includeFolder: (id) => invoke("include_folder", { id }),

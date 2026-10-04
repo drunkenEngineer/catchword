@@ -47,6 +47,28 @@ pub enum PauseReason {
     NewerIndex,
 }
 
+/// Light or dark, or as Windows is set (APP-3).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum Theme {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
+/// How large the interface is drawn, on top of Windows' own scaling.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum TextSize {
+    #[default]
+    Normal,
+    /// 115%.
+    Large,
+    /// 130%.
+    Larger,
+}
+
 /// How much of the processor indexing may use (IDX-5).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -81,6 +103,8 @@ pub struct SettingsView {
     pub resource_mode: ResourceMode,
     /// The cloud service that copies the data folder, if one does (PRIV-4).
     pub data_synced_by: Option<String>,
+    pub theme: Theme,
+    pub text_size: TextSize,
 }
 
 /// A folder the user chose. The path is shown, never sent back.
@@ -237,6 +261,8 @@ mod tests {
             FolderState,
             PauseReason,
             ResourceMode,
+            Theme,
+            TextSize,
             Stage,
             Work,
             Meaning,

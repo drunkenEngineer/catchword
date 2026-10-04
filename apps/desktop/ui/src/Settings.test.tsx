@@ -76,10 +76,10 @@ describe("the settings screen", () => {
     const balanced = (await screen.findByRole("radio", { name: /Balanced/ })) as HTMLInputElement;
     expect(balanced.checked).toBe(true);
     await act(async () => {
-      fireEvent.click(screen.getByRole("radio", { name: /Light/ }));
+      fireEvent.click(screen.getByRole("radio", { name: /Light One core/ }));
     });
     expect(setResourceMode).toHaveBeenCalledWith("light");
-    expect(((await screen.findByRole("radio", { name: /Light/ })) as HTMLInputElement).checked).toBe(true);
+    expect(((await screen.findByRole("radio", { name: /Light One core/ })) as HTMLInputElement).checked).toBe(true);
   });
 
   it("checks the index, and rebuilds it after one confirmation", async () => {
@@ -113,6 +113,27 @@ describe("the settings screen", () => {
     await screen.findByRole("heading", { name: "About" });
     await click("Show the licences of the parts Catchword uses");
     expect(screen.getByText(/added when the app is packaged/)).toBeTruthy();
+  });
+
+  it("changes the theme and text size at once, and saves them", async () => {
+    const engine = createMockEngine();
+    const setAppearance = vi.spyOn(engine, "setAppearance");
+    renderWith(engine, <Settings />);
+    await screen.findByRole("heading", { name: "Appearance" });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("radio", { name: "Dark" }));
+    });
+    expect(setAppearance).toHaveBeenLastCalledWith("dark", "normal");
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("radio", { name: "Larger (130%)" }));
+    });
+    expect(setAppearance).toHaveBeenLastCalledWith("dark", "larger");
+    expect(document.documentElement.dataset.textSize).toBe("larger");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("radio", { name: "As Windows is set" }));
+    });
+    expect(document.documentElement.dataset.theme).toBeUndefined();
   });
 
   it("turns detailed logs on and off", async () => {

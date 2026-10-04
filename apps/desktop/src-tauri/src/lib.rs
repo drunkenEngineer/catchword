@@ -38,6 +38,9 @@ pub fn run() {
             let data = app.path().app_local_data_dir()?;
             let state = AppState::open(&data, Worker::NextToProgram)?;
             log::record_panics(state.log());
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_theme(commands::window_theme(state.theme()));
+            }
             app.manage(state);
             // The model takes a few seconds; the window is usable meanwhile.
             let handle = app.handle().clone();
@@ -65,6 +68,7 @@ pub fn run() {
             commands::rebuild_index,
             commands::check_index,
             commands::notices,
+            commands::set_appearance,
             commands::pause_indexing,
             commands::resume_indexing,
             commands::set_resource_mode,

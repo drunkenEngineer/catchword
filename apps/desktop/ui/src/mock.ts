@@ -9,6 +9,8 @@ import type { SearchResponse } from "./contract/SearchResponse";
 import type { SettingsView } from "./contract/SettingsView";
 import type { Span } from "./contract/Span";
 import type { Status } from "./contract/Status";
+import type { TextSize } from "./contract/TextSize";
+import type { Theme } from "./contract/Theme";
 import type { Engine } from "./engine";
 
 interface Document {
@@ -69,6 +71,8 @@ export function createMockEngine({ firstLaunch = false } = {}): Engine {
   let detailedLogs = false;
   let paused: PauseReason | null = null;
   let resourceMode: ResourceMode = "balanced";
+  let theme: Theme = "system";
+  let textSize: TextSize = "normal";
   let report: string | null = null;
   const listeners = new Set<() => void>();
   const changed = () => listeners.forEach((listener) => listener());
@@ -168,6 +172,11 @@ export function createMockEngine({ firstLaunch = false } = {}): Engine {
       return true;
     },
 
+    async setAppearance(nextTheme: Theme, nextSize: TextSize): Promise<void> {
+      theme = nextTheme;
+      textSize = nextSize;
+    },
+
     async notices(): Promise<string | null> {
       return "Third-party notices for Catchword\n\nreact 19.3.0 (MIT)\n...";
     },
@@ -188,6 +197,8 @@ export function createMockEngine({ firstLaunch = false } = {}): Engine {
         version: "0.0.1",
         resourceMode,
         dataSyncedBy: null,
+        theme,
+        textSize,
       };
     },
 

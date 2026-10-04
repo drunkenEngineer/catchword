@@ -18,8 +18,9 @@
   line-height: 1.45;
 }
 
+/* Dark: as Windows is set, unless the user chose light; or when chosen. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #1c1d21;
     --panel: #25262b;
     --text: #ececf0;
@@ -31,6 +32,33 @@
     --mark: #806a14;
     --danger: #ff8a8a;
   }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #1c1d21;
+  --panel: #25262b;
+  --text: #ececf0;
+  --muted: #a6a6b0;
+  --border: #3b3c43;
+  --accent: #7cc4dc;
+  --accent-text: #0e1b20;
+  --selected: #2f3d44;
+  --mark: #806a14;
+  --danger: #ff8a8a;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+/* Text size: the whole interface scales, as with Windows' own scaling. */
+:root[data-text-size="large"] {
+  zoom: 1.15;
+}
+
+:root[data-text-size="larger"] {
+  zoom: 1.3;
 }
 
 @media (prefers-reduced-motion: reduce) {

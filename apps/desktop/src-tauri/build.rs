@@ -17,6 +17,7 @@ fn main() {
         "rebuild_index",
         "check_index",
         "notices",
+        "set_appearance",
         "pause_indexing",
         "resume_indexing",
         "set_resource_mode",

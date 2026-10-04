@@ -124,6 +124,14 @@ export const strings = {
     confirmDeleteAll:
       "Delete the index and forget your folders and settings? Catchword starts again as new. Your own files are not touched.",
     keep: "Keep",
+    appearanceTitle: "Appearance",
+    theme: "Colours",
+    themes: { system: "As Windows is set", light: "Light", dark: "Dark" } as Record<"system" | "light" | "dark", string>,
+    textSize: "Text size",
+    textSizes: { normal: "Normal", large: "Large (115%)", larger: "Larger (130%)" } as Record<
+      "normal" | "large" | "larger",
+      string
+    >,
     indexingTitle: "Indexing",
     resourceMode: "How much of the processor indexing may use",
     modes: {

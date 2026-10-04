@@ -10,7 +10,7 @@ use catchword_engine::exclude::{check_pattern, MAX_PATTERNS};
 use catchword_engine::Exclusions;
 use serde::{Deserialize, Serialize};
 
-use crate::contract::ResourceMode;
+use crate::contract::{ResourceMode, TextSize, Theme};
 
 const FILE: &str = "settings.json";
 const PREVIOUS: &str = "settings.previous.json";
@@ -43,6 +43,10 @@ pub struct Settings {
     /// The user paused indexing; it stays paused after a restart.
     #[serde(default)]
     pub paused: bool,
+    #[serde(default)]
+    pub theme: Theme,
+    #[serde(default)]
+    pub text_size: TextSize,
     next_id: u32,
 }
 
@@ -63,6 +67,8 @@ impl Default for Settings {
             detailed_logs: false,
             resource_mode: ResourceMode::Balanced,
             paused: false,
+            theme: Theme::System,
+            text_size: TextSize::Normal,
             next_id: 1,
         }
     }

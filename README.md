@@ -36,7 +36,7 @@ Meaning search is slow to build: on a 2023 laptop about 20 passages a second, so
 
 ## What comes next
 
-1. Appearance settings, and the update check.
+1. The update check.
 2. The Microsoft Store package and the GitHub installer. Both build (`docs/packaging.md`); neither is published yet.
 
 Scanned documents need OCR, which is planned for a later version. Until then they are listed as skipped, not searched.

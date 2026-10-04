@@ -47,6 +47,18 @@ describe("the window", () => {
     expect(screen.getByText("Reading files: 20%").getAttribute("role")).toBe("status");
   });
 
+  it("applies the saved appearance when it starts", async () => {
+    const engine = createMockEngine();
+    await engine.setAppearance("dark", "large");
+    renderWith(engine, <App />);
+    await screen.findByRole("button", { name: "Up to date" });
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(document.documentElement.dataset.textSize).toBe("large");
+    await engine.setAppearance("system", "normal");
+    delete document.documentElement.dataset.theme;
+    delete document.documentElement.dataset.textSize;
+  });
+
   it("shows when indexing is paused", async () => {
     const engine = createMockEngine();
     renderWith(engine, <App />);

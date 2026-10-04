@@ -2,7 +2,10 @@
 // and how to delete it, and the privacy statement. Every change is saved at
 // once and takes effect without a restart.
 import { useCallback, useEffect, useState } from "react";
+import { applyAppearance } from "./appearance";
 import type { ResourceMode } from "./contract/ResourceMode";
+import type { TextSize } from "./contract/TextSize";
+import type { Theme } from "./contract/Theme";
 import type { SettingsView } from "./contract/SettingsView";
 import { useEngine } from "./engine";
 import { strings } from "./strings";
@@ -104,6 +107,44 @@ export function Settings() {
           </button>
           {saved && <span role="status">{strings.settings.saved}</span>}
         </div>
+      </section>
+
+      <section aria-labelledby="appearance-title">
+        <h2 id="appearance-title">{strings.settings.appearanceTitle}</h2>
+        <fieldset className="modes">
+          <legend>{strings.settings.theme}</legend>
+          {(["system", "light", "dark"] as Theme[]).map((theme) => (
+            <label key={theme} className="check">
+              <input
+                type="radio"
+                name="theme"
+                checked={view.theme === theme}
+                onChange={() => {
+                  applyAppearance(theme, view.textSize);
+                  engine.setAppearance(theme, view.textSize).then(load, fail);
+                }}
+              />
+              {strings.settings.themes[theme]}
+            </label>
+          ))}
+        </fieldset>
+        <fieldset className="modes">
+          <legend>{strings.settings.textSize}</legend>
+          {(["normal", "large", "larger"] as TextSize[]).map((size) => (
+            <label key={size} className="check">
+              <input
+                type="radio"
+                name="text-size"
+                checked={view.textSize === size}
+                onChange={() => {
+                  applyAppearance(view.theme, size);
+                  engine.setAppearance(view.theme, size).then(load, fail);
+                }}
+              />
+              {strings.settings.textSizes[size]}
+            </label>
+          ))}
+        </fieldset>
       </section>
 
       <section aria-labelledby="indexing-title">
