@@ -27,7 +27,7 @@ Last updated: 2026-10-04.
 
 ## 2. Current Status
 
-Overall health: **good**. On 2026-10-04, on Windows 11: 239 Rust tests and 49 interface tests pass; format, lint, type check and the privacy check are clean; the retrieval evaluation meets all 11 thresholds. CI has never been seen to run (see section 8).
+Overall health: **good**. On 2026-10-04, on Windows 11: 241 Rust tests and 49 interface tests pass; format, lint, type check and the privacy check are clean; the retrieval evaluation meets all 11 thresholds. CI has never been seen to run (see section 8).
 
 | Area | Status |
 | --- | --- |
@@ -40,7 +40,7 @@ Overall health: **good**. On 2026-10-04, on Windows 11: 239 Rust tests and 49 in
 | Pause/resume, resource modes, low-disk pause | `[DONE]` |
 | Rebuild on demand, quick check at start, damaged-index recovery, newer-index refusal | `[DONE]` |
 | Safe mode after two unclean ends in a row (spec section 19) | `[DONE]` |
-| Hostile-input tests (REL-2, start of Phase 3): worker answers, decoding, cutting, patterns, queries, 150 damaged PDFs | `[DONE]`; decompression bombs and fuzzing tools `[TODO]` |
+| Hostile-input tests (REL-2, start of Phase 3): worker answers, decoding, cutting, patterns, queries, 150 damaged PDFs, a decompression bomb, deep nesting, a false page count | `[DONE]`; fuzzing tools (cargo-fuzz) `[TODO]` |
 | Desktop app: first launch, Search, Library, Settings (exclusions, limits, appearance, data, diagnostics, About) | `[DONE]` |
 | Local logs, diagnostics report, crash reports | `[DONE]` |
 | Keyboard use and focus (A11Y-1); screen-reader announcements (A11Y-2, automated part) | `[DONE]` |
@@ -341,7 +341,7 @@ The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23
 - Filter by modified date (SEA-6 says later).
 - Replace the CI actions' version tags with commit hashes before the first release (comment in `ci.yml`).
 
-- Decompression bombs and deeply nested PDFs (threat T2): generate them in tests (needs a deflate encoder: a dependency question for the owner, or hand-written stored blocks), and check the memory limit stops them.
+- Coverage-guided fuzzing of the worker protocol and the text path (cargo-fuzz needs a nightly toolchain and a new tool: the owner's call).
 
 **Low**
 - Release the model after a long idle time (section 14 speaks of memory "with the model released").
@@ -405,7 +405,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 
 ## 13. Testing
 
-- Coverage on 2026-10-04: 239 Rust tests and 49 interface tests pass. There are three ignored tests: the packaged-files test and two measurements.
+- Coverage on 2026-10-04: 241 Rust tests and 49 interface tests pass. There are three ignored tests: the packaged-files test and two measurements.
 - The evaluation meets all 11 thresholds; combined recall@10 is 92.5%.
 - Rust tests:
   - unit tests in each crate;
@@ -422,7 +422,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
   - quoted phrases;
   - filters;
   - keyboard focus around confirmations;
-  - hostile input from a seeded generator, so a failure repeats exactly: 5,000 malformed worker answers and a valid one cut and corrupted at every byte, 3,000 byte strings decoded, 2,000 awkward texts cut, 5,000 name patterns (`crates/engine/tests/hostile.rs`), 3,000 queries on every kind of search (`no_query_makes_a_search_fail` in `crates/store/src/lib.rs`), and 150 PDFs cut short, corrupted or stitched wrongly, read by the real worker (`crates/worker/tests/hostile_pdfs.rs`: 73 read, 74 damaged, 3 without text, none crashed or timed out).
+  - hostile input from a seeded generator, so a failure repeats exactly: 5,000 malformed worker answers and a valid one cut and corrupted at every byte, 3,000 byte strings decoded, 2,000 awkward texts cut, 5,000 name patterns (`crates/engine/tests/hostile.rs`), 3,000 queries on every kind of search (`no_query_makes_a_search_fail` in `crates/store/src/lib.rs`), and 150 PDFs cut short, corrupted or stitched wrongly, read by the real worker (`crates/worker/tests/hostile_pdfs.rs`: 73 read, 74 damaged, 3 without text, none crashed or timed out); and files made to exhaust resources (`crates/worker/tests/bombs.rs`): a PDF whose content expands to about 600 MB of zeros, written with a hand-built deflate stream, is stopped by the 512 MB memory limit in 0.33 s on Windows; 100,000 nested arrays read as no text in 38 ms; a page tree claiming a billion pages reads its one real page.
 - Currently failing: none known.
 - Manual verification:
   - install, update-uninstall and uninstall of the NSIS build (done once);
