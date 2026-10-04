@@ -27,7 +27,7 @@ Last updated: 2026-10-04.
 
 ## 2. Current Status
 
-Overall health: **good**. On 2026-10-04, on Windows 11: 230 Rust tests and 48 interface tests pass; format, lint, type check and the privacy check are clean; the retrieval evaluation meets all 11 thresholds. CI has never been seen to run (see section 8).
+Overall health: **good**. On 2026-10-04, on Windows 11: 233 Rust tests and 49 interface tests pass; format, lint, type check and the privacy check are clean; the retrieval evaluation meets all 11 thresholds. CI has never been seen to run (see section 8).
 
 | Area | Status |
 | --- | --- |
@@ -39,6 +39,7 @@ Overall health: **good**. On 2026-10-04, on Windows 11: 230 Rust tests and 48 in
 | Offline folders, cloud-only files, unreadable sub-folders | `[DONE]` |
 | Pause/resume, resource modes, low-disk pause | `[DONE]` |
 | Rebuild on demand, quick check at start, damaged-index recovery, newer-index refusal | `[DONE]` |
+| Safe mode after two unclean ends in a row (spec section 19) | `[DONE]` |
 | Desktop app: first launch, Search, Library, Settings (exclusions, limits, appearance, data, diagnostics, About) | `[DONE]` |
 | Local logs, diagnostics report, crash reports | `[DONE]` |
 | Keyboard use and focus (A11Y-1); screen-reader announcements (A11Y-2, automated part) | `[DONE]` |
@@ -86,6 +87,7 @@ fuse, extract ───► catchword-worker (separate process, PDFium), under a 
   - `indexing.rs`: the `Indexer` thread (runs, pause, low disk, pace, resource-mode threads);
   - `settings.rs`: settings, saved atomically;
   - `log.rs`: logs and crash reports;
+  - `session.rs`: whether earlier runs ended cleanly (safe mode);
   - `diagnostics.rs`: the diagnostics report;
   - `disk.rs`: free space, synced-folder detection;
   - `open.rs`: opening files through ShellExecuteW;
@@ -107,7 +109,7 @@ fuse, extract ───► catchword-worker (separate process, PDFium), under a 
   A second stage embeds passages without vectors, one at a time, saving every 32.
 - **Data flow, search:** keyword (FTS5, half the words must match, words in more than 5% of passages ignored) plus vector (sqlite-vec, exact) plus names (FTS5 over paths), fused by reciprocal rank fusion (K = 60, 50 candidates each, 20 for names); grouped by file.
 - **Data locations on Windows:**
-  - `%LOCALAPPDATA%\org.catchword.desktop\` holds `config\settings.json` (with `settings.previous.json`), `data\index.db`, `logs\catchword.log` (and `.1.log`, `.2.log`, `crash-*.txt`), and `EBWebView\` (WebView2).
+  - `%LOCALAPPDATA%\org.catchword.desktop\` holds `config\settings.json` (with `settings.previous.json`), `data\index.db`, `logs\catchword.log` (and `.1.log`, `.2.log`, `crash-*.txt`), `session.json` (running mark, see safe mode), and `EBWebView\` (WebView2).
   - The installed program is in `%LOCALAPPDATA%\Catchword\`.
 
 ## 4. Tech Stack
@@ -220,6 +222,7 @@ The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23
   - Cloud-only files are never opened. They are recorded as `cloud-only` and re-checked every run.
   - A damaged index is set aside as `index.damaged.db` and rebuilt; the copy is deleted at the next good start.
   - An index from a newer version is never written to: the app runs paused on an empty one, offering a rebuild.
+  - Safe mode: a run marks itself running in `session.json` and clears the mark on a normal exit (Tauri `RunEvent::Exit`). Two unclean ends in a row (crash, kill, power cut) and the next start pauses indexing with `PauseReason::SafeMode`; Library offers Resume and Rebuild. Verified in a release build on 2026-10-04 (one normal close, two forced kills).
 
 **Decision: Other choices worth knowing**
 - A pause the user chooses survives restarts (`settings.paused`).
@@ -331,7 +334,6 @@ The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23
 
 **Medium**
 - Write ADR-1 to ADR-13 as files under `docs/adr/` (backlog ARC-1).
-- After two failed starts in a row, open in a safe mode (spec section 12, crash handling): not built.
 - Move the data location (APP-7) and the synced-folder warning that goes with it.
 - Quantised vector search with rescoring if combined search misses 500 ms on the reference laptop (spec section 14, scale tiers).
 - Filter by modified date (SEA-6 says later).
@@ -399,7 +401,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 
 ## 13. Testing
 
-- Coverage on 2026-10-04: 230 Rust tests and 48 interface tests pass. There are three ignored tests: the packaged-files test and two measurements.
+- Coverage on 2026-10-04: 233 Rust tests and 49 interface tests pass. There are three ignored tests: the packaged-files test and two measurements.
 - The evaluation meets all 11 thresholds; combined recall@10 is 92.5%.
 - Rust tests:
   - unit tests in each crate;
@@ -540,6 +542,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
   - CI results unseen (gh not logged in).
 - Current state: everything committed; all checks pass.
 - Next step: CI results; the owner's decisions; the "High" items in section 10.
+- Later the same day: `HANDOVER.md` written; 11 commits pushed; the two low-disk tests limited to Windows (free space is read on Windows only, so CI on Linux and macOS would fail them); safe mode added and verified in a release build.
 
 ---
 

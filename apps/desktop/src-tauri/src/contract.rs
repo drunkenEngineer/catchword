@@ -45,6 +45,8 @@ pub enum PauseReason {
     /// The index was made by a newer version of Catchword. It is left
     /// untouched until the user rebuilds it (REL-5).
     NewerIndex,
+    /// The app ended uncleanly twice in a row: it opened in safe mode.
+    SafeMode,
 }
 
 /// Light or dark, or as Windows is set (APP-3).

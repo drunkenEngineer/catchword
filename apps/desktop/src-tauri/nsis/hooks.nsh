@@ -13,5 +13,6 @@
     RmDir /r "$LOCALAPPDATA\${BUNDLEID}\data"
     RmDir /r "$LOCALAPPDATA\${BUNDLEID}\logs"
     RmDir /r "$LOCALAPPDATA\${BUNDLEID}\EBWebView"
+    Delete "$LOCALAPPDATA\${BUNDLEID}\session.json"
   ${EndIf}
 !macroend

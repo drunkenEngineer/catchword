@@ -123,6 +123,16 @@ impl AppState {
         Ok(())
     }
 
+    /// Open in safe mode (spec section 19): indexing paused until the user
+    /// resumes it, after `unclean` runs in a row ended without a clean exit.
+    pub fn enter_safe_mode(&self, unclean: u32) {
+        self.indexer.pause(PauseReason::SafeMode);
+        self.log.warn(
+            "start.safe_mode",
+            &[("unclean_ends", Value::Number(u64::from(unclean)))],
+        );
+    }
+
     pub fn theme(&self) -> Theme {
         lock(&self.settings).theme
     }
@@ -1452,6 +1462,28 @@ mod tests {
         assert!(status.not_indexed.is_empty());
         assert_eq!(state.settings().unwrap().max_file_mb, 3);
         assert!(state.set_limits(0, 5_000, Arc::new(|| {})).is_err());
+    }
+
+    #[test]
+    fn safe_mode_holds_indexing_until_resumed() {
+        let (state, docs) = state("safe-mode");
+        state.enter_safe_mode(2);
+        state.add_folder(&docs, Arc::new(|| {})).unwrap();
+        wait(&state);
+        let status = state.status().unwrap();
+        assert_eq!(
+            (status.paused, status.files),
+            (Some(PauseReason::SafeMode), 0)
+        );
+        assert!(state
+            .log
+            .last_lines(50)
+            .join("\n")
+            .contains(r#""event":"start.safe_mode""#));
+        state.resume_indexing(Arc::new(|| {})).unwrap();
+        wait(&state);
+        let status = state.status().unwrap();
+        assert_eq!((status.paused, status.files), (None, 2));
     }
 
     #[test]

@@ -13,6 +13,7 @@ mod disk;
 mod indexing;
 mod log;
 mod open;
+mod session;
 mod settings;
 mod views;
 
@@ -37,7 +38,11 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let data = app.path().app_local_data_dir()?;
+            let unclean = session::start(&data);
             let state = AppState::open(&data, Worker::NextToProgram)?;
+            if unclean >= session::UNCLEAN_FOR_SAFE_MODE {
+                state.enter_safe_mode(unclean);
+            }
             log::record_panics(state.log());
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_theme(commands::window_theme(state.theme()));
@@ -81,6 +86,14 @@ pub fn run() {
             commands::open_file,
             commands::reveal_file,
         ])
-        .run(tauri::generate_context!())
-        .expect("Catchword could not start");
+        .build(tauri::generate_context!())
+        .expect("Catchword could not start")
+        .run(|app, event| {
+            // A normal end: the next start is not counted as after a crash.
+            if let tauri::RunEvent::Exit = event {
+                if let Ok(data) = app.path().app_local_data_dir() {
+                    session::clean_end(&data);
+                }
+            }
+        });
 }

@@ -94,6 +94,8 @@ export const strings = {
       "Indexing is paused: less than 1 GB is free on the drive that holds the index. Free some space, then resume.",
     pausedNewerIndex:
       "This index was made by a newer version of Catchword, so this version leaves it alone. Update Catchword, or rebuild the index here: all your files are read again.",
+    pausedSafeMode:
+      "Catchword closed unexpectedly twice in a row, so indexing is paused. Resume when you are ready. If it happens again, rebuild the index, and prepare a diagnostics report in Settings to report the problem.",
     rebuild: "Rebuild the index",
     attention: "Needs attention",
     nothingNeedsAttention: "Every supported file was indexed.",

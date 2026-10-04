@@ -117,6 +117,17 @@ describe("the library screen", () => {
     expect(screen.getByText(/less than 1 GB is free/)).toBeTruthy();
   });
 
+  it("explains safe mode and offers both a resume and a rebuild", async () => {
+    const engine = createMockEngine();
+    const resume = vi.spyOn(engine, "resumeIndexing");
+    const safe = { ...(await engine.status()), paused: "safeMode" as const };
+    renderWith(engine, <Library status={safe} />);
+    expect(screen.getByText(/closed unexpectedly twice in a row/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Rebuild the index" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Resume" }));
+    expect(resume).toHaveBeenCalled();
+  });
+
   it("offers a rebuild, not a resume, for an index from a newer version", async () => {
     const engine = createMockEngine();
     const rebuild = vi.spyOn(engine, "rebuildIndex");

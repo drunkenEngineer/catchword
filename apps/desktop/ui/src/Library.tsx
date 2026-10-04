@@ -88,7 +88,9 @@ export function Library({ status }: { status: Status | null }) {
               ? strings.library.pausedLowDisk
               : status.paused === "newerIndex"
                 ? strings.library.pausedNewerIndex
-                : strings.library.pausedByYou}
+                : status.paused === "safeMode"
+                  ? strings.library.pausedSafeMode
+                  : strings.library.pausedByYou}
           </p>
         )}
         {words ? (
@@ -119,9 +121,16 @@ export function Library({ status }: { status: Status | null }) {
                 {strings.library.rebuild}
               </button>
             ) : status.paused ? (
-              <button type="button" className="primary" onClick={() => engine.resumeIndexing().catch(fail)}>
-                {strings.library.resume}
-              </button>
+              <>
+                <button type="button" className="primary" onClick={() => engine.resumeIndexing().catch(fail)}>
+                  {strings.library.resume}
+                </button>
+                {status.paused === "safeMode" && (
+                  <button type="button" onClick={() => engine.rebuildIndex().catch(fail)}>
+                    {strings.library.rebuild}
+                  </button>
+                )}
+              </>
             ) : (
               <button type="button" onClick={() => engine.pauseIndexing().catch(fail)}>
                 {strings.library.pause}
