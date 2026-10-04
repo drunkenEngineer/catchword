@@ -22,6 +22,12 @@ notIndexed: Array<NotIndexed>,
  */
 problem: string | null, 
 /**
+ * What was found at start, said once: the index or the settings were
+ * damaged (spec section 8, "Index unreadable"). The interface keeps it
+ * on screen until the user closes it.
+ */
+notice: string | null, 
+/**
  * The first-launch steps are not done yet (APP-1).
  */
 firstLaunch: boolean, 

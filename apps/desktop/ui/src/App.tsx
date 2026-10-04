@@ -31,8 +31,18 @@ export function App() {
     if (destination !== "search") title.current?.focus();
   }, [destination]);
 
+  // A notice from the start is said once by the engine; it stays here
+  // until the user closes it.
+  const [notice, setNotice] = useState<string | null>(null);
+
   const refresh = useCallback(() => {
-    engine.status().then(setStatus, () => undefined);
+    engine.status().then(
+      (next) => {
+        setStatus(next);
+        if (next.notice) setNotice(next.notice);
+      },
+      () => undefined,
+    );
   }, [engine]);
 
   useEffect(() => {
@@ -109,6 +119,14 @@ export function App() {
             </span>
           </button>
         </header>
+        {notice && (
+          <div className="start-notice" role="alert">
+            <span dir="auto">{notice}</span>
+            <button type="button" onClick={() => setNotice(null)}>
+              {strings.closeNotice}
+            </button>
+          </div>
+        )}
         {/* Search marks its own panes; the other destinations are one each. */}
         <main
           className="destination"

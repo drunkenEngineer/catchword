@@ -77,11 +77,15 @@ impl AppState {
         }
         let notice = match opened {
             Opened::Fine => notice,
-            Opened::Rebuilt => Some(
-                "The index was damaged, so it is being rebuilt from your files. \
-                 Your folders and settings are intact."
-                    .to_string(),
-            ),
+            Opened::Rebuilt => {
+                let rebuilt = "The index was damaged, so it is being rebuilt from your files.";
+                // The folders are kept in the settings, so they are intact
+                // only if the settings are. Both can be damaged at once.
+                Some(match notice {
+                    Some(settings) => format!("{rebuilt} {settings}"),
+                    None => format!("{rebuilt} Your folders and settings are intact."),
+                })
+            }
             Opened::Newer => {
                 indexer.pause(PauseReason::NewerIndex);
                 notice
@@ -449,7 +453,8 @@ impl AppState {
             let problems = reader.problems()?.iter().map(views::not_indexed).collect();
             (problems, reader.last_scan()?)
         };
-        let problem = lock(&self.notice).take().or(snapshot.problem);
+        // Said once; the interface keeps it until the user closes it.
+        let notice = lock(&self.notice).take();
         Ok(Status {
             folders,
             work: snapshot.work,
@@ -458,7 +463,8 @@ impl AppState {
             searchable_by_meaning: counts.vectors,
             meaning,
             not_indexed,
-            problem,
+            problem: snapshot.problem,
+            notice,
             first_launch,
             paused: snapshot.paused,
             last_scan_secs,
@@ -1371,8 +1377,11 @@ mod tests {
             .indexer
             .set_model(Model::Unavailable("not needed".into()));
         let status = state.status().unwrap();
-        assert!(status.problem.unwrap().contains("rebuilt"));
+        assert!(status.notice.unwrap().contains("rebuilt"));
+        assert_eq!(status.problem, None);
         assert_eq!(status.folders.len(), 1);
+        // Said once: the interface keeps it on screen.
+        assert_eq!(state.status().unwrap().notice, None);
         assert!(set_aside_path(&index).is_file());
         state.start_indexing(Arc::new(|| {}));
         wait(&state);

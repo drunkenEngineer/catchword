@@ -26,6 +26,10 @@ pub struct Status {
     pub not_indexed: Vec<NotIndexed>,
     /// The last thing that went wrong, in plain words.
     pub problem: Option<String>,
+    /// What was found at start, said once: the index or the settings were
+    /// damaged (spec section 8, "Index unreadable"). The interface keeps it
+    /// on screen until the user closes it.
+    pub notice: Option<String>,
     /// The first-launch steps are not done yet (APP-1).
     pub first_launch: bool,
     /// Why indexing is paused, if it is (IDX-5, RSC-3).

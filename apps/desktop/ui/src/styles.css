@@ -427,6 +427,17 @@ mark {
   font-size: 0.85em;
 }
 
+.start-notice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 0 24px 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
 .filters {
   display: flex;
   flex-wrap: wrap;

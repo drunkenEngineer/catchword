@@ -113,6 +113,7 @@ export function createMockEngine({ firstLaunch = false } = {}): Engine {
                 },
               ],
         problem: null,
+        notice: null,
         firstLaunch: !welcomed,
         paused,
         lastScanSecs: folders.length === 0 ? null : 1_759_500_000,

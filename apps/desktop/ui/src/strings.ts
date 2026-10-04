@@ -3,6 +3,8 @@
 
 export const strings = {
   app: "Catchword",
+  /** Closes a notice from the start (the index or settings were damaged). */
+  closeNotice: "OK",
   navigation: "Main navigation",
   destinations: { search: "Search", library: "Library", settings: "Settings" },
 

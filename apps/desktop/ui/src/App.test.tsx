@@ -30,6 +30,20 @@ describe("the window", () => {
     expect(document.activeElement).toBe(screen.getByRole("searchbox"));
   });
 
+  it("keeps a notice from the start on screen until it is closed", async () => {
+    const engine = createMockEngine();
+    const said = "The index was damaged, so it is being rebuilt from your files.";
+    const status = await engine.status();
+    vi.spyOn(engine, "status").mockResolvedValueOnce({ ...status, notice: said });
+    renderWith(engine, <App />);
+    expect((await screen.findByRole("alert")).textContent).toContain(said);
+    // The engine says it once; later updates do not take it away.
+    await act(async () => engine.indexNow());
+    expect(screen.getByRole("alert").textContent).toContain(said);
+    fireEvent.click(screen.getByRole("button", { name: "OK" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("moves between panes with F6, and back with Shift+F6", async () => {
     renderWith(createMockEngine(), <App />);
     await screen.findByRole("button", { name: "Up to date" });
