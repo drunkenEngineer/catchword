@@ -1077,6 +1077,10 @@ mod tests {
 
         let found = state.search("notice period").unwrap();
         assert_eq!(found.files[0].name, "lease.txt");
+        assert_eq!(
+            Path::new(&found.files[0].path),
+            Path::new(&found.files[0].folder).join("lease.txt")
+        );
         let id = found.files[0].passages[0].id;
         assert_eq!(
             state.preview(id).unwrap().as_deref(),

@@ -3,6 +3,12 @@ import type { PassageHit } from "./PassageHit";
 
 export type FileHit = { name: string, folder: string, 
 /**
+ * The whole path, to copy (RES-3). Control characters are removed, as
+ * from the name and folder: a pasted path must not carry commands to a
+ * terminal. Windows does not allow them in names anyway.
+ */
+path: string, 
+/**
  * How many files share this exact content (1 means no copies).
  */
 copies: number, 

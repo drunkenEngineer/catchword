@@ -27,7 +27,7 @@ Last updated: 2026-10-04.
 
 ## 2. Current Status
 
-Overall health: **good**. On 2026-10-04, on Windows 11: 245 Rust tests and 51 interface tests pass; format, lint, type check and the privacy check are clean; the retrieval evaluation meets all 11 thresholds. CI has never been seen to run (see section 8).
+Overall health: **good**. On 2026-10-04, on Windows 11: 245 Rust tests and 52 interface tests pass; format, lint, type check and the privacy check are clean; the retrieval evaluation meets all 11 thresholds. CI has never been seen to run (see section 8).
 
 | Area | Status |
 | --- | --- |
@@ -414,7 +414,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 
 ## 13. Testing
 
-- Coverage on 2026-10-04: 245 Rust tests and 51 interface tests pass. There are four ignored tests: the packaged-files test and three measurements.
+- Coverage on 2026-10-04: 245 Rust tests and 52 interface tests pass. There are four ignored tests: the packaged-files test and three measurements.
 - The evaluation meets all 11 thresholds; combined recall@10 is 92.5%.
 - Rust tests:
   - unit tests in each crate;
@@ -496,6 +496,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
   - About (licences);
   - Privacy.
 - **Nothing found** lists likely causes with counts (scans without text, passwords, cloud-only, over the limits, unreadable), says if filters narrowed the search and offers to search everything, and links to Library. The causes come from each file's reason `code` in the `NotIndexed` contract type.
+- **Copying (RES-3):** Copy passage (Ctrl+C) puts the passage and its source on the clipboard; Copy path (Ctrl+Shift+C) the file's whole path, with control characters removed (`FileHit.path`).
 - **A result whose file moved:** `open_file` and `reveal_file` return `FileAction::Missing` instead of opening anything; Search shows a notice naming the file, with Scan now (spec section 8, "File moved or deleted").
 - **Confirmations are inline:** the safe choice ("Keep") has the focus, and Escape picks it.
 - **Must not change without the owner:**
@@ -561,7 +562,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
   - CI results unseen (gh not logged in).
 - Current state: everything committed; all checks pass.
 - Next step: CI results; the owner's decisions; the "High" items in section 10.
-- Later the same day: `HANDOVER.md` written; 11 commits pushed; the two low-disk tests limited to Windows (free space is read on Windows only, so CI on Linux and macOS would fail them); safe mode added and verified in a release build; hostile-input tests added, which found that a NUL in a query made search fail (fixed); 150 damaged PDFs and three resource-exhaustion files through the real worker; "nothing found" causes with counts; a notice when a result's file has moved; ADR-1 to ADR-13 written as files (ARC-1); CI actions pinned to commit hashes, with a check; a test that links and junctions out of a chosen folder are not followed (SRC-6 had none); deleted content leaves the index file (PRIV-5, ADR-22): a byte-level test found that a purged file's words and name stayed in the keyword indexes, now fixed. All pushed.
+- Later the same day: `HANDOVER.md` written; 11 commits pushed; the two low-disk tests limited to Windows (free space is read on Windows only, so CI on Linux and macOS would fail them); safe mode added and verified in a release build; hostile-input tests added, which found that a NUL in a query made search fail (fixed); 150 damaged PDFs and three resource-exhaustion files through the real worker; "nothing found" causes with counts; a notice when a result's file has moved; ADR-1 to ADR-13 written as files (ARC-1); CI actions pinned to commit hashes, with a check; a test that links and junctions out of a chosen folder are not followed (SRC-6 had none); deleted content leaves the index file (PRIV-5, ADR-22): a byte-level test found that a purged file's words and name stayed in the keyword indexes, now fixed; Copy path (RES-3), with Ctrl+Shift+C as the spec's keyboard table gives it. All pushed.
 
 ---
 

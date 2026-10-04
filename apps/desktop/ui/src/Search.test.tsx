@@ -74,6 +74,21 @@ describe("the search screen", () => {
     expect(clipboard[0]).toContain("— tax-refund-letter.pdf, page 2");
   });
 
+  it("copies the chosen file's path, by button or Ctrl+Shift+C", async () => {
+    await show(createMockEngine(), "tax amount");
+    const list = await screen.findByRole("listbox");
+    list.focus();
+    const path = "C:\\Users\\you\\Documents\\Letters\\tax-refund-letter.pdf";
+    await act(async () => {
+      fireEvent.keyDown(list, { key: "C", ctrlKey: true, shiftKey: true });
+    });
+    expect(clipboard).toEqual([path]);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Copy path" }));
+    });
+    expect(clipboard).toEqual([path, path]);
+  });
+
   it("says when a result's file has moved, and offers to scan again", async () => {
     const engine = createMockEngine();
     vi.spyOn(engine, "openFile").mockResolvedValue("missing");
@@ -141,6 +156,7 @@ describe("the search screen", () => {
         {
           name: "<img src=x onerror=alert(1)>.txt",
           folder: "<script>alert(2)</script>",
+          path: "<script>alert(2)</script>/<img src=x onerror=alert(1)>.txt",
           copies: 1,
           modifiedSecs: 0,
           passages: [

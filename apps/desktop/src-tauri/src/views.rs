@@ -80,6 +80,7 @@ pub fn file_hits(files: Vec<FileResults>) -> Vec<FileHit> {
             FileHit {
                 name,
                 folder,
+                path: without_controls(&file.path),
                 copies: file.copies,
                 modified_secs: file.modified_secs,
                 passages: file

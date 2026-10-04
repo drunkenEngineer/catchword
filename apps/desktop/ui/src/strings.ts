@@ -69,6 +69,7 @@ export const strings = {
     open: "Open",
     reveal: "Show in folder",
     copy: "Copy passage",
+    copyPath: "Copy path",
     copied: "Copied",
   },
 

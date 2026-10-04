@@ -113,6 +113,10 @@ export function Search({ status, openLibrary }: { status: Status | null; openLib
     const source = `${choice.file.name}, ${choice.passage.location}`;
     navigator.clipboard.writeText(`${text}\n— ${source}`).then(() => say(strings.search.copied), fail);
   };
+  const copyPath = (choice: Choice | undefined) => {
+    if (!choice) return;
+    navigator.clipboard.writeText(choice.file.path).then(() => say(strings.search.copied), fail);
+  };
 
   const onBoxKey = (event: React.KeyboardEvent) => {
     if (event.key === "Escape") {
@@ -135,9 +139,10 @@ export function Search({ status, openLibrary }: { status: Status | null; openLib
       event.preventDefault();
       if (event.ctrlKey) void reveal(chosen);
       else void open(chosen);
-    } else if (event.ctrlKey && event.key === "c") {
+    } else if (event.ctrlKey && event.key.toLowerCase() === "c") {
       event.preventDefault();
-      copy(chosen);
+      if (event.shiftKey) copyPath(chosen);
+      else copy(chosen);
     } else if (event.key === "Escape") {
       setQuery("");
       box.current?.focus();
@@ -327,6 +332,9 @@ export function Search({ status, openLibrary }: { status: Status | null; openLib
                   </button>
                   <button type="button" onClick={() => copy(chosen)} aria-keyshortcuts="Control+C">
                     {strings.search.copy}
+                  </button>
+                  <button type="button" onClick={() => copyPath(chosen)} aria-keyshortcuts="Control+Shift+C">
+                    {strings.search.copyPath}
                   </button>
                 </div>
               </>

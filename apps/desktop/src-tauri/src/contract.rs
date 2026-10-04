@@ -230,6 +230,10 @@ pub struct SearchResponse {
 pub struct FileHit {
     pub name: String,
     pub folder: String,
+    /// The whole path, to copy (RES-3). Control characters are removed, as
+    /// from the name and folder: a pasted path must not carry commands to a
+    /// terminal. Windows does not allow them in names anyway.
+    pub path: String,
     /// How many files share this exact content (1 means no copies).
     #[ts(type = "number")]
     pub copies: i64,
