@@ -1,0 +1,25 @@
+# cargo-about: the licences the Rust libraries shipped with Catchword may
+# have. A library under any other licence fails the notices step (scripts/
+# notices.mjs), so a new licence is a decision, never an accident. No GPL or
+# AGPL (CLAUDE.md, rule 8).
+accepted = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "BSL-1.0",
+    "CC0-1.0",
+    "0BSD",
+    "Unlicense",
+    "MPL-2.0",
+    "CDLA-Permissive-2.0",
+]
+# Only what ships: Windows, no build-time or test-only libraries.
+targets = ["x86_64-pc-windows-msvc"]
+ignore-build-dependencies = true
+ignore-dev-dependencies = true

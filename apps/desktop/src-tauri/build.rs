@@ -16,6 +16,7 @@ fn main() {
         "delete_all_data",
         "rebuild_index",
         "check_index",
+        "notices",
         "pause_indexing",
         "resume_indexing",
         "set_resource_mode",

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "publisher": "Catchword",
+    "copyright": "Catchword contributors, Apache License 2.0",
+    "shortDescription": "Search your own documents by meaning and by words.",
+    "longDescription": "Catchword searches the documents on your computer by meaning as well as by exact words. Your files never leave this computer.",
+    "resources": {
+      "../../../target/release/catchword-worker.exe": "catchword-worker.exe",
+      "../../../vendor/pdfium/pdfium.dll": "pdfium.dll",
+      "../../../vendor/onnxruntime/onnxruntime.dll": "onnxruntime.dll",
+      "../../../vendor/models/granite-embedding-97m-multilingual-r2/model.onnx": "models/granite-embedding-97m-multilingual-r2/model.onnx",
+      "../../../vendor/models/granite-embedding-97m-multilingual-r2/tokenizer.json": "models/granite-embedding-97m-multilingual-r2/tokenizer.json",
+      "../../../target/notices/THIRD-PARTY-NOTICES.txt": "THIRD-PARTY-NOTICES.txt",
+      "../../../LICENSE": "LICENSE",
+      "../../../NOTICE": "NOTICE"
+    },
+    "windows": {
+      "webviewInstallMode": { "type": "embedBootstrapper" },
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["English"],
+        "customLanguageFiles": { "English": "nsis/English.nsh" },
+        "installerHooks": "nsis/hooks.nsh"
+      }
+    }
+  }
+}

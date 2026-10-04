@@ -64,6 +64,7 @@ pub fn run() {
             commands::delete_all_data,
             commands::rebuild_index,
             commands::check_index,
+            commands::notices,
             commands::pause_indexing,
             commands::resume_indexing,
             commands::set_resource_mode,

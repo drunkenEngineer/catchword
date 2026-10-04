@@ -99,6 +99,22 @@ describe("the settings screen", () => {
     expect(rebuild).toHaveBeenCalledTimes(1);
   });
 
+  it("shows the licences of the parts it uses, as plain text", async () => {
+    const engine = createMockEngine();
+    renderWith(engine, <Settings />);
+    await screen.findByRole("heading", { name: "About" });
+    expect(screen.getByText(/Apache License 2.0/)).toBeTruthy();
+    await click("Show the licences of the parts Catchword uses");
+    expect(screen.getByLabelText("Licences of the parts Catchword uses").textContent).toContain("react");
+
+    cleanup();
+    vi.spyOn(engine, "notices").mockResolvedValue(null);
+    renderWith(engine, <Settings />);
+    await screen.findByRole("heading", { name: "About" });
+    await click("Show the licences of the parts Catchword uses");
+    expect(screen.getByText(/added when the app is packaged/)).toBeTruthy();
+  });
+
   it("turns detailed logs on and off", async () => {
     const engine = createMockEngine();
     const setDetailedLogs = vi.spyOn(engine, "setDetailedLogs");

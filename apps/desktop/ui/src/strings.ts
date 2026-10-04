@@ -141,6 +141,11 @@ export const strings = {
     reportTitle: "The report, exactly as it will be saved",
     saveReport: "Save the report…",
     reportSaved: (name: string) => `Saved as ${name}. Nothing was sent; share it only if you choose to.`,
+    aboutTitle: "About",
+    licence: "Catchword is free software under the Apache License 2.0.",
+    showNotices: "Show the licences of the parts Catchword uses",
+    noticesTitle: "Licences of the parts Catchword uses",
+    noNotices: "The licences are added when the app is packaged (node scripts/notices.mjs).",
     privacyTitle: "Privacy",
     privacy:
       "Your files never leave this computer. Catchword sends no document text, search, file name or usage data anywhere, and has no account.",

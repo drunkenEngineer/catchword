@@ -20,6 +20,7 @@
     "allow-delete-all-data",
     "allow-rebuild-index",
     "allow-check-index",
+    "allow-notices",
     "allow-pause-indexing",
     "allow-resume-indexing",
     "allow-set-resource-mode",

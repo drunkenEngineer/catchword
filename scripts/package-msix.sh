@@ -1,6 +1,7 @@
 #!/bin/sh
 # Build the Windows app and pack it as an MSIX (REL-1). Run from Git Bash on
-# Windows, after scripts/fetch-pdfium.sh and scripts/fetch-embedding.sh.
+# Windows, after scripts/fetch-pdfium.sh and scripts/fetch-embedding.sh,
+# with cargo-about installed (see scripts/notices.mjs).
 #
 # It makes:
 #   target/package/Catchword/       every file the package installs
@@ -35,22 +36,19 @@ fi
 echo "Building the app and the PDF reader..."
 (cd apps/desktop && ./ui/node_modules/.bin/tauri build --no-bundle)
 cargo build --release --locked -p catchword-worker
+node scripts/notices.mjs
 
 echo "Assembling $LAYOUT..."
 rm -rf "$OUT"
-mkdir -p "$LAYOUT/models/$MODEL" "$LAYOUT/Assets" "$LAYOUT/licenses/pdfium" "$LAYOUT/licenses/onnxruntime"
+mkdir -p "$LAYOUT/models/$MODEL" "$LAYOUT/Assets"
 # The program and what it loads by full path from its own folder.
 cp target/release/catchword-desktop.exe "$LAYOUT/Catchword.exe"
 cp target/release/catchword-worker.exe vendor/pdfium/pdfium.dll vendor/onnxruntime/onnxruntime.dll "$LAYOUT/"
 cp "vendor/models/$MODEL/model.onnx" "vendor/models/$MODEL/tokenizer.json" "$LAYOUT/models/$MODEL/"
 cp apps/desktop/msix/Assets/*.png "$LAYOUT/Assets/"
 sed "s/{VERSION}/$VERSION/" apps/desktop/msix/AppxManifest.xml > "$LAYOUT/AppxManifest.xml"
-# Catchword's licence, and those of the libraries and model it bundles.
-# The Rust crates' notices are not generated yet (see docs/packaging.md).
-cp LICENSE NOTICE "$LAYOUT/"
-cp vendor/pdfium/LICENSE vendor/pdfium/licenses/* "$LAYOUT/licenses/pdfium/"
-cp vendor/onnxruntime/LICENSE vendor/onnxruntime/ThirdPartyNotices.txt "$LAYOUT/licenses/onnxruntime/"
-cp "vendor/models/$MODEL/SOURCE" "$LAYOUT/licenses/$MODEL.txt"
+# Catchword's licence, and the licences of everything it bundles.
+cp LICENSE NOTICE target/notices/THIRD-PARTY-NOTICES.txt "$LAYOUT/"
 
 echo "Packing..."
 # Git Bash would turn makeappx's /options into paths; this stops it.

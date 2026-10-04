@@ -168,6 +168,10 @@ export function createMockEngine({ firstLaunch = false } = {}): Engine {
       return true;
     },
 
+    async notices(): Promise<string | null> {
+      return "Third-party notices for Catchword\n\nreact 19.3.0 (MIT)\n...";
+    },
+
     async retryFailed(): Promise<void> {
       parked = false;
       changed();

@@ -26,6 +26,8 @@ export interface Engine {
   rebuildIndex(): Promise<void>;
   /** The full integrity check: true if no damage was found. */
   checkIndex(): Promise<boolean>;
+  /** The licences of everything shipped with the app; null if not packaged. */
+  notices(): Promise<string | null>;
   settings(): Promise<SettingsView>;
   /** Opens the native folder dialog; null when the user cancels. */
   excludeFolder(): Promise<Folder | null>;
@@ -61,6 +63,7 @@ export const tauriEngine: Engine = {
   setResourceMode: (mode) => invoke("set_resource_mode", { mode }),
   rebuildIndex: () => invoke("rebuild_index"),
   checkIndex: () => invoke("check_index"),
+  notices: () => invoke("notices"),
   settings: () => invoke("settings"),
   excludeFolder: () => invoke("exclude_folder"),
   includeFolder: (id) => invoke("include_folder", { id }),

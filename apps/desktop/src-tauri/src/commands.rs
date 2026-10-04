@@ -485,6 +485,12 @@ impl AppState {
         Ok(())
     }
 
+    /// The third-party notices shipped beside the program (REL-2), or None
+    /// where there are none, as in a development build that was not packaged.
+    pub fn notices(&self) -> Result<Option<String>> {
+        Ok(read_first(&notices_places()))
+    }
+
     /// The full integrity check, on demand: true if no damage was found.
     pub fn check_index(&self) -> Result<bool> {
         let sound = lock(&self.reader).integrity_check()?;
@@ -543,6 +549,31 @@ fn open_index(index: &Path, log: &Logger) -> Result<(Store, Opened)> {
     remove_index_files(index)?;
     let store = Store::open(index).context("cannot create a new index")?;
     Ok((store, Opened::Rebuilt))
+}
+
+/// The notices file: beside the program, as installed; in a development
+/// build also where scripts/notices.mjs writes it.
+fn notices_places() -> Vec<PathBuf> {
+    const NAME: &str = "THIRD-PARTY-NOTICES.txt";
+    let mut places = Vec::new();
+    if let Ok(program) = std::env::current_exe() {
+        places.push(program.with_file_name(NAME));
+    }
+    if cfg!(debug_assertions) {
+        places.push(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../../target/notices")
+                .join(NAME),
+        );
+    }
+    places
+}
+
+/// The text of the first of `places` that holds a readable file.
+fn read_first(places: &[PathBuf]) -> Option<String> {
+    places
+        .iter()
+        .find_map(|place| std::fs::read_to_string(place).ok())
 }
 
 /// Where a damaged index is kept until the next good start.
@@ -811,6 +842,11 @@ pub async fn rebuild_index(app: AppHandle) -> Result<(), String> {
         state.rebuild_index(notifier(app))
     })
     .await
+}
+
+#[tauri::command]
+pub async fn notices(app: AppHandle) -> Result<Option<String>, String> {
+    on_state(app, "notices", |_, state| state.notices()).await
 }
 
 #[tauri::command]
@@ -1244,6 +1280,30 @@ mod tests {
         // The failed file was tried afresh: one attempt, not parked.
         assert!(!status.not_indexed[0].parked);
         assert!(state.check_index().unwrap());
+    }
+
+    #[test]
+    fn notices_are_read_from_the_first_place_that_has_them() {
+        let folder = std::env::temp_dir().join("catchword-app-test-notices");
+        let _ = std::fs::remove_dir_all(&folder);
+        std::fs::create_dir_all(&folder).unwrap();
+        let beside = folder.join("beside-the-program.txt");
+        let built = folder.join("built.txt");
+        std::fs::write(&built, "react 19.3.0 (MIT)").unwrap();
+        assert_eq!(
+            read_first(&[beside.clone(), built.clone()]).as_deref(),
+            Some("react 19.3.0 (MIT)")
+        );
+        std::fs::write(&beside, "the packaged notices").unwrap();
+        assert_eq!(
+            read_first(&[beside, built]).as_deref(),
+            Some("the packaged notices")
+        );
+        assert_eq!(read_first(&[folder.join("missing.txt")]), None);
+        // A development build looks where scripts/notices.mjs writes.
+        assert!(notices_places()
+            .iter()
+            .any(|place| place.ends_with("target/notices/THIRD-PARTY-NOTICES.txt")));
     }
 
     #[test]

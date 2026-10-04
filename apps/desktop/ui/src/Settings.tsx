@@ -16,6 +16,8 @@ export function Settings() {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [confirmingRebuild, setConfirmingRebuild] = useState(false);
   const [checked, setChecked] = useState<boolean | null>(null);
+  // undefined: not asked for yet; null: none shipped with this build.
+  const [notices, setNotices] = useState<string | null | undefined>(undefined);
   const [includePaths, setIncludePaths] = useState(false);
   const [report, setReport] = useState<string | null>(null);
   const [reportSaved, setReportSaved] = useState<string | null>(null);
@@ -239,6 +241,29 @@ export function Settings() {
               </button>
               {reportSaved && <span role="status">{strings.settings.reportSaved(reportSaved)}</span>}
             </div>
+          </>
+        )}
+      </section>
+
+      <section aria-labelledby="about-title">
+        <h2 id="about-title">{strings.settings.aboutTitle}</h2>
+        <p>
+          {strings.settings.version(view.version)}. {strings.settings.licence}
+        </p>
+        {notices === undefined ? (
+          <div className="actions">
+            <button type="button" onClick={() => engine.notices().then(setNotices, fail)}>
+              {strings.settings.showNotices}
+            </button>
+          </div>
+        ) : notices === null ? (
+          <p className="muted">{strings.settings.noNotices}</p>
+        ) : (
+          <>
+            <h3 id="notices-title">{strings.settings.noticesTitle}</h3>
+            <pre className="report" aria-labelledby="notices-title" tabIndex={0}>
+              {notices}
+            </pre>
           </>
         )}
       </section>

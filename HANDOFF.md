@@ -20,7 +20,7 @@ A free, open-source desktop app for Windows that searches a person's own documen
   - `apps/desktop/ui`: the React and TypeScript interface: first launch, Search, Library and Settings.
   - `crates/eval`: the retrieval evaluation and benchmark tool (`catchword-eval`), never shipped. The evaluation set is in `eval/` (ADR-19).
   - `crates/test-support`: test PDFs written by code, never shipped.
-- **Verified on Windows 11 with Rust 1.99.0** (pinned in `rust-toolchain.toml`): 208 Rust tests and 41 interface tests pass, and format, lint, type check and the privacy check are clean. PDFium, ONNX Runtime and the model come from `scripts/fetch-pdfium.sh` and `scripts/fetch-embedding.sh` (ADR-14, ADR-18).
+- **Verified on Windows 11 with Rust 1.99.0** (pinned in `rust-toolchain.toml`): 209 Rust tests and 42 interface tests pass, and format, lint, type check and the privacy check are clean. PDFium, ONNX Runtime and the model come from `scripts/fetch-pdfium.sh` and `scripts/fetch-embedding.sh` (ADR-14, ADR-18).
 - **Not built yet:** pause and resource modes, appearance settings, cloud-placeholder handling (SRC-4), OCR, the updater (and so the first launch's update-check step), the GitHub installer, notices for the Rust libraries, and the Store listing. An MSIX package builds (`docs/packaging.md`).
 
 ## Decisions already made
@@ -72,7 +72,9 @@ The rest of Phase 2: the MUST requirements of sections 6 and 7 that are still op
 15. ~~**Index health** (COV-1, OBS-2).~~ Done, 4 October 2026: while indexing, Library shows files or passages a second, measured over the last half minute (none in the first three seconds, which a run through unchanged files would flatter), and the time left at that pace. The index records when a scan of every folder last finished; Library shows it when idle.
 16. ~~**Announcements and warnings** (A11Y-2, PRIV-4, OBS-3).~~ Done, 4 October 2026: screen readers hear the index state, with progress in steps of ten percent (the visible chip, which changes four times a second, is hidden from them); result counts were announced already. Settings warns if the data folder is copied by OneDrive, Dropbox, Google Drive or iCloud Drive. A panic writes `logs/crash-<time>.txt` with version, Windows version, place and stack; the message only with detailed logs on; the newest five are kept, the diagnostics report includes the newest, and delete all data deletes them. Not checked by hand with Narrator or NVDA yet (A11Y-2 asks for that).
 
-Waiting for the owner: the updater (APP-2, REL-3, which needs an update signing key), the GitHub installer and the notices (REL-2), licence and advisory checks (MNT-3), and the Store steps of item 8.
+Waiting for the owner: the updater (APP-2, REL-3, which needs an update signing key), licence and advisory checks (MNT-3), and the Store steps of item 8.
+
+17. ~~**Notices and the GitHub installer** (REL-2).~~ Done, 4 October 2026, with the owner's OK for cargo-about (a build tool, not shipped) and the NSIS download: `node scripts/notices.mjs` writes the third-party notices, shown in Settings, About, and shipped in both packages; `sh scripts/package-nsis.sh` builds a per-user NSIS installer whose uninstaller removes the index and logs (settings on request) and whose updates keep them. Install, upgrade and uninstall are checked by hand so far (`docs/packaging.md`).
 
 ## How to work with the owner
 
