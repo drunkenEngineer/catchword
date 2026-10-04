@@ -29,4 +29,8 @@ indexBytes: number,
 /**
  * Logs also record file paths and error details.
  */
-detailedLogs: boolean, version: string, resourceMode: ResourceMode, };
+detailedLogs: boolean, version: string, resourceMode: ResourceMode, 
+/**
+ * The cloud service that copies the data folder, if one does (PRIV-4).
+ */
+dataSyncedBy: string | null, };

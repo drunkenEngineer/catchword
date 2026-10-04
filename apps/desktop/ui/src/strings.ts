@@ -10,6 +10,7 @@ export const strings = {
     noFolders: "No folders yet",
     starting: "Starting…",
     readingFiles: (done: number, total: number) => `Reading files: ${done} of ${total}`,
+    readingStep: (percent: number) => `Reading files: ${percent}%`,
     meaning: (percent: number) => `Searchable by meaning: ${percent}%`,
     upToDate: "Up to date",
     paused: "Paused",
@@ -117,6 +118,8 @@ export const strings = {
     rebuild: "Rebuild the index",
     confirmRebuild:
       "Rebuild the index? Catchword reads all your files again; search works with what is done so far. Your folders and settings stay.",
+    syncedWarning: (service: string) =>
+      `Warning: the index is in a folder that ${service} copies to the internet. It holds the text of your documents. Stop ${service} from syncing this folder.`,
     deleteAll: "Delete all data",
     confirmDeleteAll:
       "Delete the index and forget your folders and settings? Catchword starts again as new. Your own files are not touched.",

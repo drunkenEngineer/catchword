@@ -129,6 +129,11 @@ export function Settings() {
       <section aria-labelledby="data-title">
         <h2 id="data-title">{strings.settings.dataTitle}</h2>
         <p dir="auto">{strings.settings.dataPlace(view.dataFolder, strings.bytes(view.indexBytes))}</p>
+        {view.dataSyncedBy && (
+          <p className="problem" role="alert">
+            {strings.settings.syncedWarning(view.dataSyncedBy)}
+          </p>
+        )}
         <div className="actions">
           <button type="button" onClick={() => engine.checkIndex().then(setChecked, fail)}>
             {strings.settings.checkIndex}

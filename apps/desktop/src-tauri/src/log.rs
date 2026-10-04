@@ -188,9 +188,75 @@ impl Logger {
     }
 }
 
-/// Write panics to the log, then let them go on as before (OBS-3, in
-/// part). Where in the code is written; the message only in detailed logs,
-/// as it may hold a path.
+/// Crash reports kept, newest first; older ones are deleted.
+const CRASH_REPORTS_KEPT: usize = 5;
+
+/// The crash reports in a logs folder, oldest first.
+pub fn crash_reports(folder: &Path) -> Vec<PathBuf> {
+    let mut reports: Vec<PathBuf> = fs::read_dir(folder)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("crash-") && name.ends_with(".txt"))
+        })
+        .collect();
+    reports.sort();
+    reports
+}
+
+/// A crash report: version, system, where and the stack (OBS-3). The
+/// message only in detailed logs, as it may hold a path; never document
+/// text, which no crash message is made of.
+pub fn crash_report(
+    time: SystemTime,
+    windows: Option<&str>,
+    place: &str,
+    message: Option<&str>,
+    stack: &str,
+) -> String {
+    format!(
+        "Catchword crash report\n\
+         Time: {}\n\
+         Version: {}\n\
+         Windows: {}\n\
+         Where: {place}\n\
+         Message: {}\n\
+         \n\
+         Stack:\n{stack}\n",
+        timestamp(time),
+        env!("CARGO_PKG_VERSION"),
+        windows.unwrap_or("unknown"),
+        message.unwrap_or("left out; it may name a file (turn on detailed logs to include it)"),
+    )
+}
+
+/// Save a crash report in the logs folder, and keep only the newest few.
+pub fn save_crash_report(
+    folder: &Path,
+    time: SystemTime,
+    report: &str,
+) -> std::io::Result<PathBuf> {
+    fs::create_dir_all(folder)?;
+    let stamp = timestamp(time).replace(':', "-");
+    let mut path = folder.join(format!("crash-{stamp}.txt"));
+    let mut n = 1;
+    while path.exists() {
+        n += 1;
+        path = folder.join(format!("crash-{stamp}-{n}.txt"));
+    }
+    fs::write(&path, report)?;
+    let reports = crash_reports(folder);
+    for old in &reports[..reports.len().saturating_sub(CRASH_REPORTS_KEPT)] {
+        let _ = fs::remove_file(old);
+    }
+    Ok(path)
+}
+
+/// Write panics to the log and to a crash report, then let them go on as
+/// before (OBS-3). Nothing is sent anywhere.
 pub fn record_panics(log: std::sync::Arc<Logger>) {
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -211,9 +277,18 @@ pub fn record_panics(log: std::sync::Arc<Logger>) {
             &[
                 ("file", Value::Code(file)),
                 ("line", Value::Number(u64::from(line))),
-                ("message", Value::Private(message)),
+                ("message", Value::Private(message.clone())),
             ],
         );
+        let now = SystemTime::now();
+        let report = crash_report(
+            now,
+            crate::diagnostics::windows_version().as_deref(),
+            &format!("{file}:{line}"),
+            log.detailed().then_some(message.as_str()),
+            &std::backtrace::Backtrace::force_capture().to_string(),
+        );
+        let _ = save_crash_report(log.folder(), now, &report);
         previous(info);
     }));
 }
@@ -326,6 +401,56 @@ mod tests {
         // The newest line is last.
         let last = lines(&logger).pop().unwrap();
         assert_eq!(last["n"], 39_999);
+    }
+
+    #[test]
+    fn a_crash_report_names_the_place_but_not_the_message_unless_asked() {
+        let report = crash_report(
+            UNIX_EPOCH,
+            Some("25H2, build 26200"),
+            "src/indexing.rs:42",
+            None,
+            "0: catchword_desktop::indexing::run",
+        );
+        assert!(report.contains("Where: src/indexing.rs:42"));
+        assert!(report.contains("Windows: 25H2, build 26200"));
+        assert!(report.contains("Message: left out"));
+        assert!(report.contains("indexing::run"));
+        let detailed = crash_report(UNIX_EPOCH, None, "x:1", Some("cannot read C:\\a.txt"), "");
+        assert!(detailed.contains("Message: cannot read C:\\a.txt"));
+    }
+
+    #[test]
+    fn only_the_newest_crash_reports_are_kept() {
+        let dir = folder("crashes");
+        for n in 0..8u64 {
+            let time = UNIX_EPOCH + Duration::from_secs(1_790_000_000 + n);
+            save_crash_report(&dir, time, "report").unwrap();
+        }
+        let kept = crash_reports(&dir);
+        assert_eq!(kept.len(), CRASH_REPORTS_KEPT);
+        let last = kept
+            .last()
+            .unwrap()
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        assert!(last.contains("2026-09-21"), "{last}");
+    }
+
+    #[test]
+    fn a_panic_leaves_a_crash_report() {
+        let dir = folder("panic-report");
+        let log = std::sync::Arc::new(Logger::new(dir.clone(), false));
+        record_panics(std::sync::Arc::clone(&log));
+        let crashed = std::thread::spawn(|| panic!("a test panic, on purpose")).join();
+        assert!(crashed.is_err());
+        let reports = crash_reports(&dir);
+        let report = fs::read_to_string(reports.last().unwrap()).unwrap();
+        assert!(report.contains("Where: "), "{report}");
+        assert!(!report.contains("on purpose"), "{report}");
+        assert!(log.last_lines(10).join("\n").contains(r#""event":"panic""#));
     }
 
     #[test]

@@ -79,6 +79,8 @@ pub struct SettingsView {
     pub detailed_logs: bool,
     pub version: String,
     pub resource_mode: ResourceMode,
+    /// The cloud service that copies the data folder, if one does (PRIV-4).
+    pub data_synced_by: Option<String>,
 }
 
 /// A folder the user chose. The path is shown, never sent back.

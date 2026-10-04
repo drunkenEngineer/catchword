@@ -39,7 +39,7 @@ describe("the first launch", () => {
 
   it("is not shown once it is done", async () => {
     renderWith(createMockEngine(), <App />);
-    await screen.findByText("Up to date");
+    await screen.findByRole("button", { name: "Up to date" });
     expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
   });
 });

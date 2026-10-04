@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { App } from "./App";
+import { announcement, App } from "./App";
 import { createMockEngine } from "./mock";
 import { renderWith } from "./test-utils";
 
@@ -29,19 +29,37 @@ describe("the window", () => {
     expect(heading()).toBe("Search");
   });
 
+  it("announces progress in steps of ten percent, and shows it exactly", async () => {
+    const engine = createMockEngine();
+    const idle = await engine.status();
+    const reading = (done: number) => ({
+      ...idle,
+      work: { stage: "words" as const, done, total: 1200, perSecond: null, secondsLeft: null },
+    });
+    expect(announcement(reading(341))).toBe("Reading files: 20%");
+    expect(announcement(reading(359))).toBe("Reading files: 20%");
+    expect(announcement(reading(360))).toBe("Reading files: 30%");
+    expect(announcement(idle)).toBe("Up to date");
+
+    vi.spyOn(engine, "status").mockResolvedValue(reading(341));
+    renderWith(engine, <App />);
+    expect(await screen.findByText("Reading files: 341 of 1200")).toBeTruthy();
+    expect(screen.getByText("Reading files: 20%").getAttribute("role")).toBe("status");
+  });
+
   it("shows when indexing is paused", async () => {
     const engine = createMockEngine();
     renderWith(engine, <App />);
-    await screen.findByText("Up to date");
+    await screen.findByRole("button", { name: "Up to date" });
     await act(async () => {
       await engine.pauseIndexing();
     });
-    expect(await screen.findByText("Paused")).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Paused" })).toBeTruthy();
   });
 
   it("shows the index status, which opens Library", async () => {
     renderWith(createMockEngine(), <App />);
-    const chip = await screen.findByText("Up to date");
+    const chip = await screen.findByRole("button", { name: "Up to date" });
     fireEvent.click(chip);
     expect(heading()).toBe("Library");
   });
@@ -51,7 +69,7 @@ describe("the window", () => {
     const indexNow = vi.spyOn(engine, "indexNow");
     const status = vi.spyOn(engine, "status");
     renderWith(engine, <App />);
-    await screen.findByText("Up to date");
+    await screen.findByRole("button", { name: "Up to date" });
     const before = status.mock.calls.length;
     await act(async () => {
       fireEvent.keyDown(window, { key: "F5" });

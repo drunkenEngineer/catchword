@@ -1,6 +1,8 @@
-//! Free disk space, so indexing stops before the disk fills up (RSC-3).
+//! Free disk space, so indexing stops before the disk fills up (RSC-3),
+//! and whether a folder is copied to a cloud service (PRIV-4).
 
-use std::path::Path;
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
 
 /// Below this much free space on the index's drive, indexing pauses.
 pub const MIN_FREE_BYTES: u64 = 1 << 30;
@@ -35,9 +37,59 @@ pub fn free_bytes(_path: &Path) -> Option<u64> {
     None
 }
 
+/// The cloud service that copies `path` to the internet, if one does: the
+/// index holds the text of the user's documents and must stay here.
+pub fn synced_by(path: &Path) -> Option<&'static str> {
+    // OneDrive says where its folders are; the others go by their names.
+    let onedrive: Vec<PathBuf> = ["OneDrive", "OneDriveConsumer", "OneDriveCommercial"]
+        .into_iter()
+        .filter_map(std::env::var_os)
+        .filter(|root: &OsString| !root.is_empty())
+        .map(PathBuf::from)
+        .collect();
+    synced_by_in(path, &onedrive)
+}
+
+fn synced_by_in(path: &Path, onedrive: &[PathBuf]) -> Option<&'static str> {
+    if onedrive.iter().any(|root| path.starts_with(root)) {
+        return Some("OneDrive");
+    }
+    const BY_NAME: [(&str, &str); 4] = [
+        ("Dropbox", "Dropbox"),
+        ("Google Drive", "Google Drive"),
+        ("My Drive", "Google Drive"),
+        ("iCloudDrive", "iCloud Drive"),
+    ];
+    path.components().find_map(|part| {
+        let part = part.as_os_str().to_string_lossy();
+        BY_NAME
+            .iter()
+            .find(|(folder, _)| part.eq_ignore_ascii_case(folder))
+            .map(|(_, service)| *service)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_folder_in_a_synced_place_is_recognised() {
+        let onedrive = [PathBuf::from(r"C:\Users\ana\OneDrive")];
+        let synced = |path: &str| synced_by_in(Path::new(path), &onedrive);
+        assert_eq!(
+            synced(r"C:\Users\ana\OneDrive\Catchword\data"),
+            Some("OneDrive")
+        );
+        assert_eq!(synced(r"D:\dropbox\apps\catchword"), Some("Dropbox"));
+        assert_eq!(synced(r"G:\My Drive\catchword"), Some("Google Drive"));
+        assert_eq!(
+            synced(r"C:\Users\ana\AppData\Local\org.catchword.desktop\data"),
+            None
+        );
+        // A folder that merely starts the same is not synced.
+        assert_eq!(synced(r"C:\Users\ana\OneDrive-old\data"), None);
+    }
 
     #[test]
     fn free_space_is_read_for_a_file_or_a_folder_not_made_yet() {

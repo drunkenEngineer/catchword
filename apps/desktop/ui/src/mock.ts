@@ -183,6 +183,7 @@ export function createMockEngine({ firstLaunch = false } = {}): Engine {
         detailedLogs,
         version: "0.0.1",
         resourceMode,
+        dataSyncedBy: null,
       };
     },
 

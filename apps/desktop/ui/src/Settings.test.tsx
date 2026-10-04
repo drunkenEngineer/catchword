@@ -56,6 +56,14 @@ describe("the settings screen", () => {
     expect(await screen.findByText("No folders are left out.")).toBeTruthy();
   });
 
+  it("warns when the index is in a synced folder", async () => {
+    const engine = createMockEngine();
+    const view = await engine.settings();
+    vi.spyOn(engine, "settings").mockResolvedValue({ ...view, dataSyncedBy: "OneDrive" });
+    renderWith(engine, <Settings />);
+    expect((await screen.findByRole("alert")).textContent).toContain("OneDrive copies to the internet");
+  });
+
   it("shows where the index is and how large", async () => {
     renderWith(createMockEngine(), <Settings />);
     expect(await screen.findByText(/AppData.*Catchword.*17[.,]5 MB/)).toBeTruthy();
@@ -136,7 +144,7 @@ describe("the settings screen", () => {
     const engine = createMockEngine();
     const deleteAllData = vi.spyOn(engine, "deleteAllData");
     renderWith(engine, <App />);
-    await screen.findByText("Up to date");
+    await screen.findByRole("button", { name: "Up to date" });
     await click("Settings");
     await screen.findByRole("heading", { name: "Your data" });
 

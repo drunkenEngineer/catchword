@@ -218,6 +218,7 @@ impl AppState {
             detailed_logs: settings.detailed_logs,
             version: env!("CARGO_PKG_VERSION").to_string(),
             resource_mode: settings.resource_mode,
+            data_synced_by: crate::disk::synced_by(&self.index).map(String::from),
         })
     }
 
@@ -261,6 +262,10 @@ impl AppState {
             default_patterns: DEFAULT_PATTERNS.iter().map(|p| p.to_string()).collect(),
             detailed_logs: self.log.detailed(),
             log_lines: self.log.last_lines(diagnostics::LOG_LINES),
+            crash_reports: log::crash_reports(self.log.folder())
+                .iter()
+                .filter_map(|report| std::fs::read_to_string(report).ok())
+                .collect(),
         };
         let text = diagnostics::report(&facts, include_paths);
         *lock(&self.report) = Some(text.clone());
@@ -324,6 +329,9 @@ impl AppState {
                 remove_if_there(&self.config_dir.join(name))?;
             }
             *settings = Settings::default();
+        }
+        for report in log::crash_reports(self.log.folder()) {
+            remove_if_there(&report)?;
         }
         let mut reader = lock(&self.reader);
         // Close the index, so its files can be deleted.

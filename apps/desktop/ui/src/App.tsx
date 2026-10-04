@@ -74,7 +74,11 @@ export function App() {
         <header className="titlebar">
           <h1 className="title">{strings.destinations[destination]}</h1>
           <button type="button" className="chip" onClick={() => setDestination("library")}>
-            <span role="status">{chipText(status)}</span>
+            {/* Screen readers hear the announcement below instead. */}
+            <span aria-hidden="true">{chipText(status)}</span>
+            <span className="visually-hidden" role="status">
+              {announcement(status)}
+            </span>
           </button>
         </header>
         <main className="destination">
@@ -87,6 +91,23 @@ export function App() {
       </div>
     </div>
   );
+}
+
+/**
+ * What screen readers hear about the index (A11Y-2): the chip's state, but
+ * progress only in steps of ten percent, so they are not read out several
+ * times a second.
+ */
+export function announcement(status: Status | null): string {
+  const work = status?.work;
+  if (!status || status.paused || !work || work.total === 0) return chipText(status);
+  if (work.stage === "words") {
+    return strings.chip.readingStep(Math.floor((10 * work.done) / work.total) * 10);
+  }
+  if (status.passages > 0) {
+    return strings.chip.meaning(Math.floor((10 * status.searchableByMeaning) / status.passages) * 10);
+  }
+  return chipText(status);
 }
 
 function chipText(status: Status | null): string {

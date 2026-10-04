@@ -34,6 +34,8 @@ pub struct Facts {
     pub detailed_logs: bool,
     /// Oldest first.
     pub log_lines: Vec<String>,
+    /// The crash reports kept, oldest first.
+    pub crash_reports: Vec<String>,
 }
 
 pub fn report(facts: &Facts, include_paths: bool) -> String {
@@ -137,6 +139,23 @@ pub fn report(facts: &Facts, include_paths: bool) -> String {
     if include_paths {
         for pattern in &settings.patterns {
             line(format!("    {pattern}"));
+        }
+    }
+
+    line(String::new());
+    line(format!("Crash reports: {}", facts.crash_reports.len()));
+    if let Some(newest) = facts.crash_reports.last() {
+        line("  The newest:".into());
+        for report_line in newest.lines() {
+            // A message is in a report only if detailed logs were on.
+            if !include_paths
+                && report_line.starts_with("Message: ")
+                && !report_line.starts_with("Message: left out")
+            {
+                line("  Message: left out".into());
+                continue;
+            }
+            line(format!("    {report_line}"));
         }
     }
 
@@ -252,6 +271,9 @@ mod tests {
                 r#"{"event":"index.folder","files":12}"#.into(),
                 r#"{"event":"file.failed","path":"C:\\Users\\ana\\Documents\\Medical\\broken.pdf","private":true}"#.into(),
             ],
+            crash_reports: vec![
+                "Catchword crash report\nWhere: src/x.rs:1\nMessage: cannot read C:\\Users\\ana\\x.txt\n".into(),
+            ],
         }
     }
 
@@ -275,6 +297,8 @@ mod tests {
         assert!(text.contains("Folders: 1"));
         assert!(text.contains("Names left out: 1, changed from the default list"));
         assert!(text.contains("Log, last 1 lines (1 with file names left out)"));
+        assert!(text.contains("Crash reports: 1"));
+        assert!(text.contains("Where: src/x.rs:1"));
         assert!(text.contains(r#""event":"index.folder""#));
     }
 
