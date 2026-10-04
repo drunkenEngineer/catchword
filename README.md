@@ -28,6 +28,7 @@ On Windows, run the two scripts from Git Bash. They download the PDFium library,
 - The index is checked at every start. A damaged one is rebuilt from your files by itself, and Settings can check it fully or rebuild it on demand. Your folders and settings are kept apart from it, so they survive.
 - Moved, changed and deleted files are picked up on the next `index` run.
 - Files kept only in the cloud (OneDrive and the like) are listed, never opened, so nothing is downloaded. A folder on an unplugged drive is shown as offline, and its files stay searchable.
+- Text files are read in whatever encoding they were saved in: UTF-8, UTF-16, or older ones such as Windows-1252 or Windows-1256 (Arabic).
 - Hidden and system files are skipped, and links are never followed out of the folder you chose.
 - Some names are left out by default: system files, development folders such as `node_modules`, and files that often hold passwords or keys (`*.kdbx`, `*.pem`, `id_rsa*`, `*passwords*` and others). In the desktop app you can change the list and leave out folders; the command-line tool uses the default list.
 

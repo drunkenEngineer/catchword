@@ -6,7 +6,9 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+chardetng.workspace = true
 dunce.workspace = true
+encoding_rs.workspace = true
 sha2.workspace = true
 walkdir.workspace = true
 

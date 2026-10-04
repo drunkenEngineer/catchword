@@ -9,7 +9,11 @@ license = "Apache-2.0"
 
 [workspace.dependencies]
 anyhow = "1"
+# Guessing a text file's legacy encoding (EXT-2), from the Firefox team.
+chardetng = "0.1"
 dunce = "1"
+# Decoding text in any WHATWG encoding (EXT-2).
+encoding_rs = "0.8"
 # ONNX Runtime binding. Loads the runtime by full path; its own build-time
 # download stays off (ADR-18).
 ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "load-dynamic"] }

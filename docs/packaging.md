@@ -75,6 +75,6 @@ Windows installs an MSIX only if it is signed by a certificate the PC trusts. Fo
 ## Not done yet
 
 - **Store identity.** `Name` and `Publisher` in the manifest are placeholders. They come from Partner Center once the owner registers as a developer and reserves the name (REL-1). The Store signs the package, so no certificate is needed for the Store build.
-- **Notices for the Rust libraries.** Their licences must ship too, and appear in About. This needs a generator such as cargo-about, a new tool, so it waits for the owner's OK. One of them, `option-ext`, is under MPL-2.0, which allows this but must be credited.
+- **Notices for the Rust libraries.** Their licences must ship too, and appear in About. This needs a generator such as cargo-about, a new tool, so it waits for the owner's OK. One of them, `option-ext`, is under MPL-2.0, which allows this but must be credited; `encoding_rs` carries a BSD-3-Clause part for its data, which must be credited too.
 - **The GitHub installer** (REL-2) is Tauri's NSIS installer. Tauri's bundler downloads NSIS to build it, so it also waits for an OK.
 - **The updater** does not exist yet, so there is nothing to compile out of the Store build.

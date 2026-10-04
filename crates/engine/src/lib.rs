@@ -11,10 +11,12 @@ use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 
 mod attributes;
+mod encoding;
 pub mod exclude;
 pub mod extract;
 pub mod fuse;
 
+pub use encoding::decode_text;
 pub use exclude::Exclusions;
 use extract::Reason;
 
@@ -144,8 +146,8 @@ fn hidden(entry: &walkdir::DirEntry) -> bool {
 /// Read a plain-text or Markdown file and return its text with the hash of
 /// its bytes. Files over `max_bytes` are refused.
 ///
-/// Invalid UTF-8 is replaced, not rejected, and control characters are
-/// dropped. Proper encoding detection comes later.
+/// The encoding is detected (see [`decode_text`]), and control characters
+/// are dropped.
 pub fn read_text(path: &Path, max_bytes: u64) -> Result<(String, String), Reason> {
     let file = fs::File::open(path).map_err(|_| Reason::CannotOpen)?;
     // One byte past the limit is enough to know it is too large, even if the
@@ -158,8 +160,7 @@ pub fn read_text(path: &Path, max_bytes: u64) -> Result<(String, String), Reason
         return Err(Reason::TooLarge);
     }
     let hash = content_hash(&bytes);
-    let decoded = String::from_utf8_lossy(&bytes);
-    let text = without_controls(decoded.strip_prefix('\u{feff}').unwrap_or(&decoded));
+    let text = without_controls(&decode_text(&bytes));
     Ok((text, hash))
 }
 
@@ -597,6 +598,21 @@ mod tests {
         assert_eq!(found.files.len(), 1);
         assert_eq!(found.unreadable.len(), 1);
         assert!(found.unreadable[0].ends_with("locked"));
+        fs::remove_dir_all(&folder).unwrap();
+    }
+
+    #[test]
+    fn a_text_file_in_a_legacy_encoding_is_read_as_its_text() {
+        let folder = test_folder("legacy-encoding");
+        let lease = "عقد الإيجار: مدة الإشعار ثلاثة أشهر، ويجب إرسال رسالة مسجلة \
+                     قبل نهاية الربع. يرد المالك خلال خمسة عشر يوما.";
+        let (bytes, _, _) = encoding_rs::WINDOWS_1256.encode(lease);
+        let file = folder.join("lease.txt");
+        fs::write(&file, &bytes).unwrap();
+        let (text, hash) = read_text(&file, 1 << 20).unwrap();
+        assert_eq!(text, lease);
+        // The hash is of the bytes as they are on disk.
+        assert_eq!(hash, content_hash(&bytes));
         fs::remove_dir_all(&folder).unwrap();
     }
 
