@@ -77,7 +77,7 @@ pub fn search(store: &Store, model: &Model, query: &str) -> Result<Answer> {
             }
         },
     };
-    let results = store.search_combined(query, vector.as_deref(), CANDIDATES)?;
+    let results = store.search_with_names(query, vector.as_deref(), CANDIDATES)?;
     Ok(Answer { results, notes })
 }
 
@@ -87,6 +87,8 @@ pub struct FileResults {
     pub path: String,
     /// How many files share this exact content (1 means no copies).
     pub copies: i64,
+    /// When the file was last changed, in seconds since 1970.
+    pub modified_secs: i64,
     pub passages: Vec<(Hit, Found)>,
 }
 
@@ -100,6 +102,7 @@ pub fn group_by_file(results: Vec<(Hit, Found)>) -> Vec<FileResults> {
             None => files.push(FileResults {
                 path: hit.path.clone(),
                 copies: hit.copies,
+                modified_secs: hit.modified_secs,
                 passages: vec![(hit, found)],
             }),
         }
@@ -121,6 +124,7 @@ mod tests {
             end_line: 1,
             snippet: String::new(),
             score: 0.0,
+            modified_secs: 0,
         };
         (hit, Found::Keyword)
     }

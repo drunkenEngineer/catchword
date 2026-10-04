@@ -200,6 +200,7 @@ fn search_index(index_file: &Path, query: &str, limit: usize) -> Result<()> {
             Found::Keyword => "words",
             Found::Meaning => "meaning",
             Found::Both => "words and meaning",
+            Found::Name => "file name",
         };
         println!(
             "{}. {}{}  {location}  ({found})",

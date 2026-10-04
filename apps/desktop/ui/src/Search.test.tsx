@@ -74,6 +74,11 @@ describe("the search screen", () => {
     expect(clipboard[0]).toContain("— tax-refund-letter.pdf, page 2");
   });
 
+  it("shows when each file was last changed", async () => {
+    await show(createMockEngine(), "refund");
+    expect((await screen.findAllByText(/^changed /)).length).toBeGreaterThan(0);
+  });
+
   it("explains an empty result", async () => {
     await show(createMockEngine(), "zebra");
     expect(await screen.findByText("Nothing found for “zebra”.")).toBeTruthy();
@@ -94,6 +99,7 @@ describe("the search screen", () => {
           name: "<img src=x onerror=alert(1)>.txt",
           folder: "<script>alert(2)</script>",
           copies: 1,
+          modifiedSecs: 0,
           passages: [
             {
               id: 9,

@@ -59,6 +59,7 @@ fn found_by(found: Found) -> FoundBy {
         Found::Keyword => FoundBy::Words,
         Found::Meaning => FoundBy::Meaning,
         Found::Both => FoundBy::Both,
+        Found::Name => FoundBy::Name,
     }
 }
 
@@ -80,6 +81,7 @@ pub fn file_hits(files: Vec<FileResults>) -> Vec<FileHit> {
                 name,
                 folder,
                 copies: file.copies,
+                modified_secs: file.modified_secs,
                 passages: file
                     .passages
                     .iter()

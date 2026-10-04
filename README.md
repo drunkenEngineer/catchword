@@ -19,7 +19,7 @@ cargo run -p catchword -- status
 
 On Windows, run the two scripts from Git Bash. They download the PDFium library, ONNX Runtime and the embedding model (about 200 MB together) and check each file against a pinned checksum.
 
-- Search combines matches by words and by meaning, and says how each result was found. A query in one language finds passages in another.
+- Search combines matches by words and by meaning, and says how each result was found. A query in one language finds passages in another. File and folder names count too: "plumber invoice" finds `Plumber/invoice-march.pdf`. Each result shows when its file last changed.
 - Indexing is in two stages: everything is searchable by words first, then by meaning as passages are embedded on your computer. An interrupted run carries on where it stopped.
 - In the desktop app, indexing can be paused and resumed, and runs at low priority in one of three modes: Light (one core), Balanced (half the processor, the default) or Fast. It pauses by itself when less than 1 GB of disk space is free.
 - PDFs are read in a separate worker process with time and memory limits. Results show the page.

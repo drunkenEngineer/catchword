@@ -75,6 +75,24 @@ fn a_stopped_run_never_forgets_files_it_did_not_reach() {
 }
 
 #[test]
+fn a_file_is_found_by_its_name_and_shows_its_date() {
+    let folder = three_files("service-names");
+    fs::create_dir(folder.join("Plumber")).unwrap();
+    fs::write(
+        folder.join("Plumber").join("quote.txt"),
+        "forty pounds an hour",
+    )
+    .unwrap();
+    let mut store = Store::open_in_memory().unwrap();
+    index(&mut store, &folder, usize::MAX);
+    let answer = search(&store, &Model::Unavailable("off".into()), "plumber").unwrap();
+    let files = group_by_file(answer.results);
+    assert_eq!(files.len(), 1);
+    assert!(files[0].path.ends_with("quote.txt"));
+    assert!(files[0].modified_secs > 1_600_000_000);
+}
+
+#[test]
 fn results_by_words_are_grouped_by_file() {
     let folder = three_files("service-search");
     let mut store = Store::open_in_memory().unwrap();

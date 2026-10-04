@@ -161,6 +161,9 @@ pub struct FileHit {
     /// How many files share this exact content (1 means no copies).
     #[ts(type = "number")]
     pub copies: i64,
+    /// When the file was last changed, in seconds since 1970 (SEA-2).
+    #[ts(type = "number")]
+    pub modified_secs: i64,
     pub passages: Vec<PassageHit>,
 }
 
@@ -190,6 +193,8 @@ pub enum FoundBy {
     Words,
     Meaning,
     Both,
+    /// Only by its file or folder name (SEA-1).
+    Name,
 }
 
 #[cfg(test)]

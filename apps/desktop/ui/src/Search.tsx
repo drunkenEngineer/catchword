@@ -216,6 +216,7 @@ export function Search({ status, openLibrary }: { status: Status | null; openLib
                   <span className="file-folder" dir="auto">
                     {file.folder}
                   </span>
+                  {file.modifiedSecs > 0 && <span className="file-date">{strings.search.modified(file.modifiedSecs)}</span>}
                   {file.copies > 1 && <span className="file-copies">{strings.search.copies(file.copies - 1)}</span>}
                 </div>
                 {file.passages.map((passage) => {

@@ -13,14 +13,14 @@ A free, open-source desktop app for Windows that searches a person's own documen
   - `crates/engine`: scan a folder (with exclusions, `exclude`), read text files, hash content, split text into passages sized in model tokens (with page numbers for PDFs), run the extraction worker under limits (`extract`), and combine keyword and meaning results (`fuse`, reciprocal rank fusion).
   - `crates/worker`: the extraction worker. Reads one PDF with PDFium and returns the text of each page, or a reason code.
   - `crates/embed`: the embedding runtime. ONNX Runtime and the provisional model, granite-embedding-97m-multilingual-r2 in 8-bit form, loaded by full path after a checksum check.
-  - `crates/store`: the SQLite index, with FTS5 keyword search and sqlite-vec vectors. Identical files are stored once. Layout version 4, which also records the files that were not indexed.
+  - `crates/store`: the SQLite index, with FTS5 keyword search over passages and over file paths, and sqlite-vec vectors. Identical files are stored once. Layout version 5: version 4 recorded the files that were not indexed, version 5 indexes paths.
   - `crates/service`: the use cases both front ends share: index a folder, embed what is new, search, group by file.
   - `crates/cli`: the commands `index`, `search` and `status`.
   - `apps/desktop/src-tauri`: the Tauri 2 shell: typed command contract, command handlers, background indexing, settings (version 2: folders, exclusions, first-launch flag), local logs (`log`) and the diagnostics report (`diagnostics`).
   - `apps/desktop/ui`: the React and TypeScript interface: first launch, Search, Library and Settings.
   - `crates/eval`: the retrieval evaluation and benchmark tool (`catchword-eval`), never shipped. The evaluation set is in `eval/` (ADR-19).
   - `crates/test-support`: test PDFs written by code, never shipped.
-- **Verified on Windows 11 with Rust 1.99.0** (pinned in `rust-toolchain.toml`): 183 Rust tests and 35 interface tests pass, and format, lint, type check and the privacy check are clean. PDFium, ONNX Runtime and the model come from `scripts/fetch-pdfium.sh` and `scripts/fetch-embedding.sh` (ADR-14, ADR-18).
+- **Verified on Windows 11 with Rust 1.99.0** (pinned in `rust-toolchain.toml`): 189 Rust tests and 36 interface tests pass, and format, lint, type check and the privacy check are clean. PDFium, ONNX Runtime and the model come from `scripts/fetch-pdfium.sh` and `scripts/fetch-embedding.sh` (ADR-14, ADR-18).
 - **Not built yet:** pause and resource modes, appearance settings, cloud-placeholder handling (SRC-4), OCR, the updater (and so the first launch's update-check step), the GitHub installer, notices for the Rust libraries, and the Store listing. An MSIX package builds (`docs/packaging.md`).
 
 ## Decisions already made
@@ -66,7 +66,7 @@ The rest of Phase 2: the MUST requirements of sections 6 and 7 that are still op
 
 10. ~~**Cloud-only files and offline folders** (SRC-4, SRC-5).~~ Done, 4 October 2026: the scan reads attributes from folder listings only; cloud-only and archived files are recorded as `cloud-only`, never opened, and read once they are on the computer again. A folder that cannot be reached is an `Unreachable` error that changes nothing; Library shows it as offline, its files still searchable. Files under a sub-folder that cannot be listed are kept. Windows attribute code sits in `crates/engine/src/attributes.rs` (PORT-4).
 11. ~~**Pause, resume and resource mode** (IDX-5, RSC-3).~~ Done, 4 October 2026: Library pauses and resumes indexing, and a user's pause outlasts a restart. Settings offers Light (1 thread), Balanced (half the logical cores, the default) and Fast (all but one); a change loads the model again with the new thread count. ONNX Runtime's own threads are now started by us at below-normal priority, without busy waiting (RSC-2 was only half met before). Indexing pauses when less than 1 GB is free on the index's drive, and Library says why.
-12. **Results: names and dates** (SEA-1, SEA-2): match file and folder names; show each result's modified date.
+12. ~~**Results: names and dates** (SEA-1, SEA-2).~~ Done, 4 October 2026: a second FTS5 index over file paths, kept in step by triggers, filled on upgrade from layout 4. Its matches are a third list in rank fusion: a file found only by its name is labelled so, and a name match found by words or meaning too only rises. Words in more than half of all paths (the folders everything sits in) are ignored. The evaluation still measures passages alone (`search_combined`), because its test files are named after their content; the app uses `search_with_names`. Results show each file's modified date.
 13. **Rebuild** (IDX-7): rebuild the index on demand, and automatically after unrecoverable damage, with a quick integrity check at startup.
 14. **Text encodings** (EXT-2): detect the encoding of plain-text files. Needs a dependency, so it waits for an OK.
 15. **Index health** (COV-1, OBS-2): estimated time, throughput and the last scan in Library.

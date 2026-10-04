@@ -121,7 +121,7 @@ export function createMockEngine({ firstLaunch = false } = {}): Engine {
           .filter((passage) => passage.snippet.some((span) => span.marked))
           .map(({ id, location, snippet }) => ({ id, location, snippet, found: "words" }));
         if (passages.length > 0) {
-          files.push({ name: doc.name, folder: doc.folder, copies: 1, passages });
+          files.push({ name: doc.name, folder: doc.folder, copies: 1, modifiedSecs: 1_741_000_000, passages });
         }
       }
       return { files, notes: [], elapsedMs: 4 };

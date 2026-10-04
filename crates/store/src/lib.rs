@@ -18,8 +18,9 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction};
 ///
 /// Version 2 added page numbers to passages. Version 3 added passage vectors
 /// and records how passages were cut and which model made the vectors.
-/// Version 4 records the files that were not indexed, and why.
-pub const SCHEMA_VERSION: i64 = 4;
+/// Version 4 records the files that were not indexed, and why. Version 5
+/// indexes file paths, so file and folder names can be searched.
+pub const SCHEMA_VERSION: i64 = 5;
 
 /// The oldest layout that is upgraded in place. Older ones are cleared and
 /// refilled by the next scan: the index is derived data.
@@ -28,6 +29,13 @@ const OLDEST_UPGRADABLE: i64 = 3;
 /// Words found in more than this share of passages are left out of keyword
 /// queries (ADR-20).
 const COMMON_SHARE: f64 = 0.05;
+
+/// Words in more than this share of file paths, such as the folders every
+/// file sits in, say nothing about which file is meant.
+const NAME_COMMON_SHARE: f64 = 0.5;
+
+/// Results a name search contributes before they are combined.
+const NAME_CANDIDATES: usize = 20;
 
 pub struct Store {
     conn: Connection,
@@ -48,6 +56,8 @@ pub struct Hit {
     pub snippet: String,
     /// Higher is better.
     pub score: f64,
+    /// When the file was last changed, in seconds since 1970 (SEA-2).
+    pub modified_secs: i64,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -118,6 +128,7 @@ impl Store {
             ));
         }
         let was_reset = found.is_some_and(|found| found < OLDEST_UPGRADABLE);
+        let needs_names = found.is_some_and(|found| found < 5) && !was_reset;
 
         conn.pragma_update(None, "journal_mode", "WAL")?;
         // Overwrite freed pages, so purged text cannot be read back from the file.
@@ -125,7 +136,8 @@ impl Store {
         if was_reset {
             let tx = conn.transaction()?;
             tx.execute_batch(
-                "DROP TABLE IF EXISTS problems;
+                "DROP TABLE IF EXISTS names_fts;
+                 DROP TABLE IF EXISTS problems;
                  DROP TABLE IF EXISTS passage_vectors;
                  DROP TABLE IF EXISTS passages_fts;
                  DROP TABLE IF EXISTS passages;
@@ -162,8 +174,27 @@ impl Store {
                  size INTEGER NOT NULL,
                  modified_secs INTEGER NOT NULL,
                  reason TEXT NOT NULL,
-                 attempts INTEGER NOT NULL);",
+                 attempts INTEGER NOT NULL);
+             CREATE VIRTUAL TABLE IF NOT EXISTS names_fts USING fts5(
+                 path, content='files', content_rowid='rowid',
+                 tokenize='unicode61 remove_diacritics 2');
+             CREATE TRIGGER IF NOT EXISTS files_name_added AFTER INSERT ON files BEGIN
+                 INSERT INTO names_fts(rowid, path) VALUES (new.rowid, new.path);
+             END;
+             CREATE TRIGGER IF NOT EXISTS files_name_removed AFTER DELETE ON files BEGIN
+                 INSERT INTO names_fts(names_fts, rowid, path)
+                     VALUES ('delete', old.rowid, old.path);
+             END;
+             CREATE TRIGGER IF NOT EXISTS files_name_changed AFTER UPDATE OF path ON files BEGIN
+                 INSERT INTO names_fts(names_fts, rowid, path)
+                     VALUES ('delete', old.rowid, old.path);
+                 INSERT INTO names_fts(rowid, path) VALUES (new.rowid, new.path);
+             END;",
         )?;
+        if needs_names {
+            // The files of an older index are not in the name index yet.
+            conn.execute("INSERT INTO names_fts(names_fts) VALUES ('rebuild')", ())?;
+        }
         conn.execute(
             "INSERT OR IGNORE INTO meta(key, value) VALUES ('schema_version', ?1)",
             params![SCHEMA_VERSION.to_string()],
@@ -297,6 +328,7 @@ impl Store {
                 snippet: opening_words(&row.get::<_, String>(6)?),
                 // Vectors have unit length, so this is the cosine similarity.
                 score: 1.0 - distance * distance / 2.0,
+                modified_secs: 0,
             })
         })?;
         hits.collect()
@@ -470,10 +502,34 @@ impl Store {
     /// up to `candidates` results; the combined list is best first and says
     /// how each result was found. A result found by words keeps the
     /// highlighted snippet of the keyword search.
+    ///
+    /// Passages only: the evaluation measures this (ADR-19), and its test
+    /// files are named after their content, so names would flatter it.
     pub fn search_combined(
         &self,
         words: &str,
         meaning: Option<&[f32]>,
+        candidates: usize,
+    ) -> rusqlite::Result<Vec<(Hit, Found)>> {
+        self.combine(words, meaning, false, candidates)
+    }
+
+    /// As `search_combined`, and files whose name or folder names hold the
+    /// query's words too (SEA-1). The app searches this way.
+    pub fn search_with_names(
+        &self,
+        words: &str,
+        meaning: Option<&[f32]>,
+        candidates: usize,
+    ) -> rusqlite::Result<Vec<(Hit, Found)>> {
+        self.combine(words, meaning, true, candidates)
+    }
+
+    fn combine(
+        &self,
+        words: &str,
+        meaning: Option<&[f32]>,
+        names: bool,
         candidates: usize,
     ) -> rusqlite::Result<Vec<(Hit, Found)>> {
         let by_words = self.search_keyword(words, candidates)?;
@@ -481,20 +537,123 @@ impl Store {
             Some(vector) => self.search_vector(vector, candidates)?,
             None => Vec::new(),
         };
+        let by_name = if names {
+            self.search_names(words, NAME_CANDIDATES)?
+        } else {
+            Vec::new()
+        };
         let ids = |hits: &[Hit]| hits.iter().map(|hit| hit.passage_id).collect::<Vec<_>>();
-        let order = fuse(&ids(&by_words), &ids(&by_meaning));
+        let order = fuse(&ids(&by_words), &ids(&by_meaning), &ids(&by_name));
         let mut hits: HashMap<i64, Hit> = HashMap::new();
         for hit in by_meaning.into_iter().chain(by_words) {
             hits.insert(hit.passage_id, hit);
         }
-        Ok(order
-            .into_iter()
-            .filter_map(|result| {
-                let mut hit = hits.remove(&result.item)?;
-                hit.score = result.score;
-                Some((hit, result.found))
-            })
-            .collect())
+        // Found by its content too: the passage stays, shown as the file
+        // whose name matched, among identical copies.
+        for hit in by_name {
+            match hits.get_mut(&hit.passage_id) {
+                Some(found) => found.path = hit.path,
+                None => {
+                    hits.insert(hit.passage_id, hit);
+                }
+            }
+        }
+        let mut results = Vec::new();
+        for fused in order {
+            let Some(mut hit) = hits.remove(&fused.item) else {
+                continue;
+            };
+            hit.score = fused.score;
+            hit.modified_secs = self.modified_secs(&hit.path)?;
+            results.push((hit, fused.found));
+        }
+        Ok(results)
+    }
+
+    fn modified_secs(&self, path: &str) -> rusqlite::Result<i64> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT modified_secs FROM files WHERE path = ?1",
+                params![path],
+                |row| row.get(0),
+            )
+            .optional()?
+            .unwrap_or(0))
+    }
+
+    /// Files whose path holds the query's words: their file and folder
+    /// names. Each is shown by its first passage. Words in more than half of
+    /// all paths, such as the folders every file sits in, are left out; of
+    /// the others found in some path, a path must hold two, or the only one.
+    pub fn search_names(&self, query: &str, limit: usize) -> rusqlite::Result<Vec<Hit>> {
+        let files: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM files", (), |row| row.get(0))?;
+        let quote = |word: &str| format!("\"{}\"", word.replace('"', "\"\""));
+        let mut words = Vec::new();
+        for word in query_words(query) {
+            // Counted by the name index itself, which splits and folds words
+            // as it does paths.
+            let holding: i64 = self.conn.query_row(
+                "SELECT COUNT(*) FROM names_fts WHERE names_fts MATCH ?1",
+                params![quote(&word)],
+                |row| row.get(0),
+            )?;
+            if holding > 0 && holding as f64 <= files as f64 * NAME_COMMON_SHARE {
+                words.push(word);
+            }
+        }
+        if words.is_empty() {
+            return Ok(Vec::new());
+        }
+        let needed = words.len().min(2).max(words.len().div_ceil(2));
+        let fts_query = words
+            .iter()
+            .map(|word| quote(word))
+            .collect::<Vec<_>>()
+            .join(" OR ");
+        let mut statement = self.conn.prepare(
+            "SELECT p.id, f.path,
+                    (SELECT COUNT(*) FROM files c WHERE c.hash = f.hash),
+                    p.page, p.start_line, p.end_line, p.text,
+                    bm25(names_fts),
+                    highlight(names_fts, 0, char(2), char(3)),
+                    f.modified_secs
+             FROM names_fts
+             JOIN files f ON f.rowid = names_fts.rowid
+             JOIN passages p ON p.id =
+                 (SELECT id FROM passages WHERE hash = f.hash ORDER BY ordinal LIMIT 1)
+             WHERE names_fts MATCH ?1
+             ORDER BY bm25(names_fts)
+             LIMIT ?2",
+        )?;
+        let rows = statement.query_map(params![fts_query, (limit * 5 + 20) as i64], |row| {
+            let hit = Hit {
+                passage_id: row.get(0)?,
+                path: row.get(1)?,
+                copies: row.get(2)?,
+                page: row.get(3)?,
+                start_line: row.get(4)?,
+                end_line: row.get(5)?,
+                snippet: opening_words(&row.get::<_, String>(6)?),
+                score: -row.get::<_, f64>(7)?,
+                modified_secs: row.get(9)?,
+            };
+            let marked: String = row.get(8)?;
+            Ok((hit, matched_words(&marked)))
+        })?;
+        let mut hits = Vec::new();
+        for row in rows {
+            let (hit, matched) = row?;
+            if matched >= needed {
+                hits.push(hit);
+                if hits.len() == limit {
+                    break;
+                }
+            }
+        }
+        Ok(hits)
     }
 
     /// The problem recorded for this file, if its size and date are still
@@ -665,6 +824,7 @@ impl Store {
                 snippet: row.get(6)?,
                 // SQLite's bm25() is lower-is-better; flip it.
                 score: -row.get::<_, f64>(7)?,
+                modified_secs: 0,
             };
             let marked: String = row.get(8)?;
             Ok((hit, matched_words(&marked)))
@@ -1493,6 +1653,131 @@ mod tests {
         let mut paths = store.known_paths("/docs/a/").unwrap();
         paths.sort();
         assert_eq!(paths, vec!["/docs/a/one.txt", "/docs/a/scan.pdf"]);
+    }
+
+    /// Files with their own content each, under one folder.
+    fn named(paths: &[&str]) -> Store {
+        let mut store = Store::open_in_memory().unwrap();
+        for (n, path) in paths.iter().enumerate() {
+            let text = format!("passage number {n} of some ordinary text");
+            let passages = chunk(&text, 50, 5, &WordTokenizer);
+            store
+                .put_file(
+                    path,
+                    1,
+                    1_700_000_000 + n as i64,
+                    &format!("h{n}"),
+                    &passages,
+                )
+                .unwrap();
+        }
+        store
+    }
+
+    fn found_names(store: &Store, query: &str) -> Vec<String> {
+        store
+            .search_names(query, 10)
+            .unwrap()
+            .into_iter()
+            .map(|hit| hit.path)
+            .collect()
+    }
+
+    #[test]
+    fn file_and_folder_names_are_searched() {
+        let store = named(&[
+            "/home/ana/docs/Taxes 2023/invoice-march.pdf",
+            "/home/ana/docs/Taxes 2023/invoice-april.pdf",
+            "/home/ana/docs/letters/lease.txt",
+            "/home/ana/docs/Ärzte/brief.txt",
+            "/home/ana/docs/letters/notes.md",
+        ]);
+        assert_eq!(
+            found_names(&store, "march invoice"),
+            vec!["/home/ana/docs/Taxes 2023/invoice-march.pdf"]
+        );
+        // A folder's name finds what is in it.
+        assert_eq!(found_names(&store, "taxes").len(), 2);
+        // Accents and case do not matter.
+        assert_eq!(
+            found_names(&store, "arzte"),
+            vec!["/home/ana/docs/Ärzte/brief.txt"]
+        );
+        // A question with other words in it still finds the file by the
+        // two words that are in its name.
+        assert_eq!(
+            found_names(&store, "the invoice we paid in march"),
+            vec!["/home/ana/docs/Taxes 2023/invoice-march.pdf"]
+        );
+        // Words in every path say nothing.
+        assert!(found_names(&store, "docs ana").is_empty());
+    }
+
+    #[test]
+    fn a_file_found_by_its_name_alone_says_so_and_has_its_date() {
+        let store = named(&[
+            "/docs/plumber-invoice.pdf",
+            "/docs/lease.txt",
+            "/docs/notes.txt",
+        ]);
+        let results = store.search_with_names("plumber", None, 10).unwrap();
+        assert_eq!(results.len(), 1);
+        let (hit, found) = &results[0];
+        assert_eq!(*found, Found::Name);
+        assert_eq!(hit.path, "/docs/plumber-invoice.pdf");
+        assert_eq!(hit.modified_secs, 1_700_000_000);
+        assert!(hit.snippet.starts_with("passage number 0"));
+        // The evaluation's search reads passages only.
+        assert!(store
+            .search_combined("plumber", None, 10)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn removed_files_leave_the_name_index() {
+        let mut store = named(&["/docs/plumber-invoice.pdf", "/docs/a.txt", "/docs/b.txt"]);
+        store
+            .purge_missing(
+                "/docs/",
+                &["/docs/a.txt".to_string(), "/docs/b.txt".to_string()],
+            )
+            .unwrap();
+        assert!(found_names(&store, "plumber").is_empty());
+    }
+
+    #[test]
+    fn a_version_4_index_gets_its_names_indexed() {
+        let file = std::env::temp_dir().join("catchword-store-test-names-upgrade.db");
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{suffix}", file.display()));
+        }
+        {
+            let mut store = Store::open(&file).unwrap();
+            for (path, hash) in [
+                ("/d/plumber.txt", "h1"),
+                ("/d/a.txt", "h2"),
+                ("/d/b.txt", "h3"),
+            ] {
+                store
+                    .put_file(path, 1, 1, hash, &chunk("some text", 50, 5, &WordTokenizer))
+                    .unwrap();
+            }
+            // Make it look like version 4, which had no name index.
+            store
+                .conn
+                .execute_batch(
+                    "DROP TRIGGER files_name_added;
+                     DROP TRIGGER files_name_removed;
+                     DROP TRIGGER files_name_changed;
+                     DROP TABLE names_fts;
+                     UPDATE meta SET value = '4' WHERE key = 'schema_version';",
+                )
+                .unwrap();
+        }
+        let store = Store::open(&file).unwrap();
+        assert!(!store.was_reset());
+        assert_eq!(found_names(&store, "plumber"), vec!["/d/plumber.txt"]);
     }
 
     #[test]

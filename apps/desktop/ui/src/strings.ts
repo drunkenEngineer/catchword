@@ -34,7 +34,14 @@ export const strings = {
       `${count} ${count === 1 ? "file was" : "files were"} not indexed, for example scans with no text.`,
     stillIndexing: "Some files are still being indexed.",
     openLibrary: "Open Library",
-    found: { words: "matched words", meaning: "matched meaning", both: "matched words and meaning" },
+    found: {
+      words: "matched words",
+      meaning: "matched meaning",
+      both: "matched words and meaning",
+      name: "matched the file or folder name",
+    },
+    modified: (secs: number) =>
+      `changed ${new Date(secs * 1000).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}`,
     copies: (n: number) => `and ${n} identical ${n === 1 ? "copy" : "copies"}`,
     preview: "Preview",
     open: "Open",

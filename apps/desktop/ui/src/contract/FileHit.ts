@@ -5,4 +5,8 @@ export type FileHit = { name: string, folder: string,
 /**
  * How many files share this exact content (1 means no copies).
  */
-copies: number, passages: Array<PassageHit>, };
+copies: number, 
+/**
+ * When the file was last changed, in seconds since 1970 (SEA-2).
+ */
+modifiedSecs: number, passages: Array<PassageHit>, };
