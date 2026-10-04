@@ -156,7 +156,7 @@ apps/desktop/
 │                  # nsis/hooks.nsh and nsis/English.nsh (installer); capabilities/; build.rs
 ├── msix/          # AppxManifest.xml (placeholder identity) and logos
 └── ui/            # React interface; src/contract/ is generated, do not edit by hand
-scripts/           # fetch-pdfium.sh, fetch-embedding.sh, fetch-eval.sh, check-no-network.sh,
+scripts/           # fetch-pdfium.sh, fetch-embedding.sh, fetch-eval.sh, check-no-network.sh, check-pinned-actions.sh,
                    # notices.mjs, package-nsis.sh, package-msix.sh, measure-app.ps1
 docs/
 ├── specification.md   # The plan; ADR-1..13 are in its section 23
@@ -339,7 +339,7 @@ The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23
 - Move the data location (APP-7) and the synced-folder warning that goes with it.
 - Quantised vector search with rescoring if combined search misses 500 ms on the reference laptop (spec section 14, scale tiers).
 - Filter by modified date (SEA-6 says later).
-- Replace the CI actions' version tags with commit hashes before the first release (comment in `ci.yml`).
+- Move the CI actions to their newer major versions (checkout v7, cache v6, setup-node v7 exist on 2026-10-04; the workflow uses v4 of each). Only once CI results can be seen, since a major version can change behaviour.
 
 - Coverage-guided fuzzing of the worker protocol and the text path (cargo-fuzz needs a nightly toolchain and a new tool: the owner's call).
 
@@ -387,6 +387,7 @@ All from the repository root unless said otherwise.
 | Lint | `cargo clippy --workspace --all-targets -- -D warnings` |
 | Format | `cargo fmt --all` |
 | Privacy check | `sh scripts/check-no-network.sh` |
+| CI actions pinned to commit hashes | `sh scripts/check-pinned-actions.sh` |
 | Interface checks | `cd apps/desktop/ui && npm run typecheck && npm test` |
 | Interface with a made-up engine | `cd apps/desktop/ui && npm run dev:mock`, then http://127.0.0.1:1420 (`?first-launch` for the first-launch steps) |
 | Desktop app, development | `cargo build --workspace`, then `cd apps/desktop && ./ui/node_modules/.bin/tauri dev` |
@@ -458,7 +459,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
   - the Granite and e5 models from Hugging Face at pinned revisions;
   - XQuAD for the evaluation.
 - **Packaging:** Tauri downloads NSIS 3.11, its `nsis_tauri_utils` plugin and Microsoft's WebView2 bootstrapper, checking their hashes. The installer embeds the bootstrapper; Windows 11 already has WebView2.
-- **GitHub:** private repository and Actions CI. Free CI minutes are limited for private repositories (macOS counts ten times).
+- **GitHub:** private repository and Actions CI. Free CI minutes are limited for private repositories (macOS counts ten times). The four actions CI uses are pinned to commit hashes, with the version in a comment: actions/checkout v4.4.0, Swatinem/rust-cache v2.9.2, actions/cache v4.3.0, actions/setup-node v4.4.0. These are the commits their v4 and v2 tags pointed to on 2026-10-04, so CI runs the same code as before. `scripts/check-pinned-actions.sh` fails on any action not pinned this way; CI runs it.
 - **Future:** the updater's static manifest host (GitHub releases), to a fixed host list; the Microsoft Store.
 
 ## 16. Product / UX Context
@@ -549,7 +550,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
   - CI results unseen (gh not logged in).
 - Current state: everything committed; all checks pass.
 - Next step: CI results; the owner's decisions; the "High" items in section 10.
-- Later the same day: `HANDOVER.md` written; 11 commits pushed; the two low-disk tests limited to Windows (free space is read on Windows only, so CI on Linux and macOS would fail them); safe mode added and verified in a release build; hostile-input tests added, which found that a NUL in a query made search fail (fixed); 150 damaged PDFs and three resource-exhaustion files through the real worker; "nothing found" causes with counts; a notice when a result's file has moved; ADR-1 to ADR-13 written as files (ARC-1). All pushed.
+- Later the same day: `HANDOVER.md` written; 11 commits pushed; the two low-disk tests limited to Windows (free space is read on Windows only, so CI on Linux and macOS would fail them); safe mode added and verified in a release build; hostile-input tests added, which found that a NUL in a query made search fail (fixed); 150 damaged PDFs and three resource-exhaustion files through the real worker; "nothing found" causes with counts; a notice when a result's file has moved; ADR-1 to ADR-13 written as files (ARC-1); CI actions pinned to commit hashes, with a check. All pushed.
 
 ---
 
