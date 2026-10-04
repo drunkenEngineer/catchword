@@ -22,6 +22,20 @@ describe("the library screen", () => {
     expect(removeFolder).toHaveBeenCalledWith(1);
   });
 
+  it("keeps the keyboard in place around a confirmation", async () => {
+    const engine = createMockEngine();
+    renderWith(engine, <Library status={await engine.status()} />);
+    fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[0]);
+    // The safe choice has the focus, and the question is read with it.
+    const keep = screen.getByRole("button", { name: "Keep" });
+    expect(document.activeElement).toBe(keep);
+    expect(keep.getAttribute("aria-describedby")).toBeTruthy();
+    // Escape calls it off, and the focus goes back where it came from.
+    fireEvent.keyDown(keep, { key: "Escape" });
+    expect(screen.queryByRole("button", { name: "Keep" })).toBeNull();
+    expect(document.activeElement).toBe(screen.getAllByRole("button", { name: "Remove" })[0]);
+  });
+
   it("adds a folder and scans on request", async () => {
     const engine = createMockEngine();
     const addFolder = vi.spyOn(engine, "addFolder");

@@ -1,6 +1,7 @@
 // The Library screen (UI-3): folders, progress for both stages, index
 // facts, and every file that was not indexed, grouped by reason.
 import { useState } from "react";
+import { Confirm } from "./Confirm";
 import type { NotIndexed } from "./contract/NotIndexed";
 import type { Status } from "./contract/Status";
 import type { Work } from "./contract/Work";
@@ -10,6 +11,8 @@ import { strings } from "./strings";
 export function Library({ status }: { status: Status | null }) {
   const engine = useEngine();
   const [confirming, setConfirming] = useState<number | null>(null);
+  // The folder whose removal was just called off: its button takes the focus back.
+  const [keptFolder, setKeptFolder] = useState<number | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const fail = (error: unknown) => setProblem(String(error));
 
@@ -38,24 +41,29 @@ export function Library({ status }: { status: Status | null }) {
                 {folder.state === "offline" && <span className="folder-offline">{strings.library.offline}</span>}
               </span>
               {confirming === folder.id ? (
-                <span className="confirm">
-                  <span>{strings.library.confirmRemove}</span>
-                  <button
-                    type="button"
-                    className="danger"
-                    onClick={() => {
-                      setConfirming(null);
-                      engine.removeFolder(folder.id).catch(fail);
-                    }}
-                  >
-                    {strings.library.confirm}
-                  </button>
-                  <button type="button" onClick={() => setConfirming(null)}>
-                    {strings.library.keep}
-                  </button>
-                </span>
+                <Confirm
+                  question={strings.library.confirmRemove}
+                  confirm={strings.library.confirm}
+                  keep={strings.library.keep}
+                  danger
+                  onConfirm={() => {
+                    setConfirming(null);
+                    engine.removeFolder(folder.id).catch(fail);
+                  }}
+                  onKeep={() => {
+                    setConfirming(null);
+                    setKeptFolder(folder.id);
+                  }}
+                />
               ) : (
-                <button type="button" onClick={() => setConfirming(folder.id)}>
+                <button
+                  type="button"
+                  autoFocus={keptFolder === folder.id}
+                  onClick={() => {
+                    setKeptFolder(null);
+                    setConfirming(folder.id);
+                  }}
+                >
                   {strings.library.remove}
                 </button>
               )}

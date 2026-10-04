@@ -1,6 +1,6 @@
 // The window: a rail with three destinations, and a status chip that opens
 // Library (spec, section 8). Search is home.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { applyAppearance } from "./appearance";
 import type { Status } from "./contract/Status";
 import { useEngine } from "./engine";
@@ -17,6 +17,18 @@ export function App() {
   const engine = useEngine();
   const [destination, setDestination] = useState<Destination>("search");
   const [status, setStatus] = useState<Status | null>(null);
+  const title = useRef<HTMLHeadingElement>(null);
+  const firstDestination = useRef(true);
+
+  // A new destination takes the focus, so the keyboard carries on there and
+  // screen readers say where it is (A11Y-1). Search puts it in its box.
+  useEffect(() => {
+    if (firstDestination.current) {
+      firstDestination.current = false;
+      return;
+    }
+    if (destination !== "search") title.current?.focus();
+  }, [destination]);
 
   const refresh = useCallback(() => {
     engine.status().then(setStatus, () => undefined);
@@ -81,7 +93,9 @@ export function App() {
       </nav>
       <div className="content">
         <header className="titlebar">
-          <h1 className="title">{strings.destinations[destination]}</h1>
+          <h1 className="title" ref={title} tabIndex={-1}>
+            {strings.destinations[destination]}
+          </h1>
           <button type="button" className="chip" onClick={() => setDestination("library")}>
             {/* Screen readers hear the announcement below instead. */}
             <span aria-hidden="true">{chipText(status)}</span>

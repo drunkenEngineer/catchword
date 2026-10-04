@@ -3,6 +3,7 @@
 // once and takes effect without a restart.
 import { useCallback, useEffect, useState } from "react";
 import { applyAppearance } from "./appearance";
+import { Confirm } from "./Confirm";
 import type { ResourceMode } from "./contract/ResourceMode";
 import type { TextSize } from "./contract/TextSize";
 import type { Theme } from "./contract/Theme";
@@ -18,6 +19,8 @@ export function Settings() {
   const [saved, setSaved] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [confirmingRebuild, setConfirmingRebuild] = useState(false);
+  // Which question was just called off: its button takes the focus back.
+  const [kept, setKept] = useState<"rebuild" | "delete" | null>(null);
   const [checked, setChecked] = useState<boolean | null>(null);
   // undefined: not asked for yet; null: none shipped with this build.
   const [notices, setNotices] = useState<string | null | undefined>(undefined);
@@ -188,49 +191,59 @@ export function Settings() {
           )}
         </div>
         {confirmingRebuild ? (
-          <div className="confirm">
-            <span>{strings.settings.confirmRebuild}</span>
-            <button
-              type="button"
-              className="primary"
-              onClick={() => {
-                setConfirmingRebuild(false);
-                setChecked(null);
-                engine.rebuildIndex().then(load, fail);
-              }}
-            >
-              {strings.settings.rebuild}
-            </button>
-            <button type="button" onClick={() => setConfirmingRebuild(false)}>
-              {strings.settings.keep}
-            </button>
-          </div>
+          <Confirm
+            question={strings.settings.confirmRebuild}
+            confirm={strings.settings.rebuild}
+            keep={strings.settings.keep}
+            onConfirm={() => {
+              setConfirmingRebuild(false);
+              setChecked(null);
+              engine.rebuildIndex().then(load, fail);
+            }}
+            onKeep={() => {
+              setConfirmingRebuild(false);
+              setKept("rebuild");
+            }}
+          />
         ) : (
           <div className="actions">
-            <button type="button" onClick={() => setConfirmingRebuild(true)}>
+            <button
+              type="button"
+              autoFocus={kept === "rebuild"}
+              onClick={() => {
+                setKept(null);
+                setConfirmingRebuild(true);
+              }}
+            >
               {strings.settings.rebuild}
             </button>
           </div>
         )}
         {confirmingDelete ? (
-          <div className="confirm">
-            <span>{strings.settings.confirmDeleteAll}</span>
-            <button
-              type="button"
-              className="danger"
-              onClick={() => {
-                setConfirmingDelete(false);
-                engine.deleteAllData().catch(fail);
-              }}
-            >
-              {strings.settings.deleteAll}
-            </button>
-            <button type="button" onClick={() => setConfirmingDelete(false)}>
-              {strings.settings.keep}
-            </button>
-          </div>
+          <Confirm
+            question={strings.settings.confirmDeleteAll}
+            confirm={strings.settings.deleteAll}
+            keep={strings.settings.keep}
+            danger
+            onConfirm={() => {
+              setConfirmingDelete(false);
+              engine.deleteAllData().catch(fail);
+            }}
+            onKeep={() => {
+              setConfirmingDelete(false);
+              setKept("delete");
+            }}
+          />
         ) : (
-          <button type="button" className="danger" onClick={() => setConfirmingDelete(true)}>
+          <button
+            type="button"
+            className="danger"
+            autoFocus={kept === "delete"}
+            onClick={() => {
+              setKept(null);
+              setConfirmingDelete(true);
+            }}
+          >
             {strings.settings.deleteAll}
           </button>
         )}

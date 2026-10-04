@@ -19,6 +19,17 @@ describe("the window", () => {
     expect(heading()).toBe("Settings");
   });
 
+  it("moves the focus to each destination it opens", async () => {
+    renderWith(createMockEngine(), <App />);
+    await screen.findByRole("button", { name: "Up to date" });
+    fireEvent.keyDown(window, { key: "2", ctrlKey: true });
+    expect(document.activeElement).toBe(screen.getByRole("heading", { level: 1, name: "Library" }));
+    fireEvent.keyDown(window, { key: "3", ctrlKey: true });
+    expect(document.activeElement).toBe(screen.getByRole("heading", { level: 1, name: "Settings" }));
+    fireEvent.keyDown(window, { key: "1", ctrlKey: true });
+    expect(document.activeElement).toBe(screen.getByRole("searchbox"));
+  });
+
   it("reaches its three destinations by keyboard", async () => {
     renderWith(createMockEngine(), <App />);
     fireEvent.keyDown(window, { key: "2", ctrlKey: true });

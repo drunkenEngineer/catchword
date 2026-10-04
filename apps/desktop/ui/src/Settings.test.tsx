@@ -188,6 +188,7 @@ describe("the settings screen", () => {
     await click("Delete all data");
     await click("Keep");
     expect(deleteAllData).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Delete all data" }));
 
     await click("Delete all data");
     expect(screen.getByText(/Your own files are not touched/)).toBeTruthy();
