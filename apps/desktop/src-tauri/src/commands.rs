@@ -12,7 +12,7 @@ use std::time::Instant;
 use anyhow::{anyhow, Context, Result};
 use catchword_engine::exclude::DEFAULT_PATTERNS;
 use catchword_engine::resolve_folder;
-use catchword_service::{group_by_file, search_within, Model, Worker};
+use catchword_service::{group_by_file, search_within, search_words, Model, Worker};
 use catchword_store::Store;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
@@ -472,11 +472,18 @@ impl AppState {
     }
 
     pub fn search(&self, query: &str) -> Result<SearchResponse> {
-        self.search_filtered(query, &SearchFilter::default())
+        self.search_filtered(query, &SearchFilter::default(), false)
     }
 
     /// Search only a folder, or a kind of file, or both (SEA-6).
-    pub fn search_filtered(&self, query: &str, filter: &SearchFilter) -> Result<SearchResponse> {
+    /// `words_only`: by words and names alone, quickly, without the model;
+    /// the interface shows these while the full search runs.
+    pub fn search_filtered(
+        &self,
+        query: &str,
+        filter: &SearchFilter,
+        words_only: bool,
+    ) -> Result<SearchResponse> {
         let started = Instant::now();
         let folders = match filter.folder {
             None => Vec::new(),
@@ -499,14 +506,18 @@ impl AppState {
             folders,
             extensions: extensions.iter().map(|e| e.to_string()).collect(),
         };
-        let loading = Model::Unavailable("the model is still loading".into());
-        let model = self.indexer.model();
-        let answer = search_within(
-            &lock(&self.reader),
-            model.as_deref().unwrap_or(&loading),
-            query,
-            &filter,
-        )?;
+        let answer = if words_only {
+            search_words(&lock(&self.reader), query, &filter)?
+        } else {
+            let loading = Model::Unavailable("the model is still loading".into());
+            let model = self.indexer.model();
+            search_within(
+                &lock(&self.reader),
+                model.as_deref().unwrap_or(&loading),
+                query,
+                &filter,
+            )?
+        };
         let response = SearchResponse {
             notes: answer.notes.iter().map(|note| note.describe()).collect(),
             files: views::file_hits(group_by_file(answer.results)),
@@ -771,9 +782,14 @@ pub async fn search(
     app: AppHandle,
     query: String,
     filter: Option<SearchFilter>,
+    words_only: Option<bool>,
 ) -> Result<SearchResponse, String> {
     on_state(app, "search", move |_, state| {
-        state.search_filtered(&query, &filter.unwrap_or_default())
+        state.search_filtered(
+            &query,
+            &filter.unwrap_or_default(),
+            words_only.unwrap_or(false),
+        )
     })
     .await
 }
@@ -1565,7 +1581,7 @@ mod tests {
         wait(&state);
         let names = |filter: SearchFilter| -> Vec<String> {
             let mut names: Vec<String> = state
-                .search_filtered("notice period", &filter)
+                .search_filtered("notice period", &filter, false)
                 .unwrap()
                 .files
                 .into_iter()
@@ -1592,7 +1608,17 @@ mod tests {
             folder: Some(999),
             kind: None,
         };
-        assert!(state.search_filtered("notice", &unknown).is_err());
+        assert!(state.search_filtered("notice", &unknown, false).is_err());
+
+        // By words alone: the same files, without asking the model, so
+        // without its notes either.
+        let words = state
+            .search_filtered("notice period", &SearchFilter::default(), true)
+            .unwrap();
+        let mut found: Vec<String> = words.files.into_iter().map(|file| file.name).collect();
+        found.sort();
+        assert_eq!(found, vec!["lease.txt", "notice.md"]);
+        assert!(words.notes.is_empty());
     }
 
     #[test]

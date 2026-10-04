@@ -57,6 +57,41 @@ describe("the search screen", () => {
     expect(indexingNotice({ ...status, work: null })).toBeNull();
   });
 
+  it("shows results by words first when the full search is slow", async () => {
+    const engine = createMockEngine();
+    const real = engine.search.bind(engine);
+    let finish: () => void = () => undefined;
+    vi.spyOn(engine, "search").mockImplementation((_query, filter, wordsOnly) => {
+      if (wordsOnly) return real("tax", filter);
+      // The full search finds the tenancy agreement, and takes its time.
+      return new Promise((resolve) => (finish = () => resolve(real("notice", filter))));
+    });
+    await show(engine, "anything");
+    expect(await screen.findByRole("group", { name: /tax-refund-letter/ }, { timeout: 2000 })).toBeTruthy();
+    await act(async () => finish());
+    expect(await screen.findByRole("group", { name: /tenancy-agreement/ })).toBeTruthy();
+    expect(screen.queryByRole("group", { name: /tax-refund-letter/ })).toBeNull();
+  });
+
+  it("goes straight to the full results when they follow quickly", async () => {
+    const engine = createMockEngine();
+    const real = engine.search.bind(engine);
+    vi.spyOn(engine, "search").mockImplementation((_query, filter, wordsOnly) =>
+      real(wordsOnly ? "tax" : "notice", filter),
+    );
+    // Watch for the results by words ever appearing.
+    let sawWords = false;
+    const watch = new MutationObserver(() => {
+      if (document.body.textContent?.includes("tax-refund-letter")) sawWords = true;
+    });
+    watch.observe(document.body, { childList: true, subtree: true, characterData: true });
+    await show(engine, "anything");
+    await screen.findByRole("group", { name: /tenancy-agreement/ });
+    await act(() => new Promise((resolve) => setTimeout(resolve, 300)));
+    watch.disconnect();
+    expect(sawWords).toBe(false);
+  });
+
   it("says it is searching when a search takes a while", async () => {
     const engine = createMockEngine();
     let finish: () => void = () => undefined;

@@ -5,10 +5,11 @@ use std::fs;
 use std::path::Path;
 
 use catchword_engine::extract::{Limits, Reason};
+use catchword_engine::fuse::Found;
 use catchword_engine::Exclusions;
 use catchword_service::{
-    embed_missing, group_by_file, index_folder, is_parked, search, Cutter, Model, Note, Report,
-    Unreachable, Worker,
+    embed_missing, group_by_file, index_folder, is_parked, search, search_within, search_words,
+    Cutter, Model, Note, Report, Unreachable, Worker,
 };
 use catchword_store::Store;
 use catchword_test_support::scratch_folder;
@@ -384,6 +385,43 @@ fn a_pause_stops_a_long_file_part_way_and_keeps_nothing_of_it() {
 
     // The next run reads it whole.
     assert_eq!(index(&mut store, &folder, usize::MAX).added, 1);
+}
+
+#[test]
+fn a_search_by_words_alone_needs_no_model_and_finds_no_meaning() {
+    let model = Model::Ready(std::sync::Mutex::new(Box::new(
+        catchword_test_support::WordModel,
+    )));
+    let folder = three_files("service-words-first");
+    let mut store = Store::open_in_memory().unwrap();
+    index_folder(
+        &mut store,
+        &folder,
+        &Exclusions::default(),
+        &Cutter::for_model(&model),
+        &Worker::NextToProgram,
+        &Limits::default(),
+        |_, _| true,
+    )
+    .unwrap();
+    embed_missing(&mut store, model.ready().unwrap(), |_, _| true).unwrap();
+    let filter = catchword_store::Filter::default();
+
+    // The full search finds the lease by meaning as well as by words.
+    let full = search_within(&store, &model, "lease notice", &filter).unwrap();
+    assert!(full
+        .results
+        .iter()
+        .any(|(_, found)| matches!(found, Found::Meaning | Found::Both)));
+
+    let words = search_words(&store, "lease notice", &filter).unwrap();
+    assert!(words.notes.is_empty());
+    assert!(!words.results.is_empty());
+    assert!(words
+        .results
+        .iter()
+        .all(|(_, found)| matches!(found, Found::Keyword | Found::Name)));
+    assert!(words.results[0].0.path.ends_with("a.txt"));
 }
 
 #[test]

@@ -87,6 +87,17 @@ pub fn search_within(store: &Store, model: &Model, query: &str, filter: &Filter)
     Ok(Answer { results, notes })
 }
 
+/// As `search_within`, by words and names only: quick, and without the
+/// model, so results can be shown while the full search runs (spec
+/// section 8, "Loading": keyword results first). No notes: the full search
+/// that follows says what there is to say about meaning.
+pub fn search_words(store: &Store, query: &str, filter: &Filter) -> Result<Answer> {
+    Ok(Answer {
+        results: store.search_with_names(query, None, CANDIDATES, filter)?,
+        notes: Vec::new(),
+    })
+}
+
 /// One file's matching passages, best first.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FileResults {

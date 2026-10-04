@@ -15,7 +15,8 @@ import type { Status } from "./contract/Status";
 
 export interface Engine {
   status(): Promise<Status>;
-  search(query: string, filter?: SearchFilter): Promise<SearchResponse>;
+  /** `wordsOnly`: by words and names alone, quickly, without the model. */
+  search(query: string, filter?: SearchFilter, wordsOnly?: boolean): Promise<SearchResponse>;
   /** Opens the native folder dialog; null when the user cancels. */
   addFolder(): Promise<Folder | null>;
   removeFolder(id: number): Promise<void>;
@@ -61,7 +62,8 @@ export interface Engine {
 /** The real engine, through the shell's commands (apps/desktop/src-tauri). */
 export const tauriEngine: Engine = {
   status: () => invoke("status"),
-  search: (query, filter) => invoke("search", { query, filter: filter ?? null }),
+  search: (query, filter, wordsOnly) =>
+    invoke("search", { query, filter: filter ?? null, wordsOnly: wordsOnly ?? false }),
   addFolder: () => invoke("add_folder"),
   removeFolder: (id) => invoke("remove_folder", { id }),
   indexNow: () => invoke("index_now"),

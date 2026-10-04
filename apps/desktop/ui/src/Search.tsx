@@ -21,6 +21,10 @@ const PAUSE_MS = 200;
 /** A search taking longer than this says it is searching (spec section 8). */
 const SLOW_MS = 300;
 
+/** Results by words are shown first only if the full search has not
+ * followed them within this time, so a quick search does not reorder. */
+const WORDS_FIRST_MS = 150;
+
 interface Choice {
   file: FileHit;
   passage: PassageHit;
@@ -62,17 +66,37 @@ export function Search({ status, openLibrary }: { status: Status | null; openLib
     }
     let current = true;
     let slowTimer: ReturnType<typeof setTimeout> | undefined;
+    let wordsTimer: ReturnType<typeof setTimeout> | undefined;
+    let wordsShown = false;
+    const show = (found: SearchResponse) => {
+      setAnswer(found);
+      setSelected(0);
+      setFolded(new Set());
+    };
     const timer = setTimeout(() => {
       slowTimer = setTimeout(() => current && setSlow(true), SLOW_MS);
+      // Words first, then words and meaning (spec section 8, "Loading").
       engine
-        .search(text, filter)
+        .search(text, filter, true)
+        .then((words) => {
+          wordsTimer = setTimeout(() => {
+            if (!current) return;
+            wordsShown = true;
+            show(words);
+            clearTimeout(slowTimer);
+            setSlow(false);
+          }, WORDS_FIRST_MS);
+          return engine.search(text, filter);
+        })
         .then(
           (found) => {
-            if (current) {
-              setAnswer(found);
-              setSelected(0);
-              setFolded(new Set());
-            }
+            clearTimeout(wordsTimer);
+            if (!current) return;
+            // Keep the passage the user has moved to, if it is still there.
+            const kept = wordsShown ? chosenRef.current : undefined;
+            show(found);
+            const at = listChoices(found.files, new Set()).findIndex((choice) => choice.passage.id === kept);
+            if (at > 0) setSelected(at);
           },
           (error) => current && setMessage(String(error)),
         )
@@ -85,6 +109,7 @@ export function Search({ status, openLibrary }: { status: Status | null; openLib
       current = false;
       clearTimeout(timer);
       clearTimeout(slowTimer);
+      clearTimeout(wordsTimer);
       setSlow(false);
     };
   }, [query, engine, filter]);
@@ -92,6 +117,9 @@ export function Search({ status, openLibrary }: { status: Status | null; openLib
   const choices: Choice[] = useMemo(() => listChoices(answer?.files ?? [], folded), [answer, folded]);
   const chosen = choices[selected];
   const chosenId = chosen?.passage.id;
+  // The chosen passage, for the search effect, which must not rerun on it.
+  const chosenRef = useRef<number | undefined>(undefined);
+  chosenRef.current = chosenId;
 
   useEffect(() => {
     if (chosenId === undefined) {

@@ -15,7 +15,7 @@ pub use index::{
     embed_missing, index_folder, is_parked, Cutter, EmbedReport, Report, Unreachable, Worker,
     ATTEMPTS_BEFORE_PARKING,
 };
-pub use search::{group_by_file, search, search_within, Answer, FileResults, Note};
+pub use search::{group_by_file, search, search_within, search_words, Answer, FileResults, Note};
 
 /// The embedding model, or why meaning search is off.
 pub enum Model {
