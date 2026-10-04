@@ -27,3 +27,4 @@ ADR-1 to ADR-13 are the founding decisions in section 23 of `docs/specification.
 | [0019](0019-evaluation-set.md) | The retrieval evaluation set, version 1 |
 | [0020](0020-model-passage-size-and-fusion.md) | Embedding model, passage size and keyword fusion after the Phase 0 benchmark |
 | [0021](0021-component-interfaces-and-conformance.md) | Component interfaces and their conformance suites |
+| [0022](0022-deleted-content-leaves-the-index.md) | Deleted content leaves the index file |

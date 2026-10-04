@@ -27,7 +27,7 @@ Last updated: 2026-10-04.
 
 ## 2. Current Status
 
-Overall health: **good**. On 2026-10-04, on Windows 11: 243 Rust tests and 51 interface tests pass; format, lint, type check and the privacy check are clean; the retrieval evaluation meets all 11 thresholds. CI has never been seen to run (see section 8).
+Overall health: **good**. On 2026-10-04, on Windows 11: 245 Rust tests and 51 interface tests pass; format, lint, type check and the privacy check are clean; the retrieval evaluation meets all 11 thresholds. CI has never been seen to run (see section 8).
 
 | Area | Status |
 | --- | --- |
@@ -46,6 +46,7 @@ Overall health: **good**. On 2026-10-04, on Windows 11: 243 Rust tests and 51 in
 | Keyboard use and focus (A11Y-1); screen-reader announcements (A11Y-2, automated part) | `[DONE]` |
 | Conformance suites for extractors and models (MNT-2) | `[DONE]` |
 | Founding decisions ADR-1 to ADR-13 as files in `docs/adr/` (ARC-1) | `[DONE]` |
+| Deleted content cannot be read back from the index file (PRIV-5, ADR-22) | `[DONE]` |
 | Licence notices (cargo-about), shown in About and shipped | `[DONE]` |
 | NSIS per-user installer (GitHub build) | `[DONE]`, install/update-uninstall/uninstall tested by hand once |
 | MSIX package (Store build) | `[IN PROGRESS]`: builds and its files are tested; never installed |
@@ -173,7 +174,7 @@ CLAUDE.md          # Rules and commands for the coding assistant
 
 ## 6. Important Decisions
 
-The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23 (Tauri shell and Rust engine; worker process model; one rebuildable SQLite index; exact vector search first; hybrid retrieval with rank fusion; content addressing; network policy; PDFium; OCR open; answers open; Apache-2.0; Store first then GitHub). Each also has a file in `docs/adr/` (0001 to 0013) with what has happened since; the specification stays the source. Later decisions are only files: ADR-14 to ADR-21. Do not reopen them without the owner. Further decisions made in sessions:
+The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23 (Tauri shell and Rust engine; worker process model; one rebuildable SQLite index; exact vector search first; hybrid retrieval with rank fusion; content addressing; network policy; PDFium; OCR open; answers open; Apache-2.0; Store first then GitHub). Each also has a file in `docs/adr/` (0001 to 0013) with what has happened since; the specification stays the source. Later decisions are only files: ADR-14 to ADR-22. Do not reopen them without the owner. Further decisions made in sessions:
 
 **Decision: Keep Granite as the model (ADR-20)**
 - Decision: granite-embedding-97m-multilingual-r2, 350-token passages with 50 overlapping, fusion K = 60 with 50 candidates.
@@ -186,6 +187,12 @@ The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23
 - Reason: a worker per file costs about 42 ms; decoding is not format parsing.
 - Alternatives considered: the worker for every file.
 - Consequences: the one exception to rule 2; recorded.
+
+**Decision: Deleted content leaves the index file (ADR-22)**
+- Decision: FTS5 secure-delete on both full-text indexes; a purge of more than 2% of the passages deletes plainly, then compacts; every purge empties the log into the file.
+- Reason: PRIV-5. A byte-level test found that a purged file's words and name stayed readable; secure-delete alone made a large purge about 20 times slower (38 s for 10,000 passages).
+- Alternatives considered: secure-delete alone (too slow in bulk); compaction after every purge (rewrites the whole index for one changed file).
+- Consequences: a single deletion costs about 4 ms a passage more; a large purge adds a compaction (about 0.06 ms per passage left). Pending the owner's review.
 
 **Decision: Interfaces for extractors and models, none for the store (ADR-21)**
 - Decision: `Extractor` (TextFiles, PdfReader) and `Embed` (Embedder, WordModel) traits, with shared suites in `catchword_test_support::conformance`. The store's public API is its interface.
@@ -308,6 +315,7 @@ The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23
 - **Tokenizing a whole long text in one call:** the tokenizer stops counting at 32,768 tokens, so long texts became a few giant passages (a 20 MB file gave 110 passages instead of about 11,000). Count tokens in blocks (`BLOCK_WORDS` = 2,000 in `crates/engine/src/lib.rs`).
 - **Asking about a pause only between blocks:** splitting a long text into words came first and took long enough to make a pause late. Ask during splitting too.
 - **Passing a query with control characters to FTS5:** it reads its query as C text, so a NUL ends it early and leaves a quote open ("unterminated string"), and the search fails. Found by the hostile-query test; queries now have control characters turned into spaces (`without_controls` in `crates/store/src/lib.rs`).
+- **FTS5 secure-delete for every deletion:** it removes deleted words at once (PRIV-5), but at about 4 ms a passage: purging 10,000 passages took 38 s instead of 1.8 s. Large purges now delete plainly and compact afterwards (ADR-22).
 - **Timing-only test assertions:** flaky when other programs load the machine. Assert the behaviour (for example "the half-read file is not in the index") and keep time bounds generous.
 - **Committing without gating on the checks' exit status:** one commit (48efc39) went in with a failing test, repaired by abca015. Commit only inside `if <checks pass>; then git commit; fi`.
 - **The opener plugin to open files:** it runs PowerShell (threat T15). Use ShellExecuteW (`open.rs`).
@@ -406,7 +414,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 
 ## 13. Testing
 
-- Coverage on 2026-10-04: 243 Rust tests and 51 interface tests pass. There are three ignored tests: the packaged-files test and two measurements.
+- Coverage on 2026-10-04: 245 Rust tests and 51 interface tests pass. There are four ignored tests: the packaged-files test and three measurements.
 - The evaluation meets all 11 thresholds; combined recall@10 is 92.5%.
 - Rust tests:
   - unit tests in each crate;
@@ -423,6 +431,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
   - quoted phrases;
   - filters;
   - keyboard focus around confirmations;
+  - deleted content (PRIV-5): the raw bytes of the index file and its log are searched for a purged file's text, words, name and vector, after a bulk purge, a single deletion, a change and a new cutting pipeline (`a_purged_file_leaves_no_trace_in_the_index_file`), and after opening an index made before (`words_an_older_index_kept_are_dropped_when_it_is_opened`);
   - links out of a chosen folder (SRC-6): a junction, a folder link and a file link leading outside are not followed (`links_and_junctions_out_of_a_chosen_folder_are_not_followed` in `crates/engine/src/lib.rs`). On Windows, symbolic links need Developer Mode or an administrator, so without them only the junction is tried; Linux and macOS try all three;
   - hostile input from a seeded generator, so a failure repeats exactly: 5,000 malformed worker answers and a valid one cut and corrupted at every byte, 3,000 byte strings decoded, 2,000 awkward texts cut, 5,000 name patterns (`crates/engine/tests/hostile.rs`), 3,000 queries on every kind of search (`no_query_makes_a_search_fail` in `crates/store/src/lib.rs`), and 150 PDFs cut short, corrupted or stitched wrongly, read by the real worker (`crates/worker/tests/hostile_pdfs.rs`: 73 read, 74 damaged, 3 without text, none crashed or timed out); and files made to exhaust resources (`crates/worker/tests/bombs.rs`): a PDF whose content expands to about 600 MB of zeros, written with a hand-built deflate stream, is stopped by the 512 MB memory limit in 0.33 s on Windows; 100,000 nested arrays read as no text in 38 ms; a page tree claiming a billion pages reads its one real page.
 - Currently failing: none known.
@@ -434,6 +443,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 ## 14. Database / Data
 
 - **File:** `%LOCALAPPDATA%\org.catchword.desktop\data\index.db`, SQLite in WAL mode with `secure_delete`. Code: `crates/store/src/lib.rs`.
+- **Deleted content (PRIV-5, ADR-22):** both FTS5 tables have FTS5's `secure-delete` option on, so deleted entries are removed at once. A purge of more than 2% of the passages (`BULK_SHARE`), or a new cutting pipeline, switches it off for its transaction and then compacts (`compact_keyword_indexes`: `optimize`, then the option back on, in one transaction). An index found with the option off is compacted at open. Every purge ends with `PRAGMA wal_checkpoint(TRUNCATE)`.
 - **Schema version 5** (`SCHEMA_VERSION`):
   - Version 2 added pages, 3 vectors, 4 `problems`, 5 `names_fts`.
   - Layouts 3 and 4 are upgraded in place; older ones are cleared and refilled by the next scan.
@@ -551,7 +561,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
   - CI results unseen (gh not logged in).
 - Current state: everything committed; all checks pass.
 - Next step: CI results; the owner's decisions; the "High" items in section 10.
-- Later the same day: `HANDOVER.md` written; 11 commits pushed; the two low-disk tests limited to Windows (free space is read on Windows only, so CI on Linux and macOS would fail them); safe mode added and verified in a release build; hostile-input tests added, which found that a NUL in a query made search fail (fixed); 150 damaged PDFs and three resource-exhaustion files through the real worker; "nothing found" causes with counts; a notice when a result's file has moved; ADR-1 to ADR-13 written as files (ARC-1); CI actions pinned to commit hashes, with a check; a test that links and junctions out of a chosen folder are not followed (SRC-6 had none). All pushed.
+- Later the same day: `HANDOVER.md` written; 11 commits pushed; the two low-disk tests limited to Windows (free space is read on Windows only, so CI on Linux and macOS would fail them); safe mode added and verified in a release build; hostile-input tests added, which found that a NUL in a query made search fail (fixed); 150 damaged PDFs and three resource-exhaustion files through the real worker; "nothing found" causes with counts; a notice when a result's file has moved; ADR-1 to ADR-13 written as files (ARC-1); CI actions pinned to commit hashes, with a check; a test that links and junctions out of a chosen folder are not followed (SRC-6 had none); deleted content leaves the index file (PRIV-5, ADR-22): a byte-level test found that a purged file's words and name stayed in the keyword indexes, now fixed. All pushed.
 
 ---
 

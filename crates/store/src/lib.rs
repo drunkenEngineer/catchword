@@ -48,6 +48,15 @@ const NAME_COMMON_SHARE: f64 = 0.5;
 /// Results a name search contributes before they are combined.
 const NAME_CANDIDATES: usize = 20;
 
+/// The keyword indexes: the words of passages, and file paths.
+const KEYWORD_INDEXES: [&str; 2] = ["passages_fts", "names_fts"];
+
+/// A purge that removes more than this share of the passages deletes
+/// plainly and then compacts the keyword indexes. Below it, deleting each
+/// entry from them in place is quicker (ADR-22: about 4 ms a passage in
+/// place, against compacting at about 0.06 ms a passage left).
+const BULK_SHARE: f64 = 0.02;
+
 pub struct Store {
     conn: Connection,
     was_reset: bool,
@@ -235,6 +244,11 @@ impl Store {
             // The files of an older index are not in the name index yet.
             conn.execute("INSERT INTO names_fts(names_fts) VALUES ('rebuild')", ())?;
         }
+        // PRIV-5: an index made before deleted entries were removed at once,
+        // or one whose bulk purge was cut short, is compacted now.
+        if compact_keyword_indexes(&conn)? {
+            checkpoint(&conn)?;
+        }
         conn.execute(
             "INSERT OR IGNORE INTO meta(key, value) VALUES ('schema_version', ?1)",
             params![SCHEMA_VERSION.to_string()],
@@ -311,10 +325,13 @@ impl Store {
             return Ok(false);
         }
         let tx = self.conn.transaction()?;
+        begin_bulk_delete(&tx)?;
         tx.execute("DELETE FROM files", ())?;
         drop_orphans(&tx)?;
         meta_set(&tx, "pipeline", pipeline)?;
         tx.commit()?;
+        compact_keyword_indexes(&self.conn)?;
+        checkpoint(&self.conn)?;
         Ok(stored.is_some())
     }
 
@@ -552,6 +569,20 @@ impl Store {
                 insert.execute(params![path])?;
             }
         }
+        // The passages of the leaving files, copies elsewhere included: an
+        // estimate is enough to choose how to delete.
+        let (leaving, all): (i64, i64) = tx.query_row(
+            "SELECT (SELECT COUNT(*) FROM passages WHERE hash IN (
+                         SELECT hash FROM files
+                         WHERE substr(path, 1, length(?1)) = ?1
+                           AND path NOT IN (SELECT path FROM seen))),
+                    (SELECT COUNT(*) FROM passages)",
+            params![root_prefix],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        if leaving as f64 > all as f64 * BULK_SHARE {
+            begin_bulk_delete(&tx)?;
+        }
         let removed = tx.execute(
             "DELETE FROM files
              WHERE substr(path, 1, length(?1)) = ?1
@@ -566,6 +597,8 @@ impl Store {
         )?;
         drop_orphans(&tx)?;
         tx.commit()?;
+        compact_keyword_indexes(&self.conn)?;
+        checkpoint(&self.conn)?;
         Ok(removed)
     }
 
@@ -1205,6 +1238,61 @@ fn drop_orphans(tx: &Transaction<'_>) -> rusqlite::Result<()> {
         (),
     )?;
     Ok(())
+}
+
+/// For the rest of this transaction, deletions leave entries in the keyword
+/// indexes, to be dropped by [`compact_keyword_indexes`] after it commits.
+/// That is quicker for a large purge. If the app stops in between, the next
+/// start compacts (see `Store::init`).
+fn begin_bulk_delete(tx: &Transaction<'_>) -> rusqlite::Result<()> {
+    for table in KEYWORD_INDEXES {
+        tx.execute(
+            &format!("INSERT INTO {table}({table}, rank) VALUES ('secure-delete', 0)"),
+            (),
+        )?;
+    }
+    Ok(())
+}
+
+/// PRIV-5. The keyword indexes keep the entries of deleted passages and
+/// files, readable in the file, until their segments happen to merge, unless
+/// their "secure-delete" option is on. Where it is off, compact the index,
+/// which drops every such entry, and switch it on: both in one transaction.
+/// Returns true if anything was compacted.
+fn compact_keyword_indexes(conn: &Connection) -> rusqlite::Result<bool> {
+    let mut compacted = false;
+    for table in KEYWORD_INDEXES {
+        let on: Option<i64> = conn
+            .query_row(
+                &format!("SELECT v FROM {table}_config WHERE k = 'secure-delete'"),
+                (),
+                |row| row.get(0),
+            )
+            .optional()?;
+        if on == Some(1) {
+            continue;
+        }
+        let tx = conn.unchecked_transaction()?;
+        tx.execute(
+            &format!("INSERT INTO {table}({table}) VALUES ('optimize')"),
+            (),
+        )?;
+        tx.execute(
+            &format!("INSERT INTO {table}({table}, rank) VALUES ('secure-delete', 1)"),
+            (),
+        )?;
+        tx.commit()?;
+        compacted = true;
+    }
+    Ok(compacted)
+}
+
+/// Copy what the log holds into the index file, where freed pages are
+/// overwritten, then empty the log, which still holds pages as they were
+/// (PRIV-5). If a search is reading at that moment, the log is emptied at a
+/// later checkpoint, or when the app closes.
+fn checkpoint(conn: &Connection) -> rusqlite::Result<()> {
+    conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", (), |_| Ok(()))
 }
 
 /// The words of a query that keyword search looks for: those with a letter
@@ -2285,5 +2373,276 @@ mod tests {
         assert_eq!(store.counts().unwrap().files, 1);
         assert!(store.use_pipeline("model tokens 350/50").unwrap());
         assert_eq!(store.counts().unwrap(), Counts::default());
+    }
+
+    /// Where `needle` appears in the bytes of the index file and its log.
+    fn traces(file: &Path, needle: &[u8]) -> Vec<String> {
+        let mut found = Vec::new();
+        for suffix in ["", "-wal"] {
+            let Ok(bytes) = std::fs::read(format!("{}{suffix}", file.display())) else {
+                continue;
+            };
+            if bytes.windows(needle.len()).any(|w| w == needle) {
+                found.push(format!("index{suffix}"));
+            }
+        }
+        found
+    }
+
+    /// How a file leaves the index, in [`a_purged_file_leaves_no_trace_in_the_index_file`].
+    #[derive(Debug, Clone, Copy)]
+    enum Leaving {
+        /// Deleted with others: one of two files, so a bulk purge.
+        Bulk,
+        /// Deleted alone from a larger index: one of a hundred files.
+        Alone,
+        /// Its content changed: the old text goes when the new one is written.
+        Changed,
+        /// Passages are cut another way, so everything goes.
+        NewPipeline,
+    }
+
+    /// PRIV-5: once a file is purged, nothing of it can be read back from the
+    /// index: not its text, its words, its name or its vectors.
+    #[test]
+    fn a_purged_file_leaves_no_trace_in_the_index_file() {
+        for leaving in [
+            Leaving::Bulk,
+            Leaving::Alone,
+            Leaving::Changed,
+            Leaving::NewPipeline,
+        ] {
+            leaves_no_trace(leaving);
+        }
+    }
+
+    fn leaves_no_trace(leaving: Leaving) {
+        let file = std::env::temp_dir().join(format!("catchword-store-test-purged-{leaving:?}.db"));
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{suffix}", file.display()));
+        }
+        let vector: Vec<f32> = vec![0.123_456_7, -0.765_432_1, 0.333_111_9, 0.271_828_2];
+        let secret = "Xylophonequartz met Brontosaurusfig at the quayside";
+        let others = match leaving {
+            Leaving::Alone => 99,
+            _ => 1,
+        };
+        let kept: Vec<String> = (0..others).map(|n| format!("/docs/kept-{n}.txt")).collect();
+        {
+            let mut store = Store::open(&file).unwrap();
+            store.use_model("test", 4).unwrap();
+            store.use_pipeline("first way").unwrap();
+            for (n, path) in kept.iter().enumerate() {
+                let text = format!("an ordinary note about lunch number {n}");
+                let passages = chunk(&text, 50, 5, &WordTokenizer);
+                store
+                    .put_file(path, 1, 1, &format!("h-kept-{n}"), &passages)
+                    .unwrap();
+            }
+            let passages = chunk(secret, 50, 5, &WordTokenizer);
+            store
+                .put_file("/docs/quixoticname.txt", 1, 1, "h-secret", &passages)
+                .unwrap();
+            let id = store.search_keyword("xylophonequartz", 1).unwrap()[0].passage_id;
+            store.put_vectors(&[(id, vector.clone())]).unwrap();
+        }
+        let blob = as_blob(&vector);
+        let needles: [(&str, &[u8]); 5] = [
+            ("text", secret.as_bytes()),
+            ("word", b"xylophonequartz"),
+            ("second word", b"brontosaurusfig"),
+            ("name", b"quixoticname"),
+            ("vector", &blob),
+        ];
+        // Before the purge every trace is there, so the search below can see them.
+        for (what, needle) in needles {
+            assert!(
+                !traces(&file, needle).is_empty(),
+                "{leaving:?}: {what} not found before"
+            );
+        }
+        // A changed file keeps its name: only its old content must go.
+        let expected: Vec<String> = match leaving {
+            Leaving::Changed => vec!["name in index".to_string()],
+            _ => Vec::new(),
+        };
+        {
+            let mut store = Store::open(&file).unwrap();
+            match leaving {
+                Leaving::Bulk | Leaving::Alone => {
+                    store.purge_missing("/docs/", &kept).unwrap();
+                    // The other files are untouched.
+                    assert_eq!(store.counts().unwrap().files, others as i64);
+                }
+                Leaving::Changed => {
+                    // The file is rewritten; then the scan ends, as every
+                    // scan does, by purging what it did not see.
+                    let passages = chunk("a plain new text", 50, 5, &WordTokenizer);
+                    store
+                        .put_file("/docs/quixoticname.txt", 2, 2, "h-new", &passages)
+                        .unwrap();
+                    let mut seen = kept.clone();
+                    seen.push("/docs/quixoticname.txt".to_string());
+                    store.purge_missing("/docs/", &seen).unwrap();
+                    assert_eq!(store.search_keyword("plain", 5).unwrap().len(), 1);
+                }
+                Leaving::NewPipeline => {
+                    assert!(store.use_pipeline("another way").unwrap());
+                    assert_eq!(store.counts().unwrap(), Counts::default());
+                }
+            }
+            assert!(store
+                .search_keyword("xylophonequartz", 5)
+                .unwrap()
+                .is_empty());
+            assert_eq!(
+                left_behind(&file, &needles),
+                expected,
+                "{leaving:?}, still open"
+            );
+        }
+        assert_eq!(
+            left_behind(&file, &needles),
+            expected,
+            "{leaving:?}, closed"
+        );
+    }
+
+    /// An index made before deleted words were dropped at once still holds
+    /// them; the next start drops them.
+    #[test]
+    fn words_an_older_index_kept_are_dropped_when_it_is_opened() {
+        let file = std::env::temp_dir().join("catchword-store-test-older-purge.db");
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{suffix}", file.display()));
+        }
+        let needles: [(&str, &[u8]); 2] = [("word", b"xylophonequartz"), ("name", b"quixoticname")];
+        {
+            let mut store = Store::open(&file).unwrap();
+            // As an index made before: deleted entries left in place.
+            for table in ["passages_fts", "names_fts"] {
+                store
+                    .conn
+                    .execute(
+                        &format!("INSERT INTO {table}({table}, rank) VALUES ('secure-delete', 0)"),
+                        (),
+                    )
+                    .unwrap();
+            }
+            for (path, hash, text) in [
+                ("/docs/kept.txt", "h-kept", "an ordinary note about lunch"),
+                (
+                    "/docs/quixoticname.txt",
+                    "h-gone",
+                    "Xylophonequartz at the quayside",
+                ),
+            ] {
+                let passages = chunk(text, 50, 5, &WordTokenizer);
+                store.put_file(path, 1, 1, hash, &passages).unwrap();
+            }
+            // Deleted as before: entries left in the keyword indexes.
+            let tx = store.conn.transaction().unwrap();
+            tx.execute(
+                "DELETE FROM files WHERE path = '/docs/quixoticname.txt'",
+                (),
+            )
+            .unwrap();
+            drop_orphans(&tx).unwrap();
+            tx.commit().unwrap();
+            checkpoint(&store.conn).unwrap();
+        }
+        assert_eq!(
+            left_behind(&file, &needles),
+            ["word in index", "name in index"],
+            "the older index should still hold them"
+        );
+        let store = Store::open(&file).unwrap();
+        assert_eq!(left_behind(&file, &needles), Vec::<String>::new());
+        assert_eq!(store.search_keyword("lunch", 5).unwrap().len(), 1);
+        // The remaining file's name is still indexed. (Name search itself
+        // would ignore a word that is in every file.)
+        let named: i64 = store
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM names_fts WHERE names_fts MATCH 'kept'",
+                (),
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(named, 1);
+    }
+
+    /// Which of `needles` can still be read from the index file or its log.
+    fn left_behind(file: &Path, needles: &[(&str, &[u8])]) -> Vec<String> {
+        needles
+            .iter()
+            .flat_map(|(what, needle)| {
+                traces(file, needle)
+                    .into_iter()
+                    .map(move |place| format!("{what} in {place}"))
+            })
+            .collect()
+    }
+
+    /// How long deleting takes, for ADR-22. Run with
+    /// `cargo test --release -p catchword-store measure_deleting -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn measure_deleting() {
+        const FILES: usize = 10_000; // ten passages each
+        let file = std::env::temp_dir().join("catchword-store-measure-deleting.db");
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{suffix}", file.display()));
+        }
+        let mut store = Store::open(&file).unwrap();
+        store.use_pipeline("first way").unwrap();
+        // Words drawn as in real text: a few common, most rare (Zipf's law).
+        let mut state: u64 = 7;
+        let mut word = || {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            let rank = ((state >> 33) % 50_000) as f64;
+            format!("w{}", rank.powf(1.3) as u32)
+        };
+        let path = |n: usize| format!("/docs/{}/{n}.txt", n % 2);
+        for n in 0..FILES {
+            let text: Vec<String> = (0..2_500).map(|_| word()).collect();
+            let passages = chunk(&text.join(" "), 250, 0, &WordTokenizer);
+            store
+                .put_file(&path(n), 1, 1, &format!("h{n}"), &passages)
+                .unwrap();
+        }
+        let passages = store.counts().unwrap().passages;
+        let all: Vec<String> = (0..FILES).map(path).collect();
+        let time = |what: &str, started: std::time::Instant| {
+            println!("{what}: {:?}", started.elapsed());
+        };
+
+        let started = std::time::Instant::now();
+        store.purge_missing("/docs/", &all[1..]).unwrap();
+        time("one file deleted, in place", started);
+
+        let started = std::time::Instant::now();
+        let text: Vec<String> = (0..2_500).map(|_| word()).collect();
+        let changed = chunk(&text.join(" "), 250, 0, &WordTokenizer);
+        store
+            .put_file(&all[1], 2, 2, "h-changed", &changed)
+            .unwrap();
+        time("one file changed, in place", started);
+
+        let started = std::time::Instant::now();
+        let odd: Vec<String> = all[1..]
+            .iter()
+            .filter(|p| p.contains("/1/"))
+            .cloned()
+            .collect();
+        store.purge_missing("/docs/", &odd).unwrap();
+        time("half the files deleted, then compacted", started);
+
+        let started = std::time::Instant::now();
+        store.use_pipeline("another way").unwrap();
+        time("everything deleted, then compacted", started);
+        println!("from {passages} passages in {FILES} files");
     }
 }
