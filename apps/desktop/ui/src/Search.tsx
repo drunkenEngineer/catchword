@@ -4,6 +4,7 @@
 // Document text, file names included, is untrusted: it is only ever placed
 // as text, never as HTML, so markup in a document stays inert (SEC-1).
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { FileAction } from "./contract/FileAction";
 import type { FileKind } from "./contract/FileKind";
 import type { SearchFilter } from "./contract/SearchFilter";
 import type { FileHit } from "./contract/FileHit";
@@ -31,6 +32,8 @@ export function Search({ status, openLibrary }: { status: Status | null; openLib
   const [selected, setSelected] = useState(0);
   const [preview, setPreview] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  // A result's file that is no longer where the index says.
+  const [missing, setMissing] = useState<string | null>(null);
   const box = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLDivElement>(null);
 
@@ -97,9 +100,13 @@ export function Search({ status, openLibrary }: { status: Status | null; openLib
   };
   const fail = (error: unknown) => say(String(error));
 
-  const open = (choice: Choice | undefined) => choice && engine.openFile(choice.passage.id).catch(fail);
+  const whenMissing = (choice: Choice) => (action: FileAction) => {
+    if (action === "missing") setMissing(choice.file.name);
+  };
+  const open = (choice: Choice | undefined) =>
+    choice && engine.openFile(choice.passage.id).then(whenMissing(choice), fail);
   const reveal = (choice: Choice | undefined) =>
-    choice && engine.revealFile(choice.passage.id).catch(fail);
+    choice && engine.revealFile(choice.passage.id).then(whenMissing(choice), fail);
   const copy = (choice: Choice | undefined) => {
     if (!choice) return;
     const text = preview ?? choice.passage.snippet.map((span) => span.text).join("");
@@ -197,6 +204,20 @@ export function Search({ status, openLibrary }: { status: Status | null; openLib
         </div>
       )}
       {status?.work && <p className="notice">{strings.search.partial}</p>}
+      {missing && (
+        <div className="missing" role="alert">
+          <span dir="auto">{strings.search.missing(missing)}</span>
+          <button
+            type="button"
+            onClick={() => {
+              setMissing(null);
+              engine.indexNow().catch(fail);
+            }}
+          >
+            {strings.search.scanNow}
+          </button>
+        </div>
+      )}
 
       {query.trim() === "" && (
         <section className="ready">

@@ -51,6 +51,9 @@ export const strings = {
     } as Record<"needs-ocr" | "encrypted" | "cloud-only" | "too-large" | "cannot-open" | "failed", (n: number) => string>,
     filtered: "Only part of your files was searched, because of the filters above.",
     clearFilters: "Search all folders and kinds",
+    missing: (name: string) =>
+      `“${name}” is no longer where it was: it was moved, renamed or deleted since the last scan.`,
+    scanNow: "Scan now",
     stillIndexing: "Some files are still being indexed.",
     openLibrary: "Open Library",
     found: {

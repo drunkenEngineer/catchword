@@ -1,5 +1,6 @@
 // A made-up engine, for working on the interface without the shell
 // (`npm run dev:mock`) and for tests (UI-1). Its documents are invented.
+import type { FileAction } from "./contract/FileAction";
 import type { Folder } from "./contract/Folder";
 import type { FileHit } from "./contract/FileHit";
 import type { PassageHit } from "./contract/PassageHit";
@@ -286,8 +287,12 @@ export function createMockEngine({ firstLaunch = false } = {}): Engine {
       return passage?.text ?? null;
     },
 
-    async openFile(): Promise<void> {},
-    async revealFile(): Promise<void> {},
+    async openFile(): Promise<FileAction> {
+      return "done";
+    },
+    async revealFile(): Promise<FileAction> {
+      return "done";
+    },
 
     onStatusChanged(callback) {
       listeners.add(callback);

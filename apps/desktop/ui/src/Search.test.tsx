@@ -74,6 +74,22 @@ describe("the search screen", () => {
     expect(clipboard[0]).toContain("— tax-refund-letter.pdf, page 2");
   });
 
+  it("says when a result's file has moved, and offers to scan again", async () => {
+    const engine = createMockEngine();
+    vi.spyOn(engine, "openFile").mockResolvedValue("missing");
+    const indexNow = vi.spyOn(engine, "indexNow");
+    await show(engine, "notice");
+    const results = await screen.findByRole("listbox", { name: "Results" });
+    await act(async () => {
+      fireEvent.keyDown(results, { key: "Enter" });
+    });
+    const notice = await screen.findByRole("alert");
+    expect(notice.textContent).toContain("no longer where it was");
+    fireEvent.click(screen.getByRole("button", { name: "Scan now" }));
+    expect(indexNow).toHaveBeenCalled();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("keeps to one folder or one kind of file when asked", async () => {
     const engine = createMockEngine();
     const search = vi.spyOn(engine, "search");

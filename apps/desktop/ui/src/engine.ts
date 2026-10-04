@@ -3,6 +3,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { createContext, useContext } from "react";
+import type { FileAction } from "./contract/FileAction";
 import type { Folder } from "./contract/Folder";
 import type { ResourceMode } from "./contract/ResourceMode";
 import type { SearchFilter } from "./contract/SearchFilter";
@@ -50,8 +51,9 @@ export interface Engine {
   saveDiagnostics(): Promise<string | null>;
   /** The full text of a passage. */
   preview(id: number): Promise<string | null>;
-  openFile(id: number): Promise<void>;
-  revealFile(id: number): Promise<void>;
+  /** "missing" if the file moved since the last scan; nothing is opened then. */
+  openFile(id: number): Promise<FileAction>;
+  revealFile(id: number): Promise<FileAction>;
   /** Calls back when the status changed. Returns a function that stops it. */
   onStatusChanged(callback: () => void): () => void;
 }

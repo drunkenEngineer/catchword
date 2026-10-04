@@ -188,6 +188,16 @@ pub struct NotIndexed {
     pub parked: bool,
 }
 
+/// What came of opening or revealing a result's file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum FileAction {
+    Done,
+    /// The file is no longer where the index says: moved, renamed or
+    /// deleted since the last scan. The interface offers to scan again.
+    Missing,
+}
+
 /// What a search may return (SEA-6). The folder is named by its id: the
 /// interface never sends a path.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, TS)]
@@ -294,6 +304,7 @@ mod tests {
             NotIndexed,
             SearchFilter,
             FileKind,
+            FileAction,
             SearchResponse,
             FileHit,
             PassageHit,

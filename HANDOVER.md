@@ -27,7 +27,7 @@ Last updated: 2026-10-04.
 
 ## 2. Current Status
 
-Overall health: **good**. On 2026-10-04, on Windows 11: 241 Rust tests and 50 interface tests pass; format, lint, type check and the privacy check are clean; the retrieval evaluation meets all 11 thresholds. CI has never been seen to run (see section 8).
+Overall health: **good**. On 2026-10-04, on Windows 11: 242 Rust tests and 51 interface tests pass; format, lint, type check and the privacy check are clean; the retrieval evaluation meets all 11 thresholds. CI has never been seen to run (see section 8).
 
 | Area | Status |
 | --- | --- |
@@ -405,7 +405,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 
 ## 13. Testing
 
-- Coverage on 2026-10-04: 241 Rust tests and 50 interface tests pass. There are three ignored tests: the packaged-files test and two measurements.
+- Coverage on 2026-10-04: 242 Rust tests and 51 interface tests pass. There are three ignored tests: the packaged-files test and two measurements.
 - The evaluation meets all 11 thresholds; combined recall@10 is 92.5%.
 - Rust tests:
   - unit tests in each crate;
@@ -484,6 +484,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
   - About (licences);
   - Privacy.
 - **Nothing found** lists likely causes with counts (scans without text, passwords, cloud-only, over the limits, unreadable), says if filters narrowed the search and offers to search everything, and links to Library. The causes come from each file's reason `code` in the `NotIndexed` contract type.
+- **A result whose file moved:** `open_file` and `reveal_file` return `FileAction::Missing` instead of opening anything; Search shows a notice naming the file, with Scan now (spec section 8, "File moved or deleted").
 - **Confirmations are inline:** the safe choice ("Keep") has the focus, and Escape picks it.
 - **Must not change without the owner:**
   - document text is shown only as plain text;

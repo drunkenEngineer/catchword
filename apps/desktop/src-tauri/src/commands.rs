@@ -18,8 +18,8 @@ use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::contract::{
-    FileKind, Folder, FolderState, FolderStatus, Meaning, PauseReason, ResourceMode, SearchFilter,
-    SearchResponse, SettingsView, Status, TextSize, Theme,
+    FileAction, FileKind, Folder, FolderState, FolderStatus, Meaning, PauseReason, ResourceMode,
+    SearchFilter, SearchResponse, SettingsView, Status, TextSize, Theme,
 };
 use crate::diagnostics::{self, Facts};
 use crate::indexing::{self, Indexer, Notify};
@@ -597,6 +597,13 @@ impl AppState {
         Ok(lock(&self.reader).passage_text(id)?)
     }
 
+    /// The file of a passage, if it is still where the index says; None
+    /// if it was moved, renamed or deleted since the last scan.
+    pub fn existing_file(&self, id: i64) -> Result<Option<PathBuf>> {
+        let path = self.file(id)?;
+        Ok(path.is_file().then_some(path))
+    }
+
     /// The file of a passage, from the index.
     fn file(&self, id: i64) -> Result<PathBuf> {
         lock(&self.reader)
@@ -994,17 +1001,25 @@ pub async fn preview(app: AppHandle, id: i64) -> Result<Option<String>, String> 
 }
 
 #[tauri::command]
-pub async fn open_file(app: AppHandle, id: i64) -> Result<(), String> {
+pub async fn open_file(app: AppHandle, id: i64) -> Result<FileAction, String> {
     on_state(app, "open_file", move |_, state| {
-        Ok(open::open_file(&state.file(id)?)?)
+        let Some(path) = state.existing_file(id)? else {
+            return Ok(FileAction::Missing);
+        };
+        open::open_file(&path)?;
+        Ok(FileAction::Done)
     })
     .await
 }
 
 #[tauri::command]
-pub async fn reveal_file(app: AppHandle, id: i64) -> Result<(), String> {
+pub async fn reveal_file(app: AppHandle, id: i64) -> Result<FileAction, String> {
     on_state(app, "reveal_file", move |_, state| {
-        Ok(open::reveal_file(&state.file(id)?)?)
+        let Some(path) = state.existing_file(id)? else {
+            return Ok(FileAction::Missing);
+        };
+        open::reveal_file(&path)?;
+        Ok(FileAction::Done)
     })
     .await
 }
@@ -1565,6 +1580,17 @@ mod tests {
             kind: None,
         };
         assert!(state.search_filtered("notice", &unknown).is_err());
+    }
+
+    #[test]
+    fn a_result_whose_file_moved_is_reported_missing_not_opened() {
+        let (state, docs) = state("missing-file");
+        state.add_folder(&docs, Arc::new(|| {})).unwrap();
+        wait(&state);
+        let id = state.search("notice period").unwrap().files[0].passages[0].id;
+        assert!(state.existing_file(id).unwrap().is_some());
+        std::fs::rename(docs.join("lease.txt"), docs.join("lease-renamed.txt")).unwrap();
+        assert_eq!(state.existing_file(id).unwrap(), None);
     }
 
     #[test]
