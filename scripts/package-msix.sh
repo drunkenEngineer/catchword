@@ -42,7 +42,7 @@ echo "Assembling $LAYOUT..."
 rm -rf "$OUT"
 mkdir -p "$LAYOUT/models/$MODEL" "$LAYOUT/Assets"
 # The program and what it loads by full path from its own folder.
-cp target/release/catchword-desktop.exe "$LAYOUT/Catchword.exe"
+cp target/release/Catchword.exe "$LAYOUT/"
 cp target/release/catchword-worker.exe vendor/pdfium/pdfium.dll vendor/onnxruntime/onnxruntime.dll "$LAYOUT/"
 cp "vendor/models/$MODEL/model.onnx" "vendor/models/$MODEL/tokenizer.json" "$LAYOUT/models/$MODEL/"
 cp apps/desktop/msix/Assets/*.png "$LAYOUT/Assets/"
