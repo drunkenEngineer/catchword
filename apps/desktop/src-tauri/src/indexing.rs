@@ -701,6 +701,18 @@ mod tests {
                 threads.count
             );
         }
+        // The default mode again, embedding several passages per call.
+        let mut model =
+            Embedder::load(&paths, &DEFAULT_MODEL, threads(ResourceMode::Balanced)).unwrap();
+        for size in [1, 2, 4, 8, 16] {
+            let started = Instant::now();
+            for group in passages.chunks(size) {
+                let group: Vec<&str> = group.iter().map(String::as_str).collect();
+                model.embed_passages(&group).unwrap();
+            }
+            let per_second = passages.len() as f64 / started.elapsed().as_secs_f64();
+            println!("Balanced, {size} per call: {per_second:.1} passages a second");
+        }
     }
 
     #[test]
