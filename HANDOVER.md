@@ -27,7 +27,7 @@ Last updated: 2026-10-04.
 
 ## 2. Current Status
 
-Overall health: **good**. On 2026-10-04, on Windows 11: 245 Rust tests and 57 interface tests pass; format, lint, type check and the privacy check are clean; the retrieval evaluation meets all 11 thresholds. CI has never been seen to run (see section 8).
+Overall health: **good**. On 2026-10-04, on Windows 11: 246 Rust tests and 57 interface tests pass; format, lint, type check and the privacy check are clean; the retrieval evaluation meets all 11 thresholds. CI has never been seen to run (see section 8).
 
 | Area | Status |
 | --- | --- |
@@ -271,6 +271,13 @@ The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23
 - Cause: the model is limited by computation (batching gives nothing, section 9).
 - Recommended next investigation: only a faster model remains, which ADR-20 weighed and declined. Owner's call.
 
+**The app and the command-line tool share a file name on Windows**
+- Status: `[TODO]`, low risk
+- Symptoms: `tauri build` writes the app as `target/release/Catchword.exe`; `cargo build --release -p catchword` writes the command-line tool as `catchword.exe` in the same folder. Windows ignores case, so the second overwrites the first.
+- Files/components involved: `crates/cli` (package `catchword`), `apps/desktop/src-tauri/tauri.conf.json` (`mainBinaryName`), `scripts/package-*.sh`.
+- Attempts already made: none. The packaging scripts run `tauri build` just before copying the app, so they package the right program.
+- Recommended next investigation: rename the command-line tool's program (for example `catchword-cli`), which changes how it is run: ask the owner.
+
 **CI results unknown; Linux and macOS never built**
 - Status: `[BLOCKED]`
 - Symptoms: the first push (2026-10-04) triggered CI on three systems; nobody has seen the result.
@@ -355,7 +362,6 @@ The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23
 - Coverage-guided fuzzing of the worker protocol and the text path (cargo-fuzz needs a nightly toolchain and a new tool: the owner's call).
 
 **Low**
-- Declare `asInvoker` in the app's Windows manifest (SEC-4, threat T16). Today it declares no execution level, which Windows already runs as the user; `tauri_build`'s manifest option replaces the whole default manifest, so keep its Common Controls entry.
 - Release the model after a long idle time (section 14 speaks of memory "with the model released").
 - Translations (1.0); strings are already in `apps/desktop/ui/src/strings.ts`.
 
@@ -418,7 +424,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 
 ## 13. Testing
 
-- Coverage on 2026-10-04: 245 Rust tests and 57 interface tests pass. There are four ignored tests: the packaged-files test and three measurements.
+- Coverage on 2026-10-04: 246 Rust tests and 57 interface tests pass. There are four ignored tests: the packaged-files test and three measurements.
 - The evaluation meets all 11 thresholds; combined recall@10 is 92.5%.
 - Rust tests:
   - unit tests in each crate;
@@ -569,7 +575,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
   - CI results unseen (gh not logged in).
 - Current state: everything committed; all checks pass.
 - Next step: CI results; the owner's decisions; the "High" items in section 10.
-- Later the same day: `HANDOVER.md` written; 11 commits pushed; the two low-disk tests limited to Windows (free space is read on Windows only, so CI on Linux and macOS would fail them); safe mode added and verified in a release build; hostile-input tests added, which found that a NUL in a query made search fail (fixed); 150 damaged PDFs and three resource-exhaustion files through the real worker; "nothing found" causes with counts; a notice when a result's file has moved; ADR-1 to ADR-13 written as files (ARC-1); CI actions pinned to commit hashes, with a check; a test that links and junctions out of a chosen folder are not followed (SRC-6 had none); deleted content leaves the index file (PRIV-5, ADR-22): a byte-level test found that a purged file's words and name stayed in the keyword indexes, now fixed; Copy path (RES-3), with Ctrl+Shift+C as the spec's keyboard table gives it; the table's last two missing shortcuts, F6 between panes and Left/Right to fold a file's passages; Search's indexing notice with counts, and "Searching…" after 300 ms; start-up notices (damaged index or settings) now stay on screen until closed; before, the next status refresh dropped them; the threat model published (SEC-3), with the CI-actions comment corrected from T8 to T7. All pushed.
+- Later the same day: `HANDOVER.md` written; 11 commits pushed; the two low-disk tests limited to Windows (free space is read on Windows only, so CI on Linux and macOS would fail them); safe mode added and verified in a release build; hostile-input tests added, which found that a NUL in a query made search fail (fixed); 150 damaged PDFs and three resource-exhaustion files through the real worker; "nothing found" causes with counts; a notice when a result's file has moved; ADR-1 to ADR-13 written as files (ARC-1); CI actions pinned to commit hashes, with a check; a test that links and junctions out of a chosen folder are not followed (SRC-6 had none); deleted content leaves the index file (PRIV-5, ADR-22): a byte-level test found that a purged file's words and name stayed in the keyword indexes, now fixed; Copy path (RES-3), with Ctrl+Shift+C as the spec's keyboard table gives it; the table's last two missing shortcuts, F6 between panes and Left/Right to fold a file's passages; Search's indexing notice with counts, and "Searching…" after 300 ms; start-up notices (damaged index or settings) now stay on screen until closed; before, the next status refresh dropped them; the threat model published (SEC-3), with the CI-actions comment corrected from T8 to T7; the app's manifest declares it runs as the user (`asInvoker`), with a test on the built program. All pushed.
 
 ---
 

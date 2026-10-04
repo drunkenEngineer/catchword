@@ -29,6 +29,13 @@ fn main() {
         "open_file",
         "reveal_file",
     ]);
-    tauri_build::try_build(tauri_build::Attributes::new().app_manifest(commands))
-        .expect("could not prepare the Tauri build");
+    // On Windows: run as the user, never elevated (SEC-4).
+    let windows =
+        tauri_build::WindowsAttributes::new().app_manifest(include_str!("windows-app.manifest"));
+    tauri_build::try_build(
+        tauri_build::Attributes::new()
+            .app_manifest(commands)
+            .windows_attributes(windows),
+    )
+    .expect("could not prepare the Tauri build");
 }

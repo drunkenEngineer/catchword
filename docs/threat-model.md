@@ -35,7 +35,7 @@ Last checked against the code: 4 October 2026. Update this page in the same chan
 | T13 | Secrets swept into the index | Default exclusions for key files, password-manager files and password exports (`DEFAULT_PATTERNS` in `crates/engine/src/exclude.rs`), which the user can edit in Settings | |
 | T14 | Prompt injection inside a document | Not applicable until answers arrive (0.4) | All of it, with answers |
 | T15 | Opening a result launches something harmful | The path comes from the index, by id, and only indexed files have results. Files are opened with the Windows shell function directly, never through a command line (`apps/desktop/src-tauri/src/open.rs`). A result whose file has moved is reported, not opened | |
-| T16 | Privilege escalation | The installer is per user (`installMode: currentUser`). There is no service, and nothing in the app asks for administrator rights. Its manifest declares no execution level, so Windows runs it as the user | Declaring "run as the user" (`asInvoker`) in the manifest explicitly, so that no future change or Windows rule can make it ask |
+| T16 | Privilege escalation | The installer is per user (`installMode: currentUser`). There is no service. The app's manifest declares that it runs as the user who started it (`asInvoker` in `apps/desktop/src-tauri/windows-app.manifest`), checked in the built program by `apps/desktop/src-tauri/tests/manifest.rs` | |
 | T17 | A library is planted in the install folder | PDFium and ONNX Runtime are loaded by full path from known folders only (`load_pdfium` in `crates/worker/src/main.rs`, ADR-18). Store installs are read-only | A per-machine installer for managed PCs (after 1.0) |
 
 ## Guarded areas
