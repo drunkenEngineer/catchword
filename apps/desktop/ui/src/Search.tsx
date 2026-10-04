@@ -27,6 +27,7 @@ export function Search({ status, openLibrary }: { status: Status | null; openLib
   const [query, setQuery] = useState("");
   const [answer, setAnswer] = useState<SearchResponse | null>(null);
   const [filter, setFilter] = useState<SearchFilter>({ folder: null, kind: null });
+  const filtered = filter.folder !== null || filter.kind !== null;
   const [selected, setSelected] = useState(0);
   const [preview, setPreview] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -219,17 +220,25 @@ export function Search({ status, openLibrary }: { status: Status | null; openLib
           <h2>{strings.search.nothing(query.trim())}</h2>
           <p>{strings.search.whyTitle}</p>
           <ul>
-            {status && status.notIndexed.length > 0 && (
-              <li>{strings.search.notIndexed(status.notIndexed.length)}</li>
-            )}
+            {filtered && <li>{strings.search.filtered}</li>}
+            {causes(status).map(([cause, count]) => (
+              <li key={cause}>{strings.search.causes[cause](count)}</li>
+            ))}
             {status?.work && <li>{strings.search.stillIndexing}</li>}
             {answer.notes.map((note) => (
               <li key={note}>{note}</li>
             ))}
           </ul>
-          <button type="button" className="link" onClick={openLibrary}>
-            {strings.search.openLibrary}
-          </button>
+          <div className="actions">
+            {filtered && (
+              <button type="button" onClick={() => setFilter({ folder: null, kind: null })}>
+                {strings.search.clearFilters}
+              </button>
+            )}
+            <button type="button" className="link" onClick={openLibrary}>
+              {strings.search.openLibrary}
+            </button>
+          </div>
         </section>
       )}
 
@@ -321,4 +330,16 @@ function Snippet({ spans }: { spans: Span[] }) {
       {spans.map((span, index) => (span.marked ? <mark key={index}>{span.text}</mark> : <span key={index}>{span.text}</span>))}
     </span>
   );
+}
+
+type Cause = keyof typeof strings.search.causes;
+
+/** Files not indexed, counted by cause, the largest first; read failures together. */
+export function causes(status: Status | null): [Cause, number][] {
+  const counts = new Map<Cause, number>();
+  for (const file of status?.notIndexed ?? []) {
+    const cause: Cause = file.failed ? "failed" : ((file.code in strings.search.causes ? file.code : "failed") as Cause);
+    counts.set(cause, (counts.get(cause) ?? 0) + 1);
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1]);
 }

@@ -98,6 +98,7 @@ pub fn not_indexed(problem: &Problem) -> NotIndexed {
         name,
         folder,
         reason: problem.reason.describe().to_string(),
+        code: problem.reason.code().to_string(),
         failed: problem.reason.is_failure(),
         parked: is_parked(problem),
     }
@@ -155,6 +156,7 @@ mod tests {
         assert_eq!(skipped.name, "scan.pdf");
         assert!(!skipped.failed && !skipped.parked);
         assert!(skipped.reason.contains("no text layer"));
+        assert_eq!(skipped.code, "needs-ocr");
         let failed = not_indexed(&problem("/docs/bad.pdf", Reason::Crashed, 1));
         assert!(failed.failed && !failed.parked);
         assert!(not_indexed(&problem("/docs/bad.pdf", Reason::Crashed, 2)).parked);

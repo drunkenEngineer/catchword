@@ -159,6 +159,7 @@ describe("the library screen", () => {
       name,
       folder: "/d",
       reason,
+      code: "needs-ocr",
       failed: false,
       parked: false,
     });

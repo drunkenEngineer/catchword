@@ -2,6 +2,10 @@
 
 export type NotIndexed = { name: string, folder: string, reason: string, 
 /**
+ * The reason's stable code, such as "needs-ocr", for counting by cause.
+ */
+code: string, 
+/**
  * True when reading failed; false when the file was skipped by a rule.
  */
 failed: boolean, 

@@ -94,10 +94,22 @@ describe("the search screen", () => {
     expect((await screen.findAllByText(/^changed /)).length).toBeGreaterThan(0);
   });
 
-  it("explains an empty result", async () => {
+  it("explains an empty result with its likely causes, counted", async () => {
     await show(createMockEngine(), "zebra");
     expect(await screen.findByText("Nothing found for “zebra”.")).toBeTruthy();
-    expect(screen.getByText(/2 files were not indexed/)).toBeTruthy();
+    expect(screen.getByText(/1 file is a scan with no text layer/)).toBeTruthy();
+    expect(screen.getByText(/1 file could not be read/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Search all folders and kinds" })).toBeNull();
+  });
+
+  it("offers to search everything when a filter found nothing", async () => {
+    const engine = createMockEngine();
+    const search = vi.spyOn(engine, "search");
+    await show(engine, "zebra");
+    fireEvent.change(screen.getByRole("combobox", { name: "Kind" }), { target: { value: "pdf" } });
+    expect(await screen.findByText(/because of the filters above/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Search all folders and kinds" }));
+    await waitFor(() => expect(search).toHaveBeenLastCalledWith("zebra", { folder: null, kind: null }));
   });
 
   it("shows right-to-left text in its own direction", async () => {

@@ -179,6 +179,8 @@ pub struct NotIndexed {
     pub name: String,
     pub folder: String,
     pub reason: String,
+    /// The reason's stable code, such as "needs-ocr", for counting by cause.
+    pub code: String,
     /// True when reading failed; false when the file was skipped by a rule.
     pub failed: bool,
     /// True when reading failed too often: it is not tried again until the

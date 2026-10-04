@@ -37,8 +37,20 @@ export const strings = {
       `${files} ${files === 1 ? "file" : "files"} in ${ms} ms`,
     nothing: (query: string) => `Nothing found for “${query}”.`,
     whyTitle: "Why might it be missing?",
-    notIndexed: (count: number) =>
-      `${count} ${count === 1 ? "file was" : "files were"} not indexed, for example scans with no text.`,
+    /** Why files are not searchable, by cause, with how many (spec section 8). */
+    causes: {
+      "needs-ocr": (n: number) =>
+        `${n} ${n === 1 ? "file is a scan" : "files are scans"} with no text layer, not searchable until text recognition arrives.`,
+      encrypted: (n: number) => `${n} ${n === 1 ? "file is" : "files are"} protected by a password.`,
+      "cloud-only": (n: number) =>
+        `${n} ${n === 1 ? "file is" : "files are"} kept only in the cloud, so ${n === 1 ? "it was" : "they were"} not read.`,
+      "too-large": (n: number) =>
+        `${n} ${n === 1 ? "file is" : "files are"} over the size or page limit (see Settings).`,
+      "cannot-open": (n: number) => `${n} ${n === 1 ? "file" : "files"} could not be opened.`,
+      failed: (n: number) => `${n} ${n === 1 ? "file" : "files"} could not be read.`,
+    } as Record<"needs-ocr" | "encrypted" | "cloud-only" | "too-large" | "cannot-open" | "failed", (n: number) => string>,
+    filtered: "Only part of your files was searched, because of the filters above.",
+    clearFilters: "Search all folders and kinds",
     stillIndexing: "Some files are still being indexed.",
     openLibrary: "Open Library",
     found: {
