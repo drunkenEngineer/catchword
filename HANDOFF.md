@@ -62,6 +62,18 @@ Next, in the order of the spec's Phase 2 (section 20):
 8. **Packaging spike** (REL-1, REL-2). Partly done, 3 October 2026: `scripts/package-msix.sh` builds an MSIX holding the app, the worker, PDFium, ONNX Runtime and the model, with no download (makeappx from the Windows SDK); a test proves the packaged files read a PDF and search by meaning. Still to do: **the owner** installs the package with a test certificate and checks it (steps in `docs/packaging.md`), registers as a Store developer and reserves the name; then the Store identity in the manifest, notices for the Rust libraries, and the NSIS installer, the last two needing an OK for new tools.
 9. ~~**Logs and diagnostics** (OBS-1, APP-5).~~ Done, 3 October 2026: JSON-line logs in the app's `logs` folder, rotated at 1 MB with three files kept. Event names are fixed text and values are numbers or fixed codes, so no document text, query or file name can be logged by accident (PRIV-3); paths and error details are written only with detailed logs on, and those lines are marked private. Panics are logged with their place in the code. Settings shows a diagnostics report, read before saving, with file names only if the user asks. Delete all data deletes the logs too. Crash reports beyond the panic line (OBS-3) are not done.
 
+The rest of Phase 2: the MUST requirements of sections 6 and 7 that are still open, in the order of the Phase 2 feature list:
+
+10. **Cloud-only files and offline folders** (SRC-4, SRC-5): skip cloud-only placeholders without opening them; mark a folder offline when it cannot be reached and keep its files; never forget files in a sub-folder that could not be read.
+11. **Pause, resume and resource mode** (IDX-5, RSC-3): pause and resume indexing; a resource mode; stop and warn when free disk space runs low.
+12. **Results: names and dates** (SEA-1, SEA-2): match file and folder names; show each result's modified date.
+13. **Rebuild** (IDX-7): rebuild the index on demand, and automatically after unrecoverable damage, with a quick integrity check at startup.
+14. **Text encodings** (EXT-2): detect the encoding of plain-text files. Needs a dependency, so it waits for an OK.
+15. **Index health** (COV-1, OBS-2): estimated time, throughput and the last scan in Library.
+16. **Announcements and warnings** (A11Y-2, PRIV-4, OBS-3): progress and result counts announced to screen readers; a warning if the data folder is in a synced folder; local crash reports.
+
+Waiting for the owner: the updater (APP-2, REL-3, which needs an update signing key), the GitHub installer and the notices (REL-2), licence and advisory checks (MNT-3), and the Store steps of item 8.
+
 ## How to work with the owner
 
 - One backlog item per change. Keep changes small.
