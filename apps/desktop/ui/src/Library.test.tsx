@@ -35,7 +35,10 @@ describe("the library screen", () => {
 
   it("shows progress for both stages and what needs attention", async () => {
     const engine = createMockEngine();
-    const status = { ...(await engine.status()), work: { stage: "words" as const, done: 3, total: 8 } };
+    const status = {
+      ...(await engine.status()),
+      work: { stage: "words" as const, done: 3, total: 8, perSecond: null, secondsLeft: null },
+    };
     renderWith(engine, <Library status={status} />);
     expect(screen.getByRole("progressbar", { name: "Reading files: 3 of 8" })).toBeTruthy();
     expect(screen.getByRole("progressbar", { name: /Searchable by meaning: 4 of 4/ })).toBeTruthy();
@@ -62,6 +65,22 @@ describe("the library screen", () => {
     const skippedOnly = { ...status, notIndexed: status.notIndexed.filter((file) => !file.failed) };
     renderWith(engine, <Library status={skippedOnly} />);
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+  });
+
+  it("shows the pace and the time left while indexing, and the last scan after", async () => {
+    const engine = createMockEngine();
+    const idle = await engine.status();
+    const busy = {
+      ...idle,
+      work: { stage: "meaning" as const, done: 400, total: 4000, perSecond: 18, secondsLeft: 200 },
+    };
+    renderWith(engine, <Library status={busy} />);
+    expect(screen.getByText(/18 passages a second · about 3 minutes left/)).toBeTruthy();
+    expect(screen.queryByText(/Last scan/)).toBeNull();
+
+    cleanup();
+    renderWith(engine, <Library status={idle} />);
+    expect(screen.getByText(/Last scan:/)).toBeTruthy();
   });
 
   it("pauses and resumes indexing, and says why it is paused", async () => {

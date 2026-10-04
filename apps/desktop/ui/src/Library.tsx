@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { NotIndexed } from "./contract/NotIndexed";
 import type { Status } from "./contract/Status";
+import type { Work } from "./contract/Work";
 import { useEngine } from "./engine";
 import { strings } from "./strings";
 
@@ -14,6 +15,7 @@ export function Library({ status }: { status: Status | null }) {
 
   if (!status) return null;
   const words = status.work?.stage === "words" ? status.work : null;
+  const meaning = status.work?.stage === "meaning" ? status.work : null;
   const shownProblem = problem ?? status.problem;
 
   return (
@@ -82,7 +84,10 @@ export function Library({ status }: { status: Status | null }) {
           </p>
         )}
         {words ? (
-          <Bar label={strings.library.reading(words.done, words.total)} value={words.done} max={words.total} />
+          <>
+            <Bar label={strings.library.reading(words.done, words.total)} value={words.done} max={words.total} />
+            <Pace work={words} unit="files" />
+          </>
         ) : (
           <p>{strings.library.byWords(status.files)}</p>
         )}
@@ -94,6 +99,10 @@ export function Library({ status }: { status: Status | null }) {
             value={status.searchableByMeaning}
             max={Math.max(status.passages, 1)}
           />
+        )}
+        {meaning && <Pace work={meaning} unit="passages" />}
+        {!status.work && status.lastScanSecs !== null && (
+          <p className="muted">{strings.library.lastScan(status.lastScanSecs)}</p>
         )}
         {status.folders.length > 0 && (
           <div className="actions">
@@ -145,6 +154,17 @@ export function Library({ status }: { status: Status | null }) {
         )}
       </section>
     </div>
+  );
+}
+
+/** How fast the work goes, and the time left, once both are known. */
+function Pace({ work, unit }: { work: Work; unit: "files" | "passages" }) {
+  if (work.perSecond === null) return null;
+  return (
+    <p className="muted">
+      {strings.library.pace(work.perSecond, unit)}
+      {work.secondsLeft !== null && ` · ${strings.library.left(work.secondsLeft)}`}
+    </p>
   );
 }
 

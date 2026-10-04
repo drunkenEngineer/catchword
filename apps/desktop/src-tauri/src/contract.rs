@@ -30,6 +30,9 @@ pub struct Status {
     pub first_launch: bool,
     /// Why indexing is paused, if it is (IDX-5, RSC-3).
     pub paused: Option<PauseReason>,
+    /// When a scan of every folder last finished, in seconds since 1970.
+    #[ts(type = "number | null")]
+    pub last_scan_secs: Option<i64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
@@ -114,7 +117,7 @@ pub enum Stage {
     Meaning,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct Work {
     pub stage: Stage,
@@ -122,6 +125,11 @@ pub struct Work {
     pub done: u64,
     #[ts(type = "number")]
     pub total: u64,
+    /// Files or passages a second, over the last half minute, once known.
+    pub per_second: Option<f32>,
+    /// The time left at that pace, once known (COV-1).
+    #[ts(type = "number | null")]
+    pub seconds_left: Option<u64>,
 }
 
 /// Whether meaning search is available.

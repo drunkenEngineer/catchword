@@ -369,11 +369,11 @@ impl AppState {
                 .collect();
             (folders, !settings.welcomed)
         };
-        let not_indexed = lock(&self.reader)
-            .problems()?
-            .iter()
-            .map(views::not_indexed)
-            .collect();
+        let (not_indexed, last_scan_secs) = {
+            let reader = lock(&self.reader);
+            let problems = reader.problems()?.iter().map(views::not_indexed).collect();
+            (problems, reader.last_scan()?)
+        };
         let problem = lock(&self.notice).take().or(snapshot.problem);
         Ok(Status {
             folders,
@@ -386,6 +386,7 @@ impl AppState {
             problem,
             first_launch,
             paused: snapshot.paused,
+            last_scan_secs,
         })
     }
 

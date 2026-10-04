@@ -65,6 +65,16 @@ export const strings = {
     keep: "Keep",
     progress: "Progress",
     reading: (done: number, total: number) => `Reading files: ${done} of ${total}`,
+    pace: (perSecond: number, unit: "files" | "passages") =>
+      `${perSecond < 10 ? perSecond.toFixed(1) : Math.round(perSecond).toLocaleString()} ${unit} a second`,
+    left: (seconds: number) =>
+      seconds < 60
+        ? "less than a minute left"
+        : seconds < 3600
+          ? `about ${Math.round(seconds / 60)} ${Math.round(seconds / 60) === 1 ? "minute" : "minutes"} left`
+          : `about ${Math.floor(seconds / 3600)} h ${Math.round((seconds % 3600) / 60)} min left`,
+    lastScan: (secs: number) =>
+      `Last scan: ${new Date(secs * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`,
     byWords: (files: number) => `Searchable by words: ${files.toLocaleString()} files`,
     byMeaning: (done: number, total: number) =>
       `Searchable by meaning: ${done.toLocaleString()} of ${total.toLocaleString()} passages`,

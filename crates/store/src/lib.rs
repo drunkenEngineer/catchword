@@ -221,6 +221,16 @@ impl Store {
         Ok(Self { conn, was_reset })
     }
 
+    /// Record when a scan of every folder last finished, in seconds since
+    /// 1970 (OBS-2).
+    pub fn set_last_scan(&self, secs: i64) -> rusqlite::Result<()> {
+        meta_set(&self.conn, "last_scan", &secs.to_string())
+    }
+
+    pub fn last_scan(&self) -> rusqlite::Result<Option<i64>> {
+        Ok(meta_get(&self.conn, "last_scan")?.and_then(|secs| secs.parse().ok()))
+    }
+
     /// A quick check of the file's structure, for every start: true if no
     /// damage was found.
     pub fn quick_check(&self) -> rusqlite::Result<bool> {
@@ -1822,6 +1832,14 @@ mod tests {
         let store = Store::open(&file).unwrap();
         assert!(!store.was_reset());
         assert_eq!(found_names(&store, "plumber"), vec!["/d/plumber.txt"]);
+    }
+
+    #[test]
+    fn the_last_scan_is_remembered() {
+        let store = Store::open_in_memory().unwrap();
+        assert_eq!(store.last_scan().unwrap(), None);
+        store.set_last_scan(1_790_000_000).unwrap();
+        assert_eq!(store.last_scan().unwrap(), Some(1_790_000_000));
     }
 
     #[test]

@@ -28,4 +28,8 @@ firstLaunch: boolean,
 /**
  * Why indexing is paused, if it is (IDX-5, RSC-3).
  */
-paused: PauseReason | null, };
+paused: PauseReason | null, 
+/**
+ * When a scan of every folder last finished, in seconds since 1970.
+ */
+lastScanSecs: number | null, };

@@ -7,6 +7,7 @@
 //! Indexing can be paused, by the user or when free disk space runs low;
 //! a paused indexer starts no run until it is resumed (IDX-5, RSC-3).
 
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
@@ -28,6 +29,61 @@ use crate::log::{Logger, Value};
 const REPORT_EVERY: Duration = Duration::from_millis(250);
 /// How often free disk space is checked during a run.
 const DISK_CHECK_EVERY: Duration = Duration::from_secs(2);
+/// The pace of indexing is measured over this much of the recent past.
+const PACE_WINDOW: Duration = Duration::from_secs(30);
+/// Below this much measured time, no pace is given: the first seconds of a
+/// run, through unchanged files, would promise far too much.
+const PACE_MINIMUM: Duration = Duration::from_secs(3);
+
+/// How fast one stage goes, over the last half minute, for the estimate.
+#[derive(Default)]
+struct Pace {
+    stage: Option<Stage>,
+    /// (when, how many done), oldest first, about a second apart.
+    samples: VecDeque<(Instant, u64)>,
+}
+
+impl Pace {
+    /// Note progress; returns items a second, once there is enough to tell.
+    fn record(&mut self, stage: Stage, done: u64, now: Instant) -> Option<f32> {
+        if self.stage != Some(stage) {
+            self.stage = Some(stage);
+            self.samples.clear();
+        }
+        let last = self.samples.back().copied();
+        if last.is_none_or(|(when, _)| now.duration_since(when) >= Duration::from_secs(1)) {
+            self.samples.push_back((now, done));
+        }
+        while self
+            .samples
+            .front()
+            .is_some_and(|(when, _)| now.duration_since(*when) > PACE_WINDOW)
+            && self.samples.len() > 2
+        {
+            self.samples.pop_front();
+        }
+        let (since, from) = *self.samples.front()?;
+        let span = now.duration_since(since);
+        if span < PACE_MINIMUM || done <= from {
+            return None;
+        }
+        Some((done - from) as f32 / span.as_secs_f32())
+    }
+}
+
+/// The work as the interface sees it, with the time left at its pace.
+fn work(stage: Stage, done: u64, total: u64, per_second: Option<f32>) -> Work {
+    let seconds_left = per_second
+        .filter(|pace| *pace > 0.0)
+        .map(|pace| (total.saturating_sub(done) as f32 / pace).ceil() as u64);
+    Work {
+        stage,
+        done,
+        total,
+        per_second,
+        seconds_left,
+    }
+}
 
 /// Called when there is news for the interface.
 pub type Notify = Arc<dyn Fn() + Send + Sync>;
@@ -259,8 +315,10 @@ fn run(shared: &Shared, folders: &[PathBuf], exclusions: &Exclusions, notify: &N
     if low_disk(shared) {
         return;
     }
+    let pace = Mutex::new(Pace::default());
     let set_work = |stage, done: u64, total: u64| {
-        lock(&shared.snapshot).work = Some(Work { stage, done, total });
+        let per_second = lock(&pace).record(stage, done, Instant::now());
+        lock(&shared.snapshot).work = Some(work(stage, done, total, per_second));
     };
     let log = &shared.log;
     let mut store = match Store::open(&shared.store_path) {
@@ -356,6 +414,16 @@ fn run(shared: &Shared, folders: &[PathBuf], exclusions: &Exclusions, notify: &N
             }
         }
         report(true);
+    }
+    // Every folder was gone through: a scan, even if one was offline.
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_secs() as i64);
+    if let Err(error) = store.set_last_scan(now) {
+        log.warn(
+            "index.last_scan_failed",
+            &[("error", Value::Private(error.to_string()))],
+        );
     }
 
     if let Some(ready) = model.ready() {
@@ -527,6 +595,51 @@ mod tests {
         assert_eq!(snapshot.scanning, None);
         // Offline is a state, not a problem.
         assert_eq!(snapshot.problem, None);
+    }
+
+    #[test]
+    fn the_pace_is_measured_over_the_recent_past() {
+        let start = Instant::now();
+        let at = |secs: u64| start + Duration::from_secs(secs);
+        let mut pace = Pace::default();
+        // Too soon to tell.
+        assert_eq!(pace.record(Stage::Words, 0, at(0)), None);
+        assert_eq!(pace.record(Stage::Words, 50, at(2)), None);
+        // 100 files in 4 seconds.
+        assert_eq!(pace.record(Stage::Words, 100, at(4)), Some(25.0));
+        // A fast start falls out of the window: 40 seconds on, the pace is
+        // that of the last half minute.
+        for secs in 5..=40 {
+            pace.record(Stage::Words, 100 + (secs - 4) * 2, at(secs));
+        }
+        let recent = pace.record(Stage::Words, 174, at(41)).unwrap();
+        assert!((recent - 2.0).abs() < 0.2, "{recent}");
+        // A new stage starts afresh.
+        assert_eq!(pace.record(Stage::Meaning, 10, at(42)), None);
+    }
+
+    #[test]
+    fn the_time_left_follows_the_pace() {
+        let busy = work(Stage::Meaning, 100, 1_100, Some(20.0));
+        assert_eq!(busy.seconds_left, Some(50));
+        assert_eq!(work(Stage::Words, 5, 10, None).seconds_left, None);
+    }
+
+    #[test]
+    fn a_finished_run_records_the_time_of_the_scan() {
+        let (indexer, store) = indexer("last-scan");
+        indexer.start(
+            vec![folder_with("last-scan", 2)],
+            Exclusions::default(),
+            Arc::new(|| {}),
+        );
+        wait_until_idle(&indexer);
+        let last = Store::open(&store).unwrap().last_scan().unwrap().unwrap();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        assert!((now - last).abs() < 60);
     }
 
     #[test]
