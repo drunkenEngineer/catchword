@@ -232,8 +232,8 @@ fn stopped_when_asked() {
     .unwrap();
     env::remove_var(ROLE);
     assert_eq!(outcome, Outcome::Stopped);
-    // Asked every tenth of a second, and stopped soon after the answer was
-    // no: not at the 20-second time limit.
+    // Asked before starting, then every tenth of a second, and stopped soon
+    // after the answer was no: not at the 20-second time limit.
     assert!(asked >= 3, "{asked}");
     assert!(
         started.elapsed() < Duration::from_secs(2),

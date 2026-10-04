@@ -19,6 +19,12 @@ fn embedder() -> &'static Mutex<Embedder> {
 }
 
 #[test]
+fn the_model_meets_the_embedding_contract() {
+    let mut model = embedder().lock().unwrap();
+    catchword_test_support::conformance::embedder(&mut *model);
+}
+
+#[test]
 fn background_threads_are_ours_and_give_the_same_vectors() {
     static STARTED: AtomicUsize = AtomicUsize::new(0);
     fn count_start() {

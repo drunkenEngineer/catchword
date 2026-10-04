@@ -388,10 +388,11 @@ fn a_pause_stops_a_long_file_part_way_and_keeps_nothing_of_it() {
 
 #[test]
 fn the_meaning_stage_stops_after_the_passage_it_is_on() {
-    let model = Model::load(catchword_service::Threads::RUNTIME_DEFAULT);
-    let Some(ready) = model.ready() else {
-        panic!("no model; run sh scripts/fetch-embedding.sh");
-    };
+    // Any model that meets the contract will do: the stand-in is quick.
+    let model = Model::Ready(std::sync::Mutex::new(Box::new(
+        catchword_test_support::WordModel,
+    )));
+    let ready = model.ready().unwrap();
     let folder = three_files("service-meaning-pause");
     let mut store = Store::open_in_memory().unwrap();
     index_folder(

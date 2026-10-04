@@ -482,6 +482,7 @@ name = "catchword-embed"
 version = "0.0.1"
 dependencies = [
  "catchword-engine",
+ "catchword-test-support",
  "ort",
  "sha2",
  "tokenizers",
@@ -491,6 +492,7 @@ dependencies = [
 name = "catchword-engine"
 version = "0.0.1"
 dependencies = [
+ "catchword-test-support",
  "chardetng",
  "dunce",
  "encoding_rs",
@@ -533,6 +535,10 @@ dependencies = [
 [[package]]
 name = "catchword-test-support"
 version = "0.0.1"
+dependencies = [
+ "catchword-embed",
+ "catchword-engine",
+]
 
 [[package]]
 name = "catchword-worker"

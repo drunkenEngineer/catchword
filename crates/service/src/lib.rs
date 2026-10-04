@@ -9,7 +9,7 @@ mod search;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 pub use catchword_embed::Threads;
-use catchword_embed::{Embedder, DEFAULT_MODEL};
+use catchword_embed::{Embed, Embedder, DEFAULT_MODEL};
 
 pub use index::{
     embed_missing, index_folder, is_parked, Cutter, EmbedReport, Report, Unreachable, Worker,
@@ -21,7 +21,7 @@ pub use search::{group_by_file, search, Answer, FileResults, Note};
 pub enum Model {
     /// Locked for one passage or query at a time, so a search waits at most
     /// for one passage of background embedding.
-    Ready(Mutex<Embedder>),
+    Ready(Mutex<Box<dyn Embed>>),
     Unavailable(String),
 }
 
@@ -38,12 +38,12 @@ impl Model {
             );
         };
         match Embedder::load(&paths, &DEFAULT_MODEL, threads) {
-            Ok(model) => Model::Ready(Mutex::new(model)),
+            Ok(model) => Model::Ready(Mutex::new(Box::new(model))),
             Err(error) => Model::Unavailable(error.to_string()),
         }
     }
 
-    pub fn ready(&self) -> Option<&Mutex<Embedder>> {
+    pub fn ready(&self) -> Option<&Mutex<Box<dyn Embed>>> {
         match self {
             Model::Ready(model) => Some(model),
             Model::Unavailable(_) => None,
@@ -53,6 +53,6 @@ impl Model {
 
 /// Lock the model. A panic while it was locked cannot leave it half
 /// changed, so the lock is used anyway.
-fn lock(model: &Mutex<Embedder>) -> MutexGuard<'_, Embedder> {
+fn lock(model: &Mutex<Box<dyn Embed>>) -> MutexGuard<'_, Box<dyn Embed>> {
     model.lock().unwrap_or_else(PoisonError::into_inner)
 }

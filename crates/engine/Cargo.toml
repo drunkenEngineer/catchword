@@ -12,6 +12,9 @@ encoding_rs.workspace = true
 sha2.workspace = true
 walkdir.workspace = true
 
+[dev-dependencies]
+catchword-test-support = { path = "../test-support" }
+
 # This test program also plays misbehaving workers, so it needs full control
 # of its own output and has its own small runner.
 [[test]]

@@ -5,11 +5,11 @@ use std::path::{Path, PathBuf, MAIN_SEPARATOR};
 use std::sync::Mutex;
 
 use anyhow::{bail, Context, Result};
-use catchword_embed::Embedder;
-use catchword_engine::extract::{self, Limits, Outcome, Reason};
+use catchword_embed::Embed;
+use catchword_engine::extract::{Extractor, Limits, Outcome, PdfReader, Reason, TextFiles};
 use catchword_engine::{
-    chunk_pages_while, chunk_while, document_kind, hash_file, read_text, resolve_folder, scan,
-    DocumentKind, Exclusions, FileMeta, Passage, Tokenizer, WordTokenizer, PASSAGE_OVERLAP_TOKENS,
+    chunk_pages_while, chunk_while, document_kind, hash_file, resolve_folder, scan, DocumentKind,
+    Exclusions, FileMeta, Passage, Tokenizer, WordTokenizer, PASSAGE_OVERLAP_TOKENS,
     PASSAGE_TOKENS,
 };
 use catchword_store::{Problem, Store};
@@ -36,7 +36,7 @@ impl Cutter {
             Some(model) => {
                 let model = lock(model);
                 Cutter {
-                    tokenizer: Box::new(model.tokenizer()),
+                    tokenizer: model.tokenizer(),
                     max: PASSAGE_TOKENS,
                     overlap: PASSAGE_OVERLAP_TOKENS,
                     // "in blocks": tokens counted 2,000 words at a time, so
@@ -201,7 +201,7 @@ pub fn index_folder(
     };
     let mut reader = Reader {
         worker,
-        found: None,
+        pdf: None,
         limits,
     };
     let files = found.files;
@@ -297,20 +297,28 @@ enum Read {
     Stopped,
 }
 
-/// How files are read: the limits, and the PDF reader, found when the
-/// first PDF needs it, so text-only folders work without it.
+/// How files are read: the limits, and an extractor for each kind. The
+/// PDF reader is found when the first PDF needs it, so text-only folders
+/// work without it.
 struct Reader<'a> {
     worker: &'a Worker,
-    found: Option<PathBuf>,
+    pdf: Option<PdfReader>,
     limits: &'a Limits,
 }
 
 impl Reader<'_> {
-    fn worker_path(&mut self) -> Result<&Path> {
-        if self.found.is_none() {
-            self.found = Some(self.worker.path()?);
-        }
-        Ok(self.found.as_deref().expect("found just above"))
+    fn extractor(&mut self, kind: DocumentKind) -> Result<&dyn Extractor> {
+        Ok(match kind {
+            DocumentKind::Text => &TextFiles,
+            DocumentKind::Pdf => {
+                if self.pdf.is_none() {
+                    self.pdf = Some(PdfReader {
+                        program: self.worker.path()?,
+                    });
+                }
+                self.pdf.as_ref().expect("set just above")
+            }
+        })
     }
 }
 
@@ -328,44 +336,38 @@ fn read_document(
     if file.size > limits.max_file_bytes {
         return Ok(Read::NotIndexed(Reason::TooLarge));
     }
+    let Ok(hash) = hash_file(&file.path) else {
+        return Ok(Read::NotIndexed(Reason::CannotOpen));
+    };
+    // Known content (a copy or a moved file) costs nothing to index again.
+    if store.has_content(&hash)? {
+        return Ok(Read::Content(hash, Vec::new()));
+    }
+    let extractor = reader.extractor(kind)?;
+    let pages = match extractor
+        .extract(&file.path, limits, keep_going)
+        .context("cannot start the reader")?
+    {
+        Outcome::Pages(pages) => pages,
+        Outcome::NotIndexed(reason) => return Ok(Read::NotIndexed(reason)),
+        Outcome::Stopped => return Ok(Read::Stopped),
+    };
     let tokenizer = cutter.tokenizer.as_ref();
-    let cut = |passages: Option<Vec<Passage>>, hash: String| match passages {
+    let passages = if extractor.paged() {
+        chunk_pages_while(&pages, cutter.max, cutter.overlap, tokenizer, keep_going)
+    } else {
+        chunk_while(
+            &pages.concat(),
+            cutter.max,
+            cutter.overlap,
+            tokenizer,
+            keep_going,
+        )
+    };
+    Ok(match passages {
         Some(passages) => Read::Content(hash, passages),
         None => Read::Stopped,
-    };
-    match kind {
-        DocumentKind::Text => {
-            let (text, hash) = match read_text(&file.path, limits.max_file_bytes) {
-                Ok(read) => read,
-                Err(reason) => return Ok(Read::NotIndexed(reason)),
-            };
-            // Known content (a copy or a moved file) costs nothing to index again.
-            if store.has_content(&hash)? {
-                return Ok(Read::Content(hash, Vec::new()));
-            }
-            let passages = chunk_while(&text, cutter.max, cutter.overlap, tokenizer, keep_going);
-            Ok(cut(passages, hash))
-        }
-        DocumentKind::Pdf => {
-            let Ok(hash) = hash_file(&file.path) else {
-                return Ok(Read::NotIndexed(Reason::CannotOpen));
-            };
-            if store.has_content(&hash)? {
-                return Ok(Read::Content(hash, Vec::new()));
-            }
-            let program = reader.worker_path()?;
-            let outcome = extract::run_while(program, &file.path, limits, keep_going)
-                .context("cannot start the PDF reader")?;
-            Ok(match outcome {
-                Outcome::Pages(pages) => cut(
-                    chunk_pages_while(&pages, cutter.max, cutter.overlap, tokenizer, keep_going),
-                    hash,
-                ),
-                Outcome::NotIndexed(reason) => Read::NotIndexed(reason),
-                Outcome::Stopped => Read::Stopped,
-            })
-        }
-    }
+    })
 }
 
 /// What the meaning stage did.
@@ -385,7 +387,7 @@ pub struct EmbedReport {
 /// returning false stops the run.
 pub fn embed_missing(
     store: &mut Store,
-    model: &Mutex<Embedder>,
+    model: &Mutex<Box<dyn Embed>>,
     mut progress: impl FnMut(i64, i64) -> bool,
 ) -> Result<EmbedReport> {
     let manifest = *lock(model).manifest();

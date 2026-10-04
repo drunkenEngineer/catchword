@@ -1,7 +1,11 @@
 [package]
 name = "catchword-test-support"
-description = "Test helpers for Catchword: synthetic PDFs and scratch folders. Never shipped."
+description = "Test helpers for Catchword: synthetic PDFs, scratch folders, a stand-in embedding model and the shared conformance suites. Never shipped."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false
+
+[dependencies]
+catchword-embed = { path = "../embed" }
+catchword-engine = { path = "../engine" }

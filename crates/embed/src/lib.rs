@@ -209,6 +209,40 @@ pub fn find(manifest: &ModelManifest) -> Option<Paths> {
         .find(|paths| paths.runtime.is_file() && paths.model.is_dir())
 }
 
+/// What indexing and search need from an embedding model (MNT-2). The
+/// ONNX model below implements it; tests may use a simpler one. Every
+/// implementation passes `catchword_test_support::conformance::embedder`.
+pub trait Embed: Send {
+    fn manifest(&self) -> &ModelManifest;
+
+    /// Counts tokens as the model does, for cutting passages to its size.
+    fn tokenizer(&self) -> Box<dyn Tokenizer + Send + Sync>;
+
+    /// One vector of unit length per passage, in order.
+    fn embed_passages(&mut self, passages: &[&str]) -> Result<Vec<Vec<f32>>, EmbedError>;
+
+    /// The vector of a query, of unit length, comparable with passages'.
+    fn embed_query(&mut self, query: &str) -> Result<Vec<f32>, EmbedError>;
+}
+
+impl Embed for Embedder {
+    fn manifest(&self) -> &ModelManifest {
+        Embedder::manifest(self)
+    }
+
+    fn tokenizer(&self) -> Box<dyn Tokenizer + Send + Sync> {
+        Box::new(Embedder::tokenizer(self))
+    }
+
+    fn embed_passages(&mut self, passages: &[&str]) -> Result<Vec<Vec<f32>>, EmbedError> {
+        Embedder::embed_passages(self, passages)
+    }
+
+    fn embed_query(&mut self, query: &str) -> Result<Vec<f32>, EmbedError> {
+        Embedder::embed_query(self, query)
+    }
+}
+
 /// A loaded model, ready to embed text.
 pub struct Embedder {
     session: Session,

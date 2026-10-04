@@ -15,7 +15,7 @@ mod job_windows;
 
 use std::fs;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::thread;
@@ -155,6 +155,71 @@ impl Reason {
     }
 }
 
+/// Reads the text out of one kind of file (MNT-2). Every extractor passes
+/// the shared suite, `catchword_test_support::conformance::extractor`.
+pub trait Extractor {
+    /// True if the text comes in pages, each with its number.
+    fn paged(&self) -> bool;
+
+    /// The file's text, or why there is none. `keep_going` is asked before
+    /// starting and while working; a no is `Outcome::Stopped`. An error
+    /// means the extractor itself could not run, not that the file is bad.
+    fn extract(
+        &self,
+        file: &Path,
+        limits: &Limits,
+        keep_going: &mut dyn FnMut() -> bool,
+    ) -> io::Result<Outcome>;
+}
+
+/// Plain text and Markdown, read in this process (ADR-17): one "page".
+pub struct TextFiles;
+
+impl Extractor for TextFiles {
+    fn paged(&self) -> bool {
+        false
+    }
+
+    fn extract(
+        &self,
+        file: &Path,
+        limits: &Limits,
+        keep_going: &mut dyn FnMut() -> bool,
+    ) -> io::Result<Outcome> {
+        if !keep_going() {
+            return Ok(Outcome::Stopped);
+        }
+        Ok(match fs::metadata(file) {
+            Err(_) => Outcome::NotIndexed(Reason::CannotOpen),
+            Ok(meta) if meta.len() > limits.max_file_bytes => Outcome::NotIndexed(Reason::TooLarge),
+            Ok(_) => match crate::read_text(file, limits.max_file_bytes) {
+                Ok((text, _)) => Outcome::Pages(vec![text]),
+                Err(reason) => Outcome::NotIndexed(reason),
+            },
+        })
+    }
+}
+
+/// PDFs, read by the worker program at `program`, under limits (ADR-16).
+pub struct PdfReader {
+    pub program: PathBuf,
+}
+
+impl Extractor for PdfReader {
+    fn paged(&self) -> bool {
+        true
+    }
+
+    fn extract(
+        &self,
+        file: &Path,
+        limits: &Limits,
+        keep_going: &mut dyn FnMut() -> bool,
+    ) -> io::Result<Outcome> {
+        run_while(&self.program, file, limits, keep_going)
+    }
+}
+
 /// What the operating system reported about a finished worker.
 #[derive(Debug, Default, Clone, Copy)]
 struct Events {
@@ -179,6 +244,9 @@ pub fn run_while(
     limits: &Limits,
     keep_going: &mut dyn FnMut() -> bool,
 ) -> io::Result<Outcome> {
+    if !keep_going() {
+        return Ok(Outcome::Stopped);
+    }
     match fs::metadata(file) {
         Ok(meta) if meta.len() > limits.max_file_bytes => {
             return Ok(Outcome::NotIndexed(Reason::TooLarge))

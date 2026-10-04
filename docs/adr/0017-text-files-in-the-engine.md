@@ -2,6 +2,8 @@
 
 Status: accepted, 3 October 2026. An exception to rule 2 ("untrusted files are parsed only in a worker"), recorded so it stays visible.
 
+Update, 4 October 2026: text is no longer decoded as UTF-8 only. Its encoding is detected (EXT-2) with `encoding_rs` and `chardetng`, both memory-safe Rust from the Firefox team. That is still decoding, not parsing a format, so the reasoning below holds.
+
 ## Context
 
 Rule 2 and threat T1 exist because complex parsers, such as those for PDF, Office files and images, can be exploited by a crafted file. Plain text and Markdown files are only decoded as UTF-8 and split into words: no format is parsed, and Catchword never renders Markdown.

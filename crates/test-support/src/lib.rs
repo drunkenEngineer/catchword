@@ -1,7 +1,14 @@
-//! Test helpers: PDFs written by code, and scratch folders.
+//! Test helpers: PDFs written by code, scratch folders, a stand-in
+//! embedding model, and the conformance suites every extractor and model
+//! must pass (MNT-2).
 //!
 //! Test documents are generated, not committed, so every test file is
 //! redistributable and contains no personal data.
+
+pub mod conformance;
+mod word_model;
+
+pub use word_model::{WordModel, WORD_MODEL};
 
 use std::env;
 use std::fs;

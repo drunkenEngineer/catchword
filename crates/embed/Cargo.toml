@@ -10,3 +10,6 @@ catchword-engine = { path = "../engine" }
 ort.workspace = true
 sha2.workspace = true
 tokenizers.workspace = true
+
+[dev-dependencies]
+catchword-test-support = { path = "../test-support" }
