@@ -589,6 +589,68 @@ mod tests {
         fs::remove_dir_all(&folder).unwrap();
     }
 
+    /// SRC-6: a link inside a chosen folder that leads outside it is not
+    /// followed, so its files are not indexed. Junctions need no special
+    /// rights on Windows; symbolic links do (Developer Mode, or an
+    /// administrator), so they are tried, and skipped where not allowed.
+    #[test]
+    fn links_and_junctions_out_of_a_chosen_folder_are_not_followed() {
+        let folder = test_folder("links");
+        let (chosen, outside) = (folder.join("chosen"), folder.join("outside"));
+        fs::create_dir_all(&chosen).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(chosen.join("own.txt"), "text").unwrap();
+        fs::write(outside.join("secret.txt"), "text").unwrap();
+
+        let mut made = Vec::new();
+        #[cfg(windows)]
+        {
+            let status = std::process::Command::new("cmd")
+                .args(["/C", "mklink", "/J"])
+                .arg(chosen.join("junction"))
+                .arg(&outside)
+                .stdout(std::process::Stdio::null())
+                .status()
+                .unwrap();
+            assert!(status.success(), "a junction needs no special rights");
+            made.push("junction");
+            use std::os::windows::fs::{symlink_dir, symlink_file};
+            if symlink_dir(&outside, chosen.join("folder-link")).is_ok() {
+                made.push("folder link");
+            }
+            if symlink_file(outside.join("secret.txt"), chosen.join("file-link.txt")).is_ok() {
+                made.push("file link");
+            }
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+            symlink(&outside, chosen.join("folder-link")).unwrap();
+            symlink(outside.join("secret.txt"), chosen.join("file-link.txt")).unwrap();
+            made.extend(["folder link", "file link"]);
+        }
+        println!("made: {made:?}");
+
+        // Each link is there, and leads to the file outside.
+        for link in ["junction", "folder-link"] {
+            if chosen.join(link).exists() {
+                assert!(chosen.join(link).join("secret.txt").is_file());
+            }
+        }
+        let found = scan(&resolve_folder(&chosen).unwrap(), &Exclusions::default()).unwrap();
+        let names: Vec<_> = found
+            .files
+            .iter()
+            .map(|f| f.path.file_name().unwrap())
+            .collect();
+        assert_eq!(names, ["own.txt"]);
+        assert!(found.unreadable.is_empty(), "{:?}", found.unreadable);
+        // Removing the folder removes the links, never what they lead to.
+        fs::remove_dir_all(&chosen).unwrap();
+        assert!(outside.join("secret.txt").is_file());
+        fs::remove_dir_all(&folder).unwrap();
+    }
+
     #[test]
     fn a_folder_that_cannot_be_read_is_an_error_not_an_empty_scan() {
         let gone = test_folder("unreachable").join("not-there");
