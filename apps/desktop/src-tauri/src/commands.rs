@@ -12,14 +12,14 @@ use std::time::Instant;
 use anyhow::{anyhow, Context, Result};
 use catchword_engine::exclude::DEFAULT_PATTERNS;
 use catchword_engine::resolve_folder;
-use catchword_service::{group_by_file, search as search_index, Model, Worker};
+use catchword_service::{group_by_file, search_within, Model, Worker};
 use catchword_store::Store;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::contract::{
-    Folder, FolderState, FolderStatus, Meaning, PauseReason, ResourceMode, SearchResponse,
-    SettingsView, Status, TextSize, Theme,
+    FileKind, Folder, FolderState, FolderStatus, Meaning, PauseReason, ResourceMode, SearchFilter,
+    SearchResponse, SettingsView, Status, TextSize, Theme,
 };
 use crate::diagnostics::{self, Facts};
 use crate::indexing::{self, Indexer, Notify};
@@ -456,13 +456,40 @@ impl AppState {
     }
 
     pub fn search(&self, query: &str) -> Result<SearchResponse> {
+        self.search_filtered(query, &SearchFilter::default())
+    }
+
+    /// Search only a folder, or a kind of file, or both (SEA-6).
+    pub fn search_filtered(&self, query: &str, filter: &SearchFilter) -> Result<SearchResponse> {
         let started = Instant::now();
+        let folders = match filter.folder {
+            None => Vec::new(),
+            Some(id) => {
+                let settings = lock(&self.settings);
+                let folder = settings
+                    .folders
+                    .iter()
+                    .find(|folder| folder.id == id)
+                    .ok_or_else(|| anyhow!("no folder with id {id}"))?;
+                vec![folder.path.to_string_lossy().to_string()]
+            }
+        };
+        let extensions: &[&str] = match filter.kind {
+            None => &[],
+            Some(FileKind::Pdf) => &["pdf"],
+            Some(FileKind::Text) => &["txt", "md", "markdown"],
+        };
+        let filter = catchword_store::Filter {
+            folders,
+            extensions: extensions.iter().map(|e| e.to_string()).collect(),
+        };
         let loading = Model::Unavailable("the model is still loading".into());
         let model = self.indexer.model();
-        let answer = search_index(
+        let answer = search_within(
             &lock(&self.reader),
             model.as_deref().unwrap_or(&loading),
             query,
+            &filter,
         )?;
         let response = SearchResponse {
             notes: answer.notes.iter().map(|note| note.describe()).collect(),
@@ -717,8 +744,15 @@ pub async fn status(app: AppHandle) -> Result<Status, String> {
 }
 
 #[tauri::command]
-pub async fn search(app: AppHandle, query: String) -> Result<SearchResponse, String> {
-    on_state(app, "search", move |_, state| state.search(&query)).await
+pub async fn search(
+    app: AppHandle,
+    query: String,
+    filter: Option<SearchFilter>,
+) -> Result<SearchResponse, String> {
+    on_state(app, "search", move |_, state| {
+        state.search_filtered(&query, &filter.unwrap_or_default())
+    })
+    .await
 }
 
 /// Opens the native folder dialog here, in the shell: the interface never
@@ -1452,6 +1486,51 @@ mod tests {
             .collect();
         assert_eq!(ready.len(), 1, "{ready:?}");
         assert!(ready[0].contains(r#""millis":"#));
+    }
+
+    #[test]
+    fn a_search_can_keep_to_one_folder_or_kind() {
+        let (state, docs) = state("filter");
+        let other = docs.with_file_name("other");
+        std::fs::create_dir_all(&other).unwrap();
+        std::fs::write(
+            other.join("notice.md"),
+            "another notice period, in markdown",
+        )
+        .unwrap();
+        let first = state.add_folder(&docs, Arc::new(|| {})).unwrap().unwrap();
+        state.add_folder(&other, Arc::new(|| {})).unwrap();
+        wait(&state);
+        let names = |filter: SearchFilter| -> Vec<String> {
+            let mut names: Vec<String> = state
+                .search_filtered("notice period", &filter)
+                .unwrap()
+                .files
+                .into_iter()
+                .map(|file| file.name)
+                .collect();
+            names.sort();
+            names
+        };
+        assert_eq!(
+            names(SearchFilter::default()),
+            vec!["lease.txt", "notice.md"]
+        );
+        let in_first = SearchFilter {
+            folder: Some(first.id),
+            kind: None,
+        };
+        assert_eq!(names(in_first), vec!["lease.txt"]);
+        let pdfs = SearchFilter {
+            folder: None,
+            kind: Some(FileKind::Pdf),
+        };
+        assert!(names(pdfs).is_empty());
+        let unknown = SearchFilter {
+            folder: Some(999),
+            kind: None,
+        };
+        assert!(state.search_filtered("notice", &unknown).is_err());
     }
 
     #[test]

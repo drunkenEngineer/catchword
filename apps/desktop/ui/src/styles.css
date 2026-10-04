@@ -409,6 +409,29 @@ mark {
   margin-bottom: 4px;
 }
 
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 8px 0;
+}
+
+.filters label {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.filters select {
+  max-width: 280px;
+  padding: 3px 4px;
+  font: inherit;
+  color: inherit;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
 .limits {
   display: flex;
   flex-wrap: wrap;

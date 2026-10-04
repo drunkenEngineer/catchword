@@ -184,6 +184,23 @@ pub struct NotIndexed {
     pub parked: bool,
 }
 
+/// What a search may return (SEA-6). The folder is named by its id: the
+/// interface never sends a path.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchFilter {
+    pub folder: Option<u32>,
+    pub kind: Option<FileKind>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum FileKind {
+    Pdf,
+    /// Plain text and Markdown.
+    Text,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchResponse {
@@ -271,6 +288,8 @@ mod tests {
             Work,
             Meaning,
             NotIndexed,
+            SearchFilter,
+            FileKind,
             SearchResponse,
             FileHit,
             PassageHit,

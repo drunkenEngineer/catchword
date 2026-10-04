@@ -80,6 +80,36 @@ pub struct Counts {
     pub vectors: i64,
 }
 
+/// Which files a search may return (SEA-6). An empty list allows all.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Filter {
+    /// Folder paths: a file must be inside one of them.
+    pub folders: Vec<String>,
+    /// Name extensions, lower case and without the dot: a file must have one.
+    pub extensions: Vec<String>,
+}
+
+impl Filter {
+    pub fn is_empty(&self) -> bool {
+        self.folders.is_empty() && self.extensions.is_empty()
+    }
+
+    pub fn allows(&self, path: &str) -> bool {
+        let inside = |folder: &String| {
+            let folder = folder.trim_end_matches(['/', '\\']);
+            path.strip_prefix(folder)
+                .is_some_and(|rest| rest.starts_with(['/', '\\']))
+        };
+        let extension = Path::new(path)
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .map(str::to_lowercase);
+        (self.folders.is_empty() || self.folders.iter().any(inside))
+            && (self.extensions.is_empty()
+                || extension.is_some_and(|extension| self.extensions.contains(&extension)))
+    }
+}
+
 /// A file that is not in the index, and why.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Problem {
@@ -565,18 +595,20 @@ impl Store {
         meaning: Option<&[f32]>,
         candidates: usize,
     ) -> rusqlite::Result<Vec<(Hit, Found)>> {
-        self.combine(words, meaning, false, candidates)
+        self.combine(words, meaning, false, candidates, &Filter::default())
     }
 
     /// As `search_combined`, and files whose name or folder names hold the
     /// query's words too (SEA-1). The app searches this way.
+    /// Results only from files `filter` allows (SEA-6).
     pub fn search_with_names(
         &self,
         words: &str,
         meaning: Option<&[f32]>,
         candidates: usize,
+        filter: &Filter,
     ) -> rusqlite::Result<Vec<(Hit, Found)>> {
-        self.combine(words, meaning, true, candidates)
+        self.combine(words, meaning, true, candidates, filter)
     }
 
     fn combine(
@@ -585,14 +617,17 @@ impl Store {
         meaning: Option<&[f32]>,
         names: bool,
         candidates: usize,
+        filter: &Filter,
     ) -> rusqlite::Result<Vec<(Hit, Found)>> {
-        let by_words = self.search_keyword(words, candidates)?;
+        // A filter leaves out some of the best candidates, so take more.
+        let widen = if filter.is_empty() { 1 } else { 4 };
+        let by_words = self.within(filter, self.search_keyword(words, candidates * widen)?)?;
         let by_meaning = match meaning {
-            Some(vector) => self.search_vector(vector, candidates)?,
+            Some(vector) => self.within(filter, self.search_vector(vector, candidates * widen)?)?,
             None => Vec::new(),
         };
         let by_name = if names {
-            self.search_names(words, NAME_CANDIDATES)?
+            self.within(filter, self.search_names(words, NAME_CANDIDATES * widen)?)?
         } else {
             Vec::new()
         };
@@ -627,6 +662,39 @@ impl Store {
             results.push((hit, fused.found));
         }
         Ok(results)
+    }
+
+    /// The hits from a file `filter` allows, each shown as such a file: of
+    /// identical copies, the one inside the filter.
+    fn within(&self, filter: &Filter, hits: Vec<Hit>) -> rusqlite::Result<Vec<Hit>> {
+        if filter.is_empty() {
+            return Ok(hits);
+        }
+        let mut copies = self.conn.prepare(
+            "SELECT f.path FROM files f JOIN passages p ON p.hash = f.hash
+             WHERE p.id = ?1 ORDER BY f.path",
+        )?;
+        let mut kept = Vec::new();
+        for mut hit in hits {
+            if !filter.allows(&hit.path) {
+                let paths =
+                    copies.query_map(params![hit.passage_id], |row| row.get::<_, String>(0))?;
+                let mut inside = None;
+                for path in paths {
+                    let path = path?;
+                    if filter.allows(&path) {
+                        inside = Some(path);
+                        break;
+                    }
+                }
+                match inside {
+                    Some(path) => hit.path = path,
+                    None => continue,
+                }
+            }
+            kept.push(hit);
+        }
+        Ok(kept)
     }
 
     /// The hits whose passage holds every one of `phrases`.
@@ -1336,6 +1404,59 @@ mod tests {
     }
 
     #[test]
+    fn a_filter_keeps_files_of_its_folders_and_kinds() {
+        let filter = Filter {
+            folders: vec!["C:\\docs\\tax".into()],
+            extensions: vec!["pdf".into()],
+        };
+        assert!(filter.allows("C:\\docs\\tax\\2025\\refund.PDF"));
+        assert!(!filter.allows("C:\\docs\\tax\\notes.txt"));
+        assert!(!filter.allows("C:\\docs\\taxes\\refund.pdf"));
+        assert!(Filter::default().allows("/anything.txt"));
+    }
+
+    #[test]
+    fn a_filtered_search_shows_the_copy_inside_the_folder() {
+        let store = store_with_filler(&[
+            ("/a/lease.txt", "h1", "the notice period is three months"),
+            (
+                "/b/lease-copy.txt",
+                "h1",
+                "the notice period is three months",
+            ),
+            (
+                "/b/rent.md",
+                "h2",
+                "the rent is due monthly, notice the period",
+            ),
+        ]);
+        let paths = |filter: &Filter| -> Vec<String> {
+            let mut found: Vec<String> = store
+                .search_with_names("notice period", None, 10, filter)
+                .unwrap()
+                .into_iter()
+                .map(|(hit, _)| hit.path)
+                .collect();
+            found.sort();
+            found
+        };
+        assert_eq!(
+            paths(&Filter::default()),
+            vec!["/a/lease.txt", "/b/rent.md"]
+        );
+        let in_b = Filter {
+            folders: vec!["/b".into()],
+            extensions: vec![],
+        };
+        assert_eq!(paths(&in_b), vec!["/b/lease-copy.txt", "/b/rent.md"]);
+        let markdown = Filter {
+            folders: vec![],
+            extensions: vec!["md".into()],
+        };
+        assert_eq!(paths(&markdown), vec!["/b/rent.md"]);
+    }
+
+    #[test]
     fn matched_words_are_counted_once_each() {
         let marked = "the \u{2}Rent\u{3} is due; \u{2}rent\u{3} and \u{2}notice\u{3} apply";
         assert_eq!(matched_words(marked), 2);
@@ -1926,7 +2047,9 @@ mod tests {
             "/docs/lease.txt",
             "/docs/notes.txt",
         ]);
-        let results = store.search_with_names("plumber", None, 10).unwrap();
+        let results = store
+            .search_with_names("plumber", None, 10, &Filter::default())
+            .unwrap();
         assert_eq!(results.len(), 1);
         let (hit, found) = &results[0];
         assert_eq!(*found, Found::Name);

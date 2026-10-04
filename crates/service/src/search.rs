@@ -2,7 +2,7 @@
 
 use anyhow::{Context, Result};
 use catchword_engine::fuse::{Found, CANDIDATES};
-use catchword_store::{Hit, Store};
+use catchword_store::{Filter, Hit, Store};
 
 use crate::{lock, Model};
 
@@ -46,6 +46,11 @@ pub struct Answer {
 }
 
 pub fn search(store: &Store, model: &Model, query: &str) -> Result<Answer> {
+    search_within(store, model, query, &Filter::default())
+}
+
+/// As `search`, with results only from files `filter` allows (SEA-6).
+pub fn search_within(store: &Store, model: &Model, query: &str, filter: &Filter) -> Result<Answer> {
     let mut notes = Vec::new();
     let vector = match model {
         Model::Unavailable(why) => {
@@ -78,7 +83,7 @@ pub fn search(store: &Store, model: &Model, query: &str) -> Result<Answer> {
             }
         },
     };
-    let results = store.search_with_names(query, vector.as_deref(), CANDIDATES)?;
+    let results = store.search_with_names(query, vector.as_deref(), CANDIDATES, filter)?;
     Ok(Answer { results, notes })
 }
 

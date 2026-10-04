@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SearchResponse } from "./contract/SearchResponse";
 import type { Status } from "./contract/Status";
@@ -72,6 +72,21 @@ describe("the search screen", () => {
     });
     expect(clipboard[0]).toContain("within 10 working days");
     expect(clipboard[0]).toContain("— tax-refund-letter.pdf, page 2");
+  });
+
+  it("keeps to one folder or one kind of file when asked", async () => {
+    const engine = createMockEngine();
+    const search = vi.spyOn(engine, "search");
+    await show(engine, "notice");
+    await screen.findAllByText("tenancy-agreement.txt");
+    fireEvent.change(screen.getByRole("combobox", { name: "Kind" }), { target: { value: "pdf" } });
+    await waitFor(() => expect(screen.queryAllByText("tenancy-agreement.txt")).toHaveLength(0));
+    expect(search).toHaveBeenLastCalledWith("notice", { folder: null, kind: "pdf" });
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Kind" }), { target: { value: "" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Folder" }), { target: { value: "2" } });
+    await waitFor(() => expect(search).toHaveBeenLastCalledWith("notice", { folder: 2, kind: null }));
+    expect((await screen.findAllByText("tenancy-agreement.txt")).length).toBeGreaterThan(0);
   });
 
   it("shows when each file was last changed", async () => {

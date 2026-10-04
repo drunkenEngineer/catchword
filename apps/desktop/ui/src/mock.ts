@@ -5,6 +5,7 @@ import type { FileHit } from "./contract/FileHit";
 import type { PassageHit } from "./contract/PassageHit";
 import type { PauseReason } from "./contract/PauseReason";
 import type { ResourceMode } from "./contract/ResourceMode";
+import type { SearchFilter } from "./contract/SearchFilter";
 import type { SearchResponse } from "./contract/SearchResponse";
 import type { SettingsView } from "./contract/SettingsView";
 import type { Span } from "./contract/Span";
@@ -115,7 +116,9 @@ export function createMockEngine({ firstLaunch = false } = {}): Engine {
       };
     },
 
-    async search(query: string): Promise<SearchResponse> {
+    async search(query: string, filter?: SearchFilter): Promise<SearchResponse> {
+      const folder = folders.find((f) => f.id === filter?.folder)?.path;
+      const kindOf = (name: string) => (name.toLowerCase().endsWith(".pdf") ? "pdf" : "text");
       const words = query
         .toLowerCase()
         .split(/\s+/)
@@ -123,6 +126,8 @@ export function createMockEngine({ firstLaunch = false } = {}): Engine {
         .filter((word) => word !== "");
       const files: FileHit[] = [];
       for (const doc of folders.length === 0 ? [] : DOCUMENTS) {
+        if (folder !== undefined && doc.folder !== folder) continue;
+        if (filter?.kind && kindOf(doc.name) !== filter.kind) continue;
         const passages: PassageHit[] = doc.passages
           .map((passage) => ({ ...passage, snippet: mark(passage.text, words) }))
           .filter((passage) => passage.snippet.some((span) => span.marked))

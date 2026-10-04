@@ -5,6 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 import { createContext, useContext } from "react";
 import type { Folder } from "./contract/Folder";
 import type { ResourceMode } from "./contract/ResourceMode";
+import type { SearchFilter } from "./contract/SearchFilter";
 import type { SearchResponse } from "./contract/SearchResponse";
 import type { SettingsView } from "./contract/SettingsView";
 import type { TextSize } from "./contract/TextSize";
@@ -13,7 +14,7 @@ import type { Status } from "./contract/Status";
 
 export interface Engine {
   status(): Promise<Status>;
-  search(query: string): Promise<SearchResponse>;
+  search(query: string, filter?: SearchFilter): Promise<SearchResponse>;
   /** Opens the native folder dialog; null when the user cancels. */
   addFolder(): Promise<Folder | null>;
   removeFolder(id: number): Promise<void>;
@@ -58,7 +59,7 @@ export interface Engine {
 /** The real engine, through the shell's commands (apps/desktop/src-tauri). */
 export const tauriEngine: Engine = {
   status: () => invoke("status"),
-  search: (query) => invoke("search", { query }),
+  search: (query, filter) => invoke("search", { query, filter: filter ?? null }),
   addFolder: () => invoke("add_folder"),
   removeFolder: (id) => invoke("remove_folder", { id }),
   indexNow: () => invoke("index_now"),

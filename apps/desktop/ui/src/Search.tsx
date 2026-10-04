@@ -4,6 +4,8 @@
 // Document text, file names included, is untrusted: it is only ever placed
 // as text, never as HTML, so markup in a document stays inert (SEC-1).
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { FileKind } from "./contract/FileKind";
+import type { SearchFilter } from "./contract/SearchFilter";
 import type { FileHit } from "./contract/FileHit";
 import type { PassageHit } from "./contract/PassageHit";
 import type { SearchResponse } from "./contract/SearchResponse";
@@ -24,6 +26,7 @@ export function Search({ status, openLibrary }: { status: Status | null; openLib
   const engine = useEngine();
   const [query, setQuery] = useState("");
   const [answer, setAnswer] = useState<SearchResponse | null>(null);
+  const [filter, setFilter] = useState<SearchFilter>({ folder: null, kind: null });
   const [selected, setSelected] = useState(0);
   const [preview, setPreview] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -39,7 +42,7 @@ export function Search({ status, openLibrary }: { status: Status | null; openLib
     }
     let current = true;
     const timer = setTimeout(() => {
-      engine.search(text).then(
+      engine.search(text, filter).then(
         (found) => {
           if (current) {
             setAnswer(found);
@@ -53,7 +56,7 @@ export function Search({ status, openLibrary }: { status: Status | null; openLib
       current = false;
       clearTimeout(timer);
     };
-  }, [query, engine]);
+  }, [query, engine, filter]);
 
   const choices: Choice[] = useMemo(
     () => answer?.files.flatMap((file) => file.passages.map((passage) => ({ file, passage }))) ?? [],
@@ -159,6 +162,39 @@ export function Search({ status, openLibrary }: { status: Status | null; openLib
         aria-keyshortcuts="Control+K"
         spellCheck={false}
       />
+      {status && status.folders.length > 0 && (
+        <div className="filters">
+          <label>
+            {strings.search.filterFolder}
+            <select
+              value={filter.folder ?? ""}
+              onChange={(event) =>
+                setFilter({ ...filter, folder: event.target.value === "" ? null : Number(event.target.value) })
+              }
+            >
+              <option value="">{strings.search.allFolders}</option>
+              {status.folders.map((folder) => (
+                <option key={folder.id} value={folder.id}>
+                  {folder.path}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            {strings.search.filterKind}
+            <select
+              value={filter.kind ?? ""}
+              onChange={(event) =>
+                setFilter({ ...filter, kind: event.target.value === "" ? null : (event.target.value as FileKind) })
+              }
+            >
+              <option value="">{strings.search.allKinds}</option>
+              <option value="pdf">{strings.search.kinds.pdf}</option>
+              <option value="text">{strings.search.kinds.text}</option>
+            </select>
+          </label>
+        </div>
+      )}
       {status?.work && <p className="notice">{strings.search.partial}</p>}
 
       {query.trim() === "" && (
