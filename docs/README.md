@@ -5,6 +5,5 @@
 
 ## Before the first public push
 
-- Replace `OWNER` in `.github/CODEOWNERS` and `.github/ISSUE_TEMPLATE/config.yml`.
 - Add a contact address to `CODE_OF_CONDUCT.md`.
 - Confirm the name: domain, trademark search, Microsoft Store reservation.

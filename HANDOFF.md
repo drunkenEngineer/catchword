@@ -82,7 +82,7 @@ Waiting for the owner: the updater (APP-2, REL-3, which needs an update signing 
 - One backlog item per change. Keep changes small.
 - The owner reviews every change and must be able to understand it. Explain what you did and why, in plain words.
 - When the specification and reality disagree, stop and ask. Record real decisions as ADRs in `docs/adr`.
-- Before the first public push, replace the `OWNER` placeholders listed in `docs/README.md`.
+- The repository is https://github.com/drunkenEngineer/catchword, private for now. Before making it public, see the list in `docs/README.md`.
 
 ## First message to send
 
