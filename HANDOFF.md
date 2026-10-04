@@ -1,6 +1,8 @@
 # Handoff: Catchword
 
-You are taking over development of Catchword. Read this file first, then `docs/specification.md`.
+> Since 4 October 2026 the living handover is `HANDOVER.md` (status, decisions, known issues, next steps). This file keeps the original task queue and its history.
+
+You are taking over development of Catchword. Read `HANDOVER.md` first, then this file and `docs/specification.md`.
 
 ## What Catchword is
 

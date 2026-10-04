@@ -1,6 +1,6 @@
 # Catchword: instructions for Claude Code
 
-Read `HANDOFF.md` first. It says what exists, which decisions are fixed, and what to do next.
+Read `HANDOVER.md` first: the living handover (status, architecture, decisions, known issues, failed approaches, next steps). Keep it up to date after meaningful work. `HANDOFF.md` holds the original task queue and its history.
 
 The full plan is `docs/specification.md` (26 sections). Before any work, read sections 1, 5, 9, 11, 12, 13, 20, 21 and 26.
 
