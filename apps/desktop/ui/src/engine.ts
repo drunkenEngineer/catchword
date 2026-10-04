@@ -46,6 +46,8 @@ export interface Engine {
   /** Deletes the index and the settings. The user's files stay. */
   deleteAllData(): Promise<void>;
   setDetailedLogs(on: boolean): Promise<void>;
+  /** Indexing waits while the computer runs on battery (IDX-9). */
+  setPauseOnBattery(on: boolean): Promise<void>;
   /** The diagnostics report, as plain text, for the user to read. */
   diagnostics(includePaths: boolean): Promise<string>;
   /** Saves the report last shown; the file's name, or null if cancelled. */
@@ -83,6 +85,7 @@ export const tauriEngine: Engine = {
   finishFirstLaunch: () => invoke("finish_first_launch"),
   deleteAllData: () => invoke("delete_all_data"),
   setDetailedLogs: (on) => invoke("set_detailed_logs", { on }),
+  setPauseOnBattery: (on) => invoke("set_pause_on_battery", { on }),
   diagnostics: (includePaths) => invoke("diagnostics", { includePaths }),
   saveDiagnostics: () => invoke("save_diagnostics"),
   preview: (id) => invoke("preview", { id }),

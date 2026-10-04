@@ -86,7 +86,9 @@ export function Library({ status }: { status: Status | null }) {
           <p role="status">
             {status.paused === "lowDisk"
               ? strings.library.pausedLowDisk
-              : status.paused === "newerIndex"
+              : status.paused === "battery"
+                ? strings.library.pausedBattery
+                : status.paused === "newerIndex"
                 ? strings.library.pausedNewerIndex
                 : status.paused === "safeMode"
                   ? strings.library.pausedSafeMode

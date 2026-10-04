@@ -71,6 +71,7 @@ export function createMockEngine({ firstLaunch = false } = {}): Engine {
   let excludedFolders: Folder[] = [];
   let patterns = [...DEFAULT_PATTERNS];
   let detailedLogs = false;
+  let pauseOnBattery = true;
   let paused: PauseReason | null = null;
   let resourceMode: ResourceMode = "balanced";
   let theme: Theme = "system";
@@ -220,6 +221,7 @@ export function createMockEngine({ firstLaunch = false } = {}): Engine {
         textSize,
         maxFileMb,
         maxPages,
+        pauseOnBattery,
       };
     },
 
@@ -253,6 +255,10 @@ export function createMockEngine({ firstLaunch = false } = {}): Engine {
 
     async setDetailedLogs(on: boolean): Promise<void> {
       detailedLogs = on;
+    },
+
+    async setPauseOnBattery(on: boolean): Promise<void> {
+      pauseOnBattery = on;
     },
 
     async diagnostics(includePaths: boolean): Promise<string> {

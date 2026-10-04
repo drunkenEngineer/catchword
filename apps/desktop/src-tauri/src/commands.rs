@@ -24,6 +24,7 @@ use crate::contract::{
 use crate::diagnostics::{self, Facts};
 use crate::indexing::{self, Indexer, Notify};
 use crate::log::{self, Logger, Value};
+use crate::power;
 use crate::settings::{self, FolderEntry, Settings};
 use crate::{open, views};
 
@@ -46,6 +47,8 @@ pub struct AppState {
     interface_up: std::sync::atomic::AtomicBool,
     /// The diagnostics report the user last read, which is what is saved.
     report: Mutex<Option<String>>,
+    /// Whether the computer was on battery when last looked at (IDX-9).
+    power: Mutex<Option<bool>>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -101,6 +104,7 @@ impl AppState {
             log,
             interface_up: std::sync::atomic::AtomicBool::new(false),
             report: Mutex::new(None),
+            power: Mutex::new(None),
         })
     }
 
@@ -176,6 +180,43 @@ impl AppState {
         self.indexer.resume();
         self.log.info("index.resumed", &[]);
         self.start_indexing(notify);
+        Ok(())
+    }
+
+    /// The power source as it is now: on battery, indexing pauses; plugged
+    /// in again, it carries on (IDX-9, see `power::step`).
+    pub fn power_changed(&self, on_battery: Option<bool>, notify: Notify) {
+        let enabled = lock(&self.settings).pause_on_battery;
+        let before = std::mem::replace(&mut *lock(&self.power), on_battery);
+        match power::step(before, on_battery, enabled, self.indexer.paused()) {
+            power::Step::Pause => {
+                self.indexer.pause(PauseReason::Battery);
+                self.log.info("index.battery_pause", &[]);
+                notify();
+            }
+            power::Step::Resume => {
+                self.indexer.resume();
+                self.log.info("index.battery_resume", &[]);
+                self.start_indexing(Arc::clone(&notify));
+                notify();
+            }
+            power::Step::Nothing => {}
+        }
+    }
+
+    /// Whether indexing waits while on battery. Switched on, it takes effect
+    /// at the next look even if already on battery; switched off, a battery
+    /// pause ends there.
+    pub fn set_pause_on_battery(&self, on: bool) -> Result<()> {
+        let mut settings = lock(&self.settings);
+        settings.pause_on_battery = on;
+        settings.save(&self.config_dir)?;
+        drop(settings);
+        if on {
+            *lock(&self.power) = None;
+        }
+        self.log
+            .info("index.pause_on_battery", &[("on", Value::Flag(on))]);
         Ok(())
     }
 
@@ -280,6 +321,7 @@ impl AppState {
             text_size: settings.text_size,
             max_file_mb: settings.max_file_mb,
             max_pages: settings.max_pages,
+            pause_on_battery: settings.pause_on_battery,
         })
     }
 
@@ -927,6 +969,16 @@ pub async fn set_resource_mode(app: AppHandle, mode: ResourceMode) -> Result<(),
                 state.reload_model(notifier(&app));
             });
         }
+        Ok(())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn set_pause_on_battery(app: AppHandle, on: bool) -> Result<(), String> {
+    on_state(app, "set_pause_on_battery", move |app, state| {
+        state.set_pause_on_battery(on)?;
+        state.power_changed(crate::power::on_battery(), notifier(app));
         Ok(())
     })
     .await
@@ -1619,6 +1671,48 @@ mod tests {
         found.sort();
         assert_eq!(found, vec!["lease.txt", "notice.md"]);
         assert!(words.notes.is_empty());
+    }
+
+    #[test]
+    fn indexing_waits_on_battery_and_carries_on_when_plugged_in() {
+        let (state, docs) = state("battery");
+        let quiet: Notify = Arc::new(|| {});
+        assert!(state.settings().unwrap().pause_on_battery);
+        state.power_changed(Some(false), Arc::clone(&quiet));
+        assert_eq!(state.status().unwrap().paused, None);
+
+        state.power_changed(Some(true), Arc::clone(&quiet));
+        assert_eq!(state.status().unwrap().paused, Some(PauseReason::Battery));
+        // Nothing is indexed while it waits.
+        state.add_folder(&docs, Arc::clone(&quiet)).unwrap();
+        wait(&state);
+        assert_eq!(state.status().unwrap().files, 0);
+
+        // Plugged in: it carries on by itself.
+        state.power_changed(Some(false), Arc::clone(&quiet));
+        wait(&state);
+        let status = state.status().unwrap();
+        assert_eq!((status.paused, status.files), (None, 2));
+
+        // The user's own pause is never lifted by the power source.
+        state.pause_indexing().unwrap();
+        state.power_changed(Some(true), Arc::clone(&quiet));
+        state.power_changed(Some(false), Arc::clone(&quiet));
+        assert_eq!(state.status().unwrap().paused, Some(PauseReason::You));
+        state.resume_indexing(Arc::clone(&quiet)).unwrap();
+
+        // Switched off, a battery pause ends; it is remembered.
+        state.power_changed(Some(true), Arc::clone(&quiet));
+        assert_eq!(state.status().unwrap().paused, Some(PauseReason::Battery));
+        state.set_pause_on_battery(false).unwrap();
+        state.power_changed(Some(true), Arc::clone(&quiet));
+        assert_eq!(state.status().unwrap().paused, None);
+        assert!(!state.settings().unwrap().pause_on_battery);
+        // Switched on again while on battery, it pauses at the next look.
+        state.set_pause_on_battery(true).unwrap();
+        state.power_changed(Some(true), Arc::clone(&quiet));
+        assert_eq!(state.status().unwrap().paused, Some(PauseReason::Battery));
+        wait(&state);
     }
 
     #[test]

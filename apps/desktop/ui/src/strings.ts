@@ -118,6 +118,8 @@ export const strings = {
     pause: "Pause",
     resume: "Resume",
     pausedByYou: "Indexing is paused. Search works with what is indexed so far.",
+    pausedBattery:
+      "Indexing is paused while the computer runs on battery. It carries on when you plug it in, or resume it now.",
     pausedLowDisk:
       "Indexing is paused: less than 1 GB is free on the drive that holds the index. Free some space, then resume.",
     pausedNewerIndex:
@@ -176,6 +178,7 @@ export const strings = {
       fast: ["Fast", "All cores but one. Finishes soonest; the computer may get warm and loud."],
     } as Record<"light" | "balanced" | "fast", [string, string]>,
     modeNote: "Indexing always runs at low priority, so your other work comes first.",
+    pauseOnBattery: "Pause indexing while the computer runs on battery. It carries on when you plug it in.",
     maxFileMb: "Largest file to read, in MB",
     maxPages: "Most pages to read from a PDF",
     saveLimits: "Save limits",

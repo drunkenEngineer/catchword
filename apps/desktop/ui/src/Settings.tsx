@@ -173,6 +173,14 @@ export function Settings() {
           ))}
         </fieldset>
         <p className="muted">{strings.settings.modeNote}</p>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={view.pauseOnBattery}
+            onChange={(event) => engine.setPauseOnBattery(event.target.checked).then(load, fail)}
+          />
+          {strings.settings.pauseOnBattery}
+        </label>
         <div className="limits">
           <label>
             {strings.settings.maxFileMb}

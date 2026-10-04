@@ -51,6 +51,9 @@ pub enum PauseReason {
     NewerIndex,
     /// The app ended uncleanly twice in a row: it opened in safe mode.
     SafeMode,
+    /// The computer runs on battery; indexing carries on when it is
+    /// plugged in (IDX-9).
+    Battery,
 }
 
 /// Light or dark, or as Windows is set (APP-3).
@@ -115,6 +118,8 @@ pub struct SettingsView {
     pub max_file_mb: u32,
     /// Pages past this many are not read from a PDF.
     pub max_pages: u32,
+    /// Indexing waits while the computer runs on battery (IDX-9).
+    pub pause_on_battery: bool,
 }
 
 /// A folder the user chose. The path is shown, never sent back.

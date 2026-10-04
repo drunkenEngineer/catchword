@@ -22,6 +22,7 @@ fn main() {
         "pause_indexing",
         "resume_indexing",
         "set_resource_mode",
+        "set_pause_on_battery",
         "set_detailed_logs",
         "diagnostics",
         "save_diagnostics",

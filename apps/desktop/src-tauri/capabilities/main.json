@@ -26,6 +26,7 @@
     "allow-pause-indexing",
     "allow-resume-indexing",
     "allow-set-resource-mode",
+    "allow-set-pause-on-battery",
     "allow-set-detailed-logs",
     "allow-diagnostics",
     "allow-save-diagnostics",

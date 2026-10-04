@@ -37,6 +37,10 @@ fn default_max_pages() -> u32 {
     DEFAULT_MAX_PAGES
 }
 
+fn yes() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Settings {
     /// Bumped when the format changes.
@@ -69,6 +73,9 @@ pub struct Settings {
     /// Pages past this many are not read from a PDF.
     #[serde(default = "default_max_pages")]
     pub max_pages: u32,
+    /// Indexing waits while the computer runs on battery (IDX-9).
+    #[serde(default = "yes")]
+    pub pause_on_battery: bool,
     next_id: u32,
 }
 
@@ -93,6 +100,7 @@ impl Default for Settings {
             text_size: TextSize::Normal,
             max_file_mb: DEFAULT_MAX_FILE_MB,
             max_pages: DEFAULT_MAX_PAGES,
+            pause_on_battery: true,
             next_id: 1,
         }
     }

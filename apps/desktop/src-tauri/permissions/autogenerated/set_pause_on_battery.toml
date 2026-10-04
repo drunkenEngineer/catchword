@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-pause-on-battery"
+description = "Enables the set_pause_on_battery command without any pre-configured scope."
+commands.allow = ["set_pause_on_battery"]
+
+[[permission]]
+identifier = "deny-set-pause-on-battery"
+description = "Denies the set_pause_on_battery command without any pre-configured scope."
+commands.deny = ["set_pause_on_battery"]

@@ -43,4 +43,8 @@ maxFileMb: number,
 /**
  * Pages past this many are not read from a PDF.
  */
-maxPages: number, };
+maxPages: number, 
+/**
+ * Indexing waits while the computer runs on battery (IDX-9).
+ */
+pauseOnBattery: boolean, };

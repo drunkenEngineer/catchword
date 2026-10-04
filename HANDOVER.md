@@ -27,7 +27,7 @@ Last updated: 2026-10-04.
 
 ## 2. Current Status
 
-Overall health: **good**. On 2026-10-04, on Windows 11: 247 Rust tests and 59 interface tests pass; format, lint, type check and the privacy check are clean; the retrieval evaluation meets all 11 thresholds. CI has never been seen to run (see section 8).
+Overall health: **good**. On 2026-10-04, on Windows 11: 252 Rust tests and 60 interface tests pass; format, lint, type check and the privacy check are clean; the retrieval evaluation meets all 11 thresholds. CI has never been seen to run (see section 8).
 
 | Area | Status |
 | --- | --- |
@@ -38,6 +38,8 @@ Overall health: **good**. On 2026-10-04, on Windows 11: 247 Rust tests and 59 in
 | Coverage: problems recorded with reasons, retry, parking after two failures | `[DONE]` |
 | Offline folders, cloud-only files, unreadable sub-folders | `[DONE]` |
 | Pause/resume, resource modes, low-disk pause | `[DONE]` |
+| Pause on battery, resume when plugged in (IDX-9, a 0.2 SHOULD, done early) | `[DONE]` |
+| Moving the index to a folder the user chooses (APP-7, 0.2) | `[DECISION NEEDED]`: the spec disagrees with itself (section 10) |
 | Rebuild on demand, quick check at start, damaged-index recovery, newer-index refusal | `[DONE]` |
 | Safe mode after two unclean ends in a row (spec section 19) | `[DONE]` |
 | Hostile-input tests (REL-2, start of Phase 3): worker answers, decoding, cutting, patterns, queries, 150 damaged PDFs, a decompression bomb, deep nesting, a false page count | `[DONE]`; fuzzing tools (cargo-fuzz) `[TODO]` |
@@ -97,7 +99,7 @@ fuse, extract ───► catchword-worker (separate process, PDFium), under a 
   - `open.rs`: opening files through ShellExecuteW;
   - `views.rs`: store results to contract types;
   - `lib.rs`: setup.
-- **Commands (allow-list):** `status search add_folder remove_folder index_now retry_failed settings exclude_folder include_folder set_patterns finish_first_launch delete_all_data rebuild_index check_index notices set_appearance set_limits pause_indexing resume_indexing set_resource_mode set_detailed_logs diagnostics save_diagnostics preview open_file reveal_file`. A new command needs all three: the list in `apps/desktop/src-tauri/build.rs`, `allow-<name>` in `capabilities/main.json`, and registration in `lib.rs`.
+- **Commands (allow-list):** `status search add_folder remove_folder index_now retry_failed settings exclude_folder include_folder set_patterns finish_first_launch delete_all_data rebuild_index check_index notices set_appearance set_limits pause_indexing resume_indexing set_resource_mode set_pause_on_battery set_detailed_logs diagnostics save_diagnostics preview open_file reveal_file`. A new command needs all three: the list in `apps/desktop/src-tauri/build.rs`, `allow-<name>` in `capabilities/main.json`, and registration in `lib.rs`.
 - **Database:** one SQLite file, `data/index.db`; see section 14.
 - **APIs:** none over a network. Worker protocol v1 over stdin/stdout: length-prefixed, versioned frames (ADR-15, `crates/engine/src/extract/protocol.rs`).
 - **Authentication:** none, by design.
@@ -353,7 +355,7 @@ The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23
 - MSIX install test and Store registration: owner steps in `docs/packaging.md`; then put the Store identity in `apps/desktop/msix/AppxManifest.xml`.
 
 **Medium**
-- Move the data location (APP-7) and the synced-folder warning that goes with it.
+- Move the data location (APP-7) `[DECISION NEEDED]`. APP-7 lets the index live in any folder the user picks, but PRIV-7 says uninstalling removes the index, and section 15 says a Store uninstall removes all app data. Windows removes only the app's own container on a Store uninstall, and our NSIS uninstaller only knows the default place, so a moved index would be left behind, a full-text copy of private documents. Options: allow only folders the uninstaller can find (write the location where `hooks.nsh` can read it; impossible for the Store build); warn at the move that uninstalling will not remove it; or drop APP-7 until index encryption (PRIV-6). Also undecided: what happens when the chosen drive is missing at start.
 - Quantised vector search with rescoring if combined search misses 500 ms on the reference laptop (spec section 14, scale tiers).
 - Filter by modified date (SEA-6 says later).
 - Move the CI actions to their newer major versions (checkout v7, cache v6, setup-node v7 exist on 2026-10-04; the workflow uses v4 of each). Only once CI results can be seen, since a major version can change behaviour.
@@ -423,7 +425,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 
 ## 13. Testing
 
-- Coverage on 2026-10-04: 247 Rust tests and 59 interface tests pass. There are four ignored tests: the packaged-files test and three measurements.
+- Coverage on 2026-10-04: 252 Rust tests and 60 interface tests pass. There are four ignored tests: the packaged-files test and three measurements.
 - The evaluation meets all 11 thresholds; combined recall@10 is 92.5%.
 - Rust tests:
   - unit tests in each crate;
@@ -467,7 +469,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
   - `passage_vectors`: sqlite-vec, 384 floats per passage.
   - `problems(path PK, size, modified_secs, reason, attempts)`: files not indexed. The reason codes are `needs-ocr`, `encrypted`, `too-large`, `cannot-open`, `damaged`, `timed-out`, `memory-limit`, `crashed`, `invalid-output`, `library-missing` and `cloud-only`. Failures are parked after 2 attempts; rule-based skips wait until the file changes; `cannot-open` and `cloud-only` are retried every run.
   - `temp.passage_words`: an fts5vocab view, per connection only.
-- **Settings:** `config\settings.json`, version 2, written atomically with the previous copy kept (`apps/desktop/src-tauri/src/settings.rs`). Fields: `folders`, `excluded_folders`, `patterns`, `welcomed`, `detailed_logs`, `resource_mode`, `paused`, `theme`, `text_size`, `max_file_mb`, `max_pages`, `next_id`. Version 1 files are upgraded.
+- **Settings:** `config\settings.json`, version 2, written atomically with the previous copy kept (`apps/desktop/src-tauri/src/settings.rs`). Fields: `folders`, `excluded_folders`, `patterns`, `welcomed`, `detailed_logs`, `resource_mode`, `paused`, `theme`, `text_size`, `max_file_mb`, `max_pages`, `pause_on_battery` (default on), `next_id`. Version 1 files are upgraded.
 - **Assumptions:** the index can always be rebuilt from the files. Settings are precious; the index is not.
 
 ## 15. External Services
@@ -509,6 +511,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 - **While indexing (spec section 8, states):** Search says how far it has got (`indexingNotice` in `Search.tsx`): "Reading your files: N of M" for an index without a finished scan (new, or rebuilt after damage or on request: this is the "Index repairing" state), "Checking your files for changes" otherwise, and the share searchable by meaning in the second stage. The word-stage counts are per folder, as in Library. A search still running after 300 ms shows "Searching…".
 - **Keyword results first (spec section 8, "Loading"):** Search asks for results by words and names alone (`search` with `wordsOnly`, `search_words` in the service: no model), then for the full search. The words-only results are shown only if the full ones have not followed within 150 ms (`WORDS_FIRST_MS`), so a quick search never reorders under the user; when the full results replace them, the passage the user moved to stays chosen if it is still there.
 - **Start-up notices (spec section 8, "Index unreadable"):** a damaged index or settings file is reported in `Status.notice`, said once by the engine; the window keeps it in a banner above every destination until the user presses OK. Before 2026-10-04 it travelled in `Status.problem`, which the next refresh replaced, so it was shown only to someone already in Library.
+- **On battery (IDX-9):** every 10 s the shell asks Windows whether it runs on battery (`apps/desktop/src-tauri/src/power.rs`). Going on battery pauses indexing (`PauseReason::Battery`); plugging in resumes it. It acts only on the change (`power::step`), so a user who presses Resume on battery is not overruled until the next unplug, and it never lifts a pause for another reason. Settings has the switch, on by default. The battery pause is not saved: the next start looks again.
 - **Copying (RES-3):** Copy passage (Ctrl+C) puts the passage and its source on the clipboard; Copy path (Ctrl+Shift+C) the file's whole path, with control characters removed (`FileHit.path`).
 - **A result whose file moved:** `open_file` and `reveal_file` return `FileAction::Missing` instead of opening anything; Search shows a notice naming the file, with Scan now (spec section 8, "File moved or deleted").
 - **Confirmations are inline:** the safe choice ("Keep") has the focus, and Escape picks it.
@@ -575,7 +578,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
   - CI results unseen (gh not logged in).
 - Current state: everything committed; all checks pass.
 - Next step: CI results; the owner's decisions; the "High" items in section 10.
-- Later the same day: `HANDOVER.md` written; 11 commits pushed; the two low-disk tests limited to Windows (free space is read on Windows only, so CI on Linux and macOS would fail them); safe mode added and verified in a release build; hostile-input tests added, which found that a NUL in a query made search fail (fixed); 150 damaged PDFs and three resource-exhaustion files through the real worker; "nothing found" causes with counts; a notice when a result's file has moved; ADR-1 to ADR-13 written as files (ARC-1); CI actions pinned to commit hashes, with a check; a test that links and junctions out of a chosen folder are not followed (SRC-6 had none); deleted content leaves the index file (PRIV-5, ADR-22): a byte-level test found that a purged file's words and name stayed in the keyword indexes, now fixed; Copy path (RES-3), with Ctrl+Shift+C as the spec's keyboard table gives it; the table's last two missing shortcuts, F6 between panes and Left/Right to fold a file's passages; Search's indexing notice with counts, and "Searching…" after 300 ms; start-up notices (damaged index or settings) now stay on screen until closed; before, the next status refresh dropped them; the threat model published (SEC-3), with the CI-actions comment corrected from T8 to T7; the app's manifest declares it runs as the user (`asInvoker`), with a test on the built program; keyword results first when the full search is slow. All pushed.
+- Later the same day: `HANDOVER.md` written; 11 commits pushed; the two low-disk tests limited to Windows (free space is read on Windows only, so CI on Linux and macOS would fail them); safe mode added and verified in a release build; hostile-input tests added, which found that a NUL in a query made search fail (fixed); 150 damaged PDFs and three resource-exhaustion files through the real worker; "nothing found" causes with counts; a notice when a result's file has moved; ADR-1 to ADR-13 written as files (ARC-1); CI actions pinned to commit hashes, with a check; a test that links and junctions out of a chosen folder are not followed (SRC-6 had none); deleted content leaves the index file (PRIV-5, ADR-22): a byte-level test found that a purged file's words and name stayed in the keyword indexes, now fixed; Copy path (RES-3), with Ctrl+Shift+C as the spec's keyboard table gives it; the table's last two missing shortcuts, F6 between panes and Left/Right to fold a file's passages; Search's indexing notice with counts, and "Searching…" after 300 ms; start-up notices (damaged index or settings) now stay on screen until closed; before, the next status refresh dropped them; the threat model published (SEC-3), with the CI-actions comment corrected from T8 to T7; the app's manifest declares it runs as the user (`asInvoker`), with a test on the built program; keyword results first when the full search is slow; indexing pauses on battery and carries on when plugged in (IDX-9); APP-7 found to conflict with PRIV-7 and the Store's uninstall, recorded for the owner. All pushed.
 
 ---
 

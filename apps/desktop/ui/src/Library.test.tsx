@@ -115,6 +115,13 @@ describe("the library screen", () => {
     const lowDisk = { ...(await engine.status()), paused: "lowDisk" as const };
     renderWith(engine, <Library status={lowDisk} />);
     expect(screen.getByText(/less than 1 GB is free/)).toBeTruthy();
+
+    cleanup();
+    const battery = { ...(await engine.status()), paused: "battery" as const };
+    renderWith(engine, <Library status={battery} />);
+    expect(screen.getByText(/runs on battery\. It carries on when you plug it in/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Resume" }));
+    expect(resume).toHaveBeenCalledTimes(2);
   });
 
   it("explains safe mode and offers both a resume and a rebuild", async () => {

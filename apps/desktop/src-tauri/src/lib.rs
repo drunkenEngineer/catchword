@@ -13,6 +13,7 @@ mod disk;
 mod indexing;
 mod log;
 mod open;
+mod power;
 mod session;
 mod settings;
 mod views;
@@ -48,6 +49,14 @@ pub fn run() {
                 let _ = window.set_theme(commands::window_theme(state.theme()));
             }
             app.manage(state);
+            // On battery, indexing waits for mains power (IDX-9). The first
+            // look comes before indexing starts.
+            let handle = app.handle().clone();
+            thread::spawn(move || loop {
+                let state = handle.state::<AppState>();
+                state.power_changed(power::on_battery(), notifier(&handle));
+                thread::sleep(power::CHECK_EVERY);
+            });
             // The model takes a few seconds; the window is usable meanwhile.
             let handle = app.handle().clone();
             thread::spawn(move || {
@@ -79,6 +88,7 @@ pub fn run() {
             commands::pause_indexing,
             commands::resume_indexing,
             commands::set_resource_mode,
+            commands::set_pause_on_battery,
             commands::set_detailed_logs,
             commands::diagnostics,
             commands::save_diagnostics,

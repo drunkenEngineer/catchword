@@ -152,6 +152,20 @@ describe("the settings screen", () => {
     expect(screen.getByRole("alert").textContent).toContain("between 1 and 100000");
   });
 
+  it("pauses on battery unless told not to", async () => {
+    const engine = createMockEngine();
+    const set = vi.spyOn(engine, "setPauseOnBattery");
+    renderWith(engine, <Settings />);
+    const name = /Pause indexing while the computer runs on battery/;
+    const box = (await screen.findByRole("checkbox", { name })) as HTMLInputElement;
+    expect(box.checked).toBe(true);
+    await act(async () => {
+      fireEvent.click(box);
+    });
+    expect(set).toHaveBeenCalledWith(false);
+    expect(((await screen.findByRole("checkbox", { name })) as HTMLInputElement).checked).toBe(false);
+  });
+
   it("turns detailed logs on and off", async () => {
     const engine = createMockEngine();
     const setDetailedLogs = vi.spyOn(engine, "setDetailedLogs");
