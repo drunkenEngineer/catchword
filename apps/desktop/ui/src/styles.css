@@ -355,6 +355,15 @@ mark {
   border-radius: 6px;
 }
 
+.folder-name {
+  display: grid;
+  gap: 2px;
+}
+
+.folder-offline {
+  color: var(--danger);
+}
+
 /* Contrast themes: let Windows choose every colour. */
 @media (forced-colors: active) {
   .passage[aria-selected="true"],

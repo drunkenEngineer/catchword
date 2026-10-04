@@ -17,7 +17,9 @@ use catchword_store::Store;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
 
-use crate::contract::{Folder, Meaning, SearchResponse, SettingsView, Status};
+use crate::contract::{
+    Folder, FolderState, FolderStatus, Meaning, SearchResponse, SettingsView, Status,
+};
 use crate::diagnostics::{self, Facts};
 use crate::indexing::{Indexer, Notify};
 use crate::log::{self, Logger, Value};
@@ -280,7 +282,21 @@ impl AppState {
         // One lock at a time: a guard lives to the end of its statement.
         let (folders, first_launch) = {
             let settings = lock(&self.settings);
-            let folders = settings.folders.iter().map(folder_view).collect();
+            let folders = settings
+                .folders
+                .iter()
+                .map(|entry| FolderStatus {
+                    id: entry.id,
+                    path: entry.path.to_string_lossy().to_string(),
+                    state: if snapshot.scanning.as_ref() == Some(&entry.path) {
+                        FolderState::Scanning
+                    } else if snapshot.offline.contains(&entry.path) {
+                        FolderState::Offline
+                    } else {
+                        FolderState::Ready
+                    },
+                })
+                .collect();
             (folders, !settings.welcomed)
         };
         let not_indexed = lock(&self.reader)
@@ -846,6 +862,29 @@ mod tests {
         assert_eq!(logs.len(), 1, "{logs:?}");
         assert!(logs[0].contains("data.deleted"));
         assert!(!state.log.detailed());
+    }
+
+    #[test]
+    fn a_folder_that_cannot_be_reached_is_offline_and_keeps_its_files() {
+        let (state, docs) = state("offline");
+        state.add_folder(&docs, Arc::new(|| {})).unwrap();
+        wait(&state);
+        assert_eq!(state.status().unwrap().folders[0].state, FolderState::Ready);
+
+        let unplugged = docs.with_file_name("docs-unplugged");
+        std::fs::rename(&docs, &unplugged).unwrap();
+        state.start_indexing(Arc::new(|| {}));
+        wait(&state);
+        let status = state.status().unwrap();
+        assert_eq!(status.folders[0].state, FolderState::Offline);
+        assert_eq!(status.files, 2);
+        assert_eq!(status.problem, None);
+        assert_eq!(state.search("notice period").unwrap().files.len(), 1);
+
+        std::fs::rename(&unplugged, &docs).unwrap();
+        state.start_indexing(Arc::new(|| {}));
+        wait(&state);
+        assert_eq!(state.status().unwrap().folders[0].state, FolderState::Ready);
     }
 
     #[test]

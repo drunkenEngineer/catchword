@@ -453,6 +453,18 @@ impl Store {
         Ok(removed)
     }
 
+    /// Every path the index knows that starts with `prefix`: files in the
+    /// index and files recorded as not indexed.
+    pub fn known_paths(&self, prefix: &str) -> rusqlite::Result<Vec<String>> {
+        let mut statement = self.conn.prepare(
+            "SELECT path FROM files WHERE substr(path, 1, length(?1)) = ?1
+             UNION
+             SELECT path FROM problems WHERE substr(path, 1, length(?1)) = ?1",
+        )?;
+        let paths = statement.query_map(params![prefix], |row| row.get(0))?;
+        paths.collect()
+    }
+
     /// Search by words and, when a query vector is given, by meaning, and
     /// combine both lists by rank (ADR-5). Each kind of search contributes
     /// up to `candidates` results; the combined list is best first and says
@@ -1463,6 +1475,24 @@ mod tests {
             .record_problem("/new.pdf", 1, 1, Reason::NeedsOcr)
             .unwrap();
         assert_eq!(store.problems().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn known_paths_cover_files_and_problems_under_a_prefix() {
+        let mut store = Store::open_in_memory().unwrap();
+        let passages = chunk("some text", 50, 5, &WordTokenizer);
+        store
+            .put_file("/docs/a/one.txt", 1, 1, "h1", &passages)
+            .unwrap();
+        store
+            .put_file("/docs/b/two.txt", 1, 1, "h2", &passages)
+            .unwrap();
+        store
+            .record_problem("/docs/a/scan.pdf", 1, 1, Reason::NeedsOcr)
+            .unwrap();
+        let mut paths = store.known_paths("/docs/a/").unwrap();
+        paths.sort();
+        assert_eq!(paths, vec!["/docs/a/one.txt", "/docs/a/scan.pdf"]);
     }
 
     #[test]

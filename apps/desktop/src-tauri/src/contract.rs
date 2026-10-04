@@ -12,7 +12,7 @@ use ts_rs::TS;
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct Status {
-    pub folders: Vec<Folder>,
+    pub folders: Vec<FolderStatus>,
     /// What indexing is doing right now, if anything.
     pub work: Option<Work>,
     #[ts(type = "number")]
@@ -56,6 +56,25 @@ pub struct SettingsView {
 pub struct Folder {
     pub id: u32,
     pub path: String,
+}
+
+/// A folder the user chose, with what indexing knows of it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderStatus {
+    pub id: u32,
+    pub path: String,
+    pub state: FolderState,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum FolderState {
+    Ready,
+    Scanning,
+    /// It could not be reached on the last scan: its files stay in the
+    /// index, searchable, but cannot be opened (SRC-5).
+    Offline,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
@@ -171,6 +190,8 @@ mod tests {
             Status,
             SettingsView,
             Folder,
+            FolderStatus,
+            FolderState,
             Stage,
             Work,
             Meaning,

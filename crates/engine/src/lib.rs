@@ -10,6 +10,7 @@ use std::time::UNIX_EPOCH;
 use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 
+mod attributes;
 pub mod exclude;
 pub mod extract;
 pub mod fuse;
@@ -47,6 +48,18 @@ pub struct FileMeta {
     pub path: PathBuf,
     pub size: u64,
     pub modified_secs: i64,
+    /// Its content is not on this computer, so it must not be opened.
+    pub cloud_only: bool,
+}
+
+/// What a scan found.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct Scan {
+    /// Every file, sorted by path.
+    pub files: Vec<FileMeta>,
+    /// Folders and files below the root that could not be read. What the
+    /// index holds under them is unknown, not gone.
+    pub unreadable: Vec<PathBuf>,
 }
 
 /// The kind of document a file is, judged by its extension, or None when
@@ -73,22 +86,35 @@ pub fn resolve_folder(folder: &Path) -> io::Result<PathBuf> {
     dunce::canonicalize(folder)
 }
 
-/// List the files under `root`, sorted by path.
+/// List the files under `root`, from the folder listings alone: no file is
+/// opened.
 ///
 /// Links are not followed, so a scan can never leave the folder the user chose.
 /// Hidden and system files and folders are skipped, and so is whatever
 /// `exclusions` leaves out. A folder that is skipped is not entered.
-pub fn scan(root: &Path, exclusions: &Exclusions) -> Vec<FileMeta> {
+///
+/// An error means the root itself cannot be read: an unplugged drive, a
+/// moved folder or no access. Then nothing can be said about its files.
+pub fn scan(root: &Path, exclusions: &Exclusions) -> io::Result<Scan> {
+    fs::read_dir(root)?;
     let walker = WalkDir::new(root)
         .follow_links(false)
         .into_iter()
         .filter_entry(|e| e.depth() == 0 || !(hidden(e) || exclusions.excludes(e.path())));
-    let mut found = Vec::new();
-    for entry in walker.filter_map(Result::ok) {
+    let mut found = Scan::default();
+    for entry in walker {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) => {
+                found.unreadable.extend(error.path().map(Path::to_path_buf));
+                continue;
+            }
+        };
         if !entry.file_type().is_file() {
             continue;
         }
         let Ok(meta) = entry.metadata() else {
+            found.unreadable.push(entry.into_path());
             continue;
         };
         let modified_secs = meta
@@ -96,33 +122,23 @@ pub fn scan(root: &Path, exclusions: &Exclusions) -> Vec<FileMeta> {
             .ok()
             .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
             .map_or(0, |d| d.as_secs() as i64);
-        found.push(FileMeta {
+        found.files.push(FileMeta {
             path: entry.into_path(),
             size: meta.len(),
             modified_secs,
+            cloud_only: attributes::cloud_only(&meta),
         });
     }
-    found.sort_by(|a, b| a.path.cmp(&b.path));
-    found
+    found.files.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(found)
 }
 
-/// Hidden or system: on Windows by its attributes, read from the folder
-/// listing without opening the file; everywhere, a name starting with a dot.
 fn hidden(entry: &walkdir::DirEntry) -> bool {
-    if entry.file_name().to_string_lossy().starts_with('.') {
-        return true;
+    let name = entry.file_name().to_string_lossy();
+    match entry.metadata() {
+        Ok(meta) => attributes::hidden(&name, &meta),
+        Err(_) => name.starts_with('.'),
     }
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::MetadataExt;
-        use windows_sys::Win32::Storage::FileSystem::{
-            FILE_ATTRIBUTE_HIDDEN, FILE_ATTRIBUTE_SYSTEM,
-        };
-        if let Ok(meta) = entry.metadata() {
-            return meta.file_attributes() & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM) != 0;
-        }
-    }
-    false
 }
 
 /// Read a plain-text or Markdown file and return its text with the hash of
@@ -446,13 +462,17 @@ mod tests {
         fs::write(deep.join("note.txt"), "deep inside").unwrap();
 
         // A short folder with a long path below it.
-        let found = scan(&resolve_folder(&folder).unwrap(), &Exclusions::default());
+        let found = scan(&resolve_folder(&folder).unwrap(), &Exclusions::default())
+            .unwrap()
+            .files;
         assert_eq!(found.len(), 1);
         assert!(found[0].path.as_os_str().len() > 260);
         assert_eq!(read_text(&found[0].path, 100).unwrap().0, "deep inside");
 
         // A folder whose own path is long.
-        let found = scan(&resolve_folder(&deep).unwrap(), &Exclusions::default());
+        let found = scan(&resolve_folder(&deep).unwrap(), &Exclusions::default())
+            .unwrap()
+            .files;
         assert_eq!(found.len(), 1);
         assert_eq!(read_text(&found[0].path, 100).unwrap().0, "deep inside");
         fs::remove_dir_all(&folder).unwrap();
@@ -490,11 +510,11 @@ mod tests {
                 .collect()
         };
         assert_eq!(
-            names(scan(&root, &exclusions)),
+            names(scan(&root, &exclusions).unwrap().files),
             vec!["kept.txt", "work/plan.md"]
         );
         // Without exclusions only the dot folder is skipped.
-        assert_eq!(scan(&root, &Exclusions::default()).len(), 5);
+        assert_eq!(scan(&root, &Exclusions::default()).unwrap().files.len(), 5);
         fs::remove_dir_all(&folder).unwrap();
     }
 
@@ -510,13 +530,73 @@ mod tests {
             .status()
             .unwrap();
         assert!(status.success());
-        let found = scan(&resolve_folder(&folder).unwrap(), &Exclusions::default());
+        let found = scan(&resolve_folder(&folder).unwrap(), &Exclusions::default())
+            .unwrap()
+            .files;
         assert_eq!(found.len(), 1);
         assert!(found[0].path.ends_with("shown.txt"));
         let _ = std::process::Command::new("attrib")
             .arg("-h")
             .arg(folder.join("hidden.txt"))
             .status();
+        fs::remove_dir_all(&folder).unwrap();
+    }
+
+    #[test]
+    fn a_folder_that_cannot_be_read_is_an_error_not_an_empty_scan() {
+        let gone = test_folder("unreachable").join("not-there");
+        assert!(scan(&gone, &Exclusions::default()).is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn cloud_only_files_are_found_without_being_opened() {
+        let folder = test_folder("cloud-only");
+        fs::write(folder.join("local.txt"), "text").unwrap();
+        fs::write(folder.join("online.txt"), "text").unwrap();
+        // The offline attribute is what an archived or cloud-only file has.
+        let attrib = |flag: &str| {
+            let status = std::process::Command::new("attrib")
+                .arg(flag)
+                .arg(folder.join("online.txt"))
+                .status()
+                .unwrap();
+            assert!(status.success());
+        };
+        attrib("+o");
+        let found = scan(&resolve_folder(&folder).unwrap(), &Exclusions::default()).unwrap();
+        let cloud: Vec<bool> = found.files.iter().map(|f| f.cloud_only).collect();
+        assert_eq!(cloud, vec![false, true]);
+        attrib("-o");
+        fs::remove_dir_all(&folder).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_sub_folder_that_cannot_be_read_is_reported() {
+        let folder = test_folder("unreadable-sub");
+        let locked = folder.join("locked");
+        fs::create_dir(&locked).unwrap();
+        fs::write(locked.join("inside.txt"), "text").unwrap();
+        fs::write(folder.join("outside.txt"), "text").unwrap();
+        // Deny this user the right to list the folder, then give it back.
+        let user = std::env::var("USERNAME").unwrap();
+        let icacls = |args: &[&str]| {
+            let status = std::process::Command::new("icacls")
+                .arg(&locked)
+                .args(args)
+                .stdout(std::process::Stdio::null())
+                .status()
+                .unwrap();
+            assert!(status.success());
+        };
+        icacls(&["/deny", &format!("{user}:(RD)")]);
+        let found = scan(&resolve_folder(&folder).unwrap(), &Exclusions::default());
+        icacls(&["/remove:d", &user]);
+        let found = found.unwrap();
+        assert_eq!(found.files.len(), 1);
+        assert_eq!(found.unreadable.len(), 1);
+        assert!(found.unreadable[0].ends_with("locked"));
         fs::remove_dir_all(&folder).unwrap();
     }
 

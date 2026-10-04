@@ -25,6 +25,7 @@ On Windows, run the two scripts from Git Bash. They download the PDFium library,
 - Every file that was not indexed is listed with the reason: a scan with no text, a password, a size limit, or damage. The index remembers it, so the file is not read again until it changes. A file whose reading failed gets a second try, then waits until you ask for a retry (the Library's Try again button, or `catchword index <folder> --retry`).
 - Identical copies of a file are stored once.
 - Moved, changed and deleted files are picked up on the next `index` run.
+- Files kept only in the cloud (OneDrive and the like) are listed, never opened, so nothing is downloaded. A folder on an unplugged drive is shown as offline, and its files stay searchable.
 - Hidden and system files are skipped, and links are never followed out of the folder you chose.
 - Some names are left out by default: system files, development folders such as `node_modules`, and files that often hold passwords or keys (`*.kdbx`, `*.pem`, `id_rsa*`, `*passwords*` and others). In the desktop app you can change the list and leave out folders; the command-line tool uses the default list.
 

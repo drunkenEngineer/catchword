@@ -73,7 +73,7 @@ export function createMockEngine({ firstLaunch = false } = {}): Engine {
     async status(): Promise<Status> {
       const passages = DOCUMENTS.flatMap((doc) => doc.passages).length;
       return {
-        folders: [...folders],
+        folders: folders.map((folder) => ({ ...folder, state: "ready" as const })),
         work: null,
         files: folders.length === 0 ? 0 : DOCUMENTS.length,
         passages: folders.length === 0 ? 0 : passages,

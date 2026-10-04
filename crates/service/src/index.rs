@@ -1,5 +1,6 @@
 //! Indexing: the keyword stage per folder, then the meaning stage.
 
+use std::fmt;
 use std::path::{Path, PathBuf, MAIN_SEPARATOR};
 use std::sync::Mutex;
 
@@ -96,9 +97,37 @@ pub fn is_parked(problem: &Problem) -> bool {
 /// costs nothing. One whose reading failed gets a second try, then is parked.
 fn read_again(problem: &Problem) -> bool {
     match problem.reason {
-        Reason::CannotOpen => true,
+        // A cloud-only file is checked on every run, from its attributes
+        // alone: once it is on this computer again it is read.
+        Reason::CannotOpen | Reason::CloudOnly => true,
         reason if reason.is_failure() => !is_parked(problem),
         _ => false,
+    }
+}
+
+/// The folder could not be reached: an unplugged drive, a moved folder or
+/// no access. Nothing in the index was changed: its files stay, offline,
+/// not deleted (SRC-5).
+#[derive(Debug)]
+pub struct Unreachable {
+    pub folder: PathBuf,
+    pub cause: std::io::Error,
+}
+
+impl fmt::Display for Unreachable {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "cannot open folder {}: {}",
+            self.folder.display(),
+            self.cause
+        )
+    }
+}
+
+impl std::error::Error for Unreachable {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.cause)
     }
 }
 
@@ -143,6 +172,10 @@ impl Report {
 /// the run. Nothing is lost: each file is its own transaction, and the next
 /// run carries on. A stopped run forgets no file, since it has not seen
 /// them all.
+///
+/// A folder that cannot be reached is an [`Unreachable`] error, and changes
+/// nothing. Files in a sub-folder that could not be read are kept.
+/// Cloud-only files are never opened (SRC-4).
 pub fn index_folder(
     store: &mut Store,
     folder: &Path,
@@ -152,8 +185,12 @@ pub fn index_folder(
     limits: &Limits,
     mut progress: impl FnMut(usize, usize) -> bool,
 ) -> Result<Report> {
-    let root = resolve_folder(folder)
-        .with_context(|| format!("cannot open folder {}", folder.display()))?;
+    let unreachable = |cause| Unreachable {
+        folder: folder.to_path_buf(),
+        cause,
+    };
+    let root = resolve_folder(folder).map_err(unreachable)?;
+    let found = scan(&root, exclusions).map_err(unreachable)?;
     let mut report = Report {
         rebuilt: store.use_pipeline(&cutter.pipeline)?,
         root: root.clone(),
@@ -161,7 +198,7 @@ pub fn index_folder(
     };
     // Found when the first PDF needs it, so text-only folders work without it.
     let mut worker_path = None;
-    let files = scan(&root, exclusions);
+    let files = found.files;
     let mut seen = Vec::new();
 
     for (done, file) in files.iter().enumerate() {
@@ -182,7 +219,18 @@ pub fn index_folder(
             report.unchanged += 1;
             continue;
         }
-        if let Some(known) = store.known_problem(&path, file.size, file.modified_secs)? {
+        let known = store.known_problem(&path, file.size, file.modified_secs)?;
+        if file.cloud_only {
+            // Opening it would download it. Recorded once, not every run.
+            if known.as_ref().map(|known| known.reason) == Some(Reason::CloudOnly) {
+                report.known_problems += 1;
+            } else {
+                store.record_problem(&path, file.size, file.modified_secs, Reason::CloudOnly)?;
+            }
+            report.not_indexed.push((path, Reason::CloudOnly));
+            continue;
+        }
+        if let Some(known) = known {
             if !read_again(&known) {
                 report.known_problems += 1;
                 report.not_indexed.push((path, known.reason));
@@ -206,6 +254,17 @@ pub fn index_folder(
     }
     progress(files.len(), files.len());
 
+    // What could not be read is unknown, not gone: keep it.
+    for unreadable in &found.unreadable {
+        let unreadable = unreadable.to_string_lossy().to_string();
+        let inside = format!("{unreadable}{MAIN_SEPARATOR}");
+        seen.extend(
+            store
+                .known_paths(&unreadable)?
+                .into_iter()
+                .filter(|path| *path == unreadable || path.starts_with(&inside)),
+        );
+    }
     let mut prefix = root.to_string_lossy().to_string();
     if !prefix.ends_with(MAIN_SEPARATOR) {
         prefix.push(MAIN_SEPARATOR);
@@ -350,5 +409,11 @@ mod tests {
     fn a_file_that_could_not_be_opened_is_always_tried_again() {
         assert!(read_again(&problem(Reason::CannotOpen, 9)));
         assert!(!is_parked(&problem(Reason::CannotOpen, 9)));
+    }
+
+    #[test]
+    fn a_file_that_was_cloud_only_is_read_once_it_is_here() {
+        assert!(read_again(&problem(Reason::CloudOnly, 3)));
+        assert!(!is_parked(&problem(Reason::CloudOnly, 3)));
     }
 }

@@ -30,7 +30,11 @@ export function Library({ status }: { status: Status | null }) {
         <ul className="folders">
           {status.folders.map((folder) => (
             <li key={folder.id}>
-              <span dir="auto">{folder.path}</span>
+              <span className="folder-name">
+                <span dir="auto">{folder.path}</span>
+                {folder.state === "scanning" && <span className="muted"> {strings.library.scanning}</span>}
+                {folder.state === "offline" && <span className="folder-offline">{strings.library.offline}</span>}
+              </span>
               {confirming === folder.id ? (
                 <span className="confirm">
                   <span>{strings.library.confirmRemove}</span>

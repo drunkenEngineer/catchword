@@ -64,6 +64,21 @@ describe("the library screen", () => {
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
   });
 
+  it("says which folder is being scanned and which cannot be reached", async () => {
+    const engine = createMockEngine();
+    const status = await engine.status();
+    const states = {
+      ...status,
+      folders: [
+        { ...status.folders[0], state: "scanning" as const },
+        { ...status.folders[1], state: "offline" as const },
+      ],
+    };
+    renderWith(engine, <Library status={states} />);
+    expect(screen.getByText(/Scanning/)).toBeTruthy();
+    expect(screen.getByText(/drive is not connected/).textContent).toContain("stay searchable");
+  });
+
   it("groups files that were not indexed by reason, largest group first", () => {
     const file = (name: string, reason: string): NotIndexed => ({
       name,

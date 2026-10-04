@@ -72,6 +72,8 @@ pub enum Reason {
     Crashed,
     InvalidOutput,
     LibraryMissing,
+    /// Only in the cloud: reading it would download it (SRC-4).
+    CloudOnly,
 }
 
 impl Reason {
@@ -90,6 +92,9 @@ impl Reason {
             Reason::Crashed => "the reader crashed on this file",
             Reason::InvalidOutput => "the reader returned invalid data",
             Reason::LibraryMissing => "PDF support is not installed (PDFium library not found)",
+            Reason::CloudOnly => {
+                "only in the cloud (OneDrive or similar); not downloaded, so not read"
+            }
         }
     }
 
@@ -108,7 +113,7 @@ impl Reason {
     }
 
     /// Every reason, for listing and for tests.
-    pub const ALL: [Reason; 10] = [
+    pub const ALL: [Reason; 11] = [
         Reason::NeedsOcr,
         Reason::Encrypted,
         Reason::TooLarge,
@@ -119,6 +124,7 @@ impl Reason {
         Reason::Crashed,
         Reason::InvalidOutput,
         Reason::LibraryMissing,
+        Reason::CloudOnly,
     ];
 
     /// A stable name, for storing in the index. Never change one.
@@ -134,6 +140,7 @@ impl Reason {
             Reason::Crashed => "crashed",
             Reason::InvalidOutput => "invalid-output",
             Reason::LibraryMissing => "library-missing",
+            Reason::CloudOnly => "cloud-only",
         }
     }
 

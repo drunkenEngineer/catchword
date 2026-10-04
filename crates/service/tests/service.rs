@@ -8,7 +8,7 @@ use catchword_engine::extract::{Limits, Reason};
 use catchword_engine::Exclusions;
 use catchword_service::{
     embed_missing, group_by_file, index_folder, is_parked, search, Cutter, Model, Note, Report,
-    Worker,
+    Unreachable, Worker,
 };
 use catchword_store::Store;
 use catchword_test_support::scratch_folder;
@@ -239,4 +239,99 @@ fn excluding_a_folder_removes_its_text_and_including_it_brings_it_back() {
     };
     assert_eq!(run(&excluded).removed, 1);
     assert_eq!(run(&Exclusions::default()).added, 1);
+}
+
+#[test]
+fn an_unreachable_folder_changes_nothing_and_says_so() {
+    let folder = three_files("service-unreachable");
+    let mut store = Store::open_in_memory().unwrap();
+    index(&mut store, &folder, usize::MAX);
+
+    // The drive is unplugged, or the folder moved: its files stay.
+    let moved = folder.with_file_name("catchword-test-service-unreachable-moved");
+    let _ = fs::remove_dir_all(&moved);
+    fs::rename(&folder, &moved).unwrap();
+    let cutter = Cutter::for_model(&Model::Unavailable("not needed".into()));
+    let error = index_folder(
+        &mut store,
+        &folder,
+        &Exclusions::default(),
+        &cutter,
+        &Worker::NextToProgram,
+        &Limits::default(),
+        |_, _| true,
+    )
+    .unwrap_err();
+    assert!(error.downcast_ref::<Unreachable>().is_some(), "{error:#}");
+    assert!(error.to_string().contains("cannot open folder"));
+    assert_eq!(store.counts().unwrap().files, 3);
+
+    fs::rename(&moved, &folder).unwrap();
+    assert_eq!(index(&mut store, &folder, usize::MAX).unchanged, 3);
+}
+
+/// Run `attrib` on a file: `+o` marks it offline, as a cloud-only file is.
+#[cfg(windows)]
+fn attrib(flag: &str, file: &Path) {
+    let status = std::process::Command::new("attrib")
+        .arg(flag)
+        .arg(file)
+        .status()
+        .unwrap();
+    assert!(status.success());
+}
+
+#[cfg(windows)]
+#[test]
+fn a_cloud_only_file_is_never_opened_and_is_read_once_it_is_here() {
+    let folder = three_files("service-cloud-only");
+    let online = folder.join("online.txt");
+    fs::write(&online, "kept in the cloud until opened").unwrap();
+    attrib("+o", &online);
+    let mut store = Store::open_in_memory().unwrap();
+
+    let first = index(&mut store, &folder, usize::MAX);
+    assert_eq!(first.added, 3);
+    assert_eq!(first.not_indexed.len(), 1);
+    assert_eq!(first.not_indexed[0].1, Reason::CloudOnly);
+    // Recorded once: the next run does not write it again.
+    let second = index(&mut store, &folder, usize::MAX);
+    assert_eq!((second.known_problems, second.not_indexed.len()), (1, 1));
+
+    // Kept on this computer now: same size and date, but read.
+    attrib("-o", &online);
+    let third = index(&mut store, &folder, usize::MAX);
+    assert_eq!((third.added, third.not_indexed.len()), (1, 0));
+    assert!(store.problems().unwrap().is_empty());
+}
+
+#[cfg(windows)]
+#[test]
+fn files_in_a_sub_folder_that_cannot_be_read_are_kept() {
+    let folder = three_files("service-unreadable");
+    let locked = folder.join("locked");
+    fs::create_dir(&locked).unwrap();
+    fs::write(
+        locked.join("inside.txt"),
+        "a note in a folder that may lock",
+    )
+    .unwrap();
+    let mut store = Store::open_in_memory().unwrap();
+    assert_eq!(index(&mut store, &folder, usize::MAX).added, 4);
+
+    let user = std::env::var("USERNAME").unwrap();
+    let icacls = |args: &[&str]| {
+        let status = std::process::Command::new("icacls")
+            .arg(&locked)
+            .args(args)
+            .stdout(std::process::Stdio::null())
+            .status()
+            .unwrap();
+        assert!(status.success());
+    };
+    icacls(&["/deny", &format!("{user}:(RD)")]);
+    let run = index(&mut store, &folder, usize::MAX);
+    icacls(&["/remove:d", &user]);
+    assert_eq!(run.removed, 0);
+    assert_eq!(store.counts().unwrap().files, 4);
 }

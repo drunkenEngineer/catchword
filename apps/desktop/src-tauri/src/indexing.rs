@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use catchword_engine::extract::Limits;
 use catchword_engine::Exclusions;
-use catchword_service::{embed_missing, index_folder, Cutter, Model, Report, Worker};
+use catchword_service::{embed_missing, index_folder, Cutter, Model, Report, Unreachable, Worker};
 use catchword_store::Store;
 
 use crate::contract::{Stage, Work};
@@ -36,6 +36,10 @@ struct Control {
 pub struct Snapshot {
     pub work: Option<Work>,
     pub problem: Option<String>,
+    /// The folder being read now.
+    pub scanning: Option<PathBuf>,
+    /// Folders that could not be reached on their last scan (SRC-5).
+    pub offline: Vec<PathBuf>,
 }
 
 struct Shared {
@@ -122,7 +126,10 @@ impl Indexer {
                 }
                 control.running = false;
                 control.again = false;
-                lock(&shared.snapshot).work = None;
+                let mut snapshot = lock(&shared.snapshot);
+                snapshot.work = None;
+                snapshot.scanning = None;
+                drop(snapshot);
                 shared.finished.notify_all();
                 break;
             }
@@ -180,6 +187,7 @@ fn run(shared: &Shared, folders: &[PathBuf], exclusions: &Exclusions, notify: &N
     let mut problem = None;
     for (number, folder) in folders.iter().enumerate() {
         let started = Instant::now();
+        lock(&shared.snapshot).scanning = Some(folder.clone());
         let result = index_folder(
             &mut store,
             folder,
@@ -193,15 +201,32 @@ fn run(shared: &Shared, folders: &[PathBuf], exclusions: &Exclusions, notify: &N
                 !shared.stop.load(Ordering::SeqCst)
             },
         );
+        lock(&shared.snapshot).scanning = None;
         match result {
             Ok(done) => {
                 log_folder(log, number, &done, started);
+                lock(&shared.snapshot)
+                    .offline
+                    .retain(|offline| offline != folder);
                 if done.stopped {
                     return;
                 }
             }
-            // An unreachable folder (an unplugged drive) is skipped; its
-            // files stay in the index (SRC-5).
+            // An unplugged drive or a moved folder: offline, not deleted.
+            // Its files stay in the index (SRC-5), and Library says so.
+            Err(error) if error.downcast_ref::<Unreachable>().is_some() => {
+                log.warn(
+                    "index.folder_offline",
+                    &[
+                        ("folder", Value::Number(number as u64 + 1)),
+                        ("error", Value::Private(format!("{error:#}"))),
+                    ],
+                );
+                let mut snapshot = lock(&shared.snapshot);
+                if !snapshot.offline.contains(folder) {
+                    snapshot.offline.push(folder.clone());
+                }
+            }
             Err(error) => {
                 log.warn(
                     "index.folder_failed",
@@ -367,21 +392,21 @@ mod tests {
     }
 
     #[test]
-    fn a_missing_folder_is_a_problem_but_the_others_are_indexed() {
+    fn a_missing_folder_is_offline_and_the_others_are_indexed() {
         let (indexer, store) = indexer("missing");
         let gone = std::env::temp_dir().join("catchword-desktop-test-not-there");
         indexer.start(
-            vec![gone, folder_with("missing-ok", 2)],
+            vec![gone.clone(), folder_with("missing-ok", 2)],
             Exclusions::default(),
             Arc::new(|| {}),
         );
         wait_until_idle(&indexer);
         assert_eq!(Store::open(&store).unwrap().counts().unwrap().files, 2);
-        assert!(indexer
-            .snapshot()
-            .problem
-            .unwrap()
-            .contains("cannot open folder"));
+        let snapshot = indexer.snapshot();
+        assert_eq!(snapshot.offline, vec![gone]);
+        assert_eq!(snapshot.scanning, None);
+        // Offline is a state, not a problem.
+        assert_eq!(snapshot.problem, None);
     }
 
     #[test]

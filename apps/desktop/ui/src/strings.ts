@@ -49,6 +49,9 @@ export const strings = {
     addFolder: "Add a folder",
     scanNow: "Scan now",
     remove: "Remove",
+    scanning: "Scanning…",
+    offline:
+      "Not reachable: the drive is not connected, or the folder was moved. Its files stay searchable but cannot be opened.",
     confirmRemove: "Remove this folder? Its text is removed from the index; your files are not touched.",
     confirm: "Remove folder",
     keep: "Keep",
