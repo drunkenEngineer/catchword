@@ -77,6 +77,14 @@ Waiting for the owner: the updater (APP-2, REL-3, which needs an update signing 
 17. ~~**Notices and the GitHub installer** (REL-2).~~ Done, 4 October 2026, with the owner's OK for cargo-about (a build tool, not shipped) and the NSIS download: `node scripts/notices.mjs` writes the third-party notices, shown in Settings, About, and shipped in both packages; `sh scripts/package-nsis.sh` builds a per-user NSIS installer whose uninstaller removes the index and logs (settings on request) and whose updates keep them. Install, upgrade and uninstall are checked by hand so far (`docs/packaging.md`); on 4 October 2026 a silent install, an update-style uninstall (everything kept) and a normal uninstall (index and logs gone, settings unchanged) all behaved.
 18. ~~**Long texts and a quicker pause.**~~ Done, 4 October 2026. A bug: the model's tokenizer stops counting at 32,768 tokens, so every word of a long text or Markdown file after about the first 25,000 counted as zero tokens, and the rest of the file became a few giant passages (a 20 MB file gave 110 passages instead of about 11,000), slowing search. Tokens are now counted 2,000 words at a time; the cutting pipeline is renamed, so existing indexes are cut again once. A pause now takes effect within about a second: between blocks of words, every tenth of a second while the PDF reader works (the worker is stopped), and after every passage while embedding. A file stopped part way keeps nothing and is read again next time. The evaluation set is unaffected: its longest document is under 1,500 words.
 
+Next, the MUST requirements still open that need no decision from the owner, then two SHOULDs from the Phase 2 feature list:
+
+19. **Appearance** (APP-3): theme (follow Windows, light, dark) and text size, saved and applied at once.
+20. **Keyboard and focus** (A11Y-1): every function works by keyboard alone, with visible focus; a test walks each screen by keyboard.
+21. **Conformance tests** (MNT-2): the PDF reader, the index store and the embedding runtime each behind an interface with a shared conformance suite.
+22. **Speed and memory** (PERF-1, RSC-1): measure start-up, first query, search and memory against section 14, and write it down.
+23. **Phrases, filters and limits** (SEA-5, SEA-6, SRC-7): quoted exact phrases; filter by folder and file type; configurable size and page limits.
+
 ## How to work with the owner
 
 - One backlog item per change. Keep changes small.
