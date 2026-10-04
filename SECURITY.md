@@ -10,6 +10,10 @@ You will get an acknowledgement within 7 days. The project is maintained part-ti
 
 Before 1.0, only the latest release is supported.
 
+## Threat model
+
+What Catchword defends against, what is in place for each threat, and the review checklist for the code that decides its security: [docs/threat-model.md](docs/threat-model.md).
+
 ## In scope
 
 - A crafted file that makes Catchword run code, crash, or read outside the chosen folders.

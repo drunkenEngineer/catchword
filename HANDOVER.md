@@ -47,6 +47,7 @@ Overall health: **good**. On 2026-10-04, on Windows 11: 245 Rust tests and 57 in
 | Conformance suites for extractors and models (MNT-2) | `[DONE]` |
 | Founding decisions ADR-1 to ADR-13 as files in `docs/adr/` (ARC-1) | `[DONE]` |
 | Deleted content cannot be read back from the index file (PRIV-5, ADR-22) | `[DONE]` |
+| Threat model published with its status per threat and the guarded-area checklist (SEC-3) | `[DONE]`: `docs/threat-model.md` |
 | Licence notices (cargo-about), shown in About and shipped | `[DONE]` |
 | NSIS per-user installer (GitHub build) | `[DONE]`, install/update-uninstall/uninstall tested by hand once |
 | MSIX package (Store build) | `[IN PROGRESS]`: builds and its files are tested; never installed |
@@ -164,6 +165,7 @@ docs/
 ├── adr/               # ADR-14..21
 ├── benchmarks/        # 2026-10-03 Phase 0 benchmark; 2026-10-04 app measurements
 ├── packaging.md       # Installer, MSIX, notices, owner's install-test steps
+├── threat-model.md    # Spec section 13 by threat: what is in place, where; guarded-area checklist
 └── README.md          # Docs index; checklist before going public
 eval/              # Evaluation set: domain/ (written docs, queries.tsv), thresholds.txt
 vendor/            # Downloaded by scripts; gitignored: pdfium/, onnxruntime/, models/, eval/
@@ -353,6 +355,7 @@ The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23
 - Coverage-guided fuzzing of the worker protocol and the text path (cargo-fuzz needs a nightly toolchain and a new tool: the owner's call).
 
 **Low**
+- Declare `asInvoker` in the app's Windows manifest (SEC-4, threat T16). Today it declares no execution level, which Windows already runs as the user; `tauri_build`'s manifest option replaces the whole default manifest, so keep its Common Controls entry.
 - Release the model after a long idle time (section 14 speaks of memory "with the model released").
 - Translations (1.0); strings are already in `apps/desktop/ui/src/strings.ts`.
 
@@ -566,7 +569,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
   - CI results unseen (gh not logged in).
 - Current state: everything committed; all checks pass.
 - Next step: CI results; the owner's decisions; the "High" items in section 10.
-- Later the same day: `HANDOVER.md` written; 11 commits pushed; the two low-disk tests limited to Windows (free space is read on Windows only, so CI on Linux and macOS would fail them); safe mode added and verified in a release build; hostile-input tests added, which found that a NUL in a query made search fail (fixed); 150 damaged PDFs and three resource-exhaustion files through the real worker; "nothing found" causes with counts; a notice when a result's file has moved; ADR-1 to ADR-13 written as files (ARC-1); CI actions pinned to commit hashes, with a check; a test that links and junctions out of a chosen folder are not followed (SRC-6 had none); deleted content leaves the index file (PRIV-5, ADR-22): a byte-level test found that a purged file's words and name stayed in the keyword indexes, now fixed; Copy path (RES-3), with Ctrl+Shift+C as the spec's keyboard table gives it; the table's last two missing shortcuts, F6 between panes and Left/Right to fold a file's passages; Search's indexing notice with counts, and "Searching…" after 300 ms; start-up notices (damaged index or settings) now stay on screen until closed; before, the next status refresh dropped them. All pushed.
+- Later the same day: `HANDOVER.md` written; 11 commits pushed; the two low-disk tests limited to Windows (free space is read on Windows only, so CI on Linux and macOS would fail them); safe mode added and verified in a release build; hostile-input tests added, which found that a NUL in a query made search fail (fixed); 150 damaged PDFs and three resource-exhaustion files through the real worker; "nothing found" causes with counts; a notice when a result's file has moved; ADR-1 to ADR-13 written as files (ARC-1); CI actions pinned to commit hashes, with a check; a test that links and junctions out of a chosen folder are not followed (SRC-6 had none); deleted content leaves the index file (PRIV-5, ADR-22): a byte-level test found that a purged file's words and name stayed in the keyword indexes, now fixed; Copy path (RES-3), with Ctrl+Shift+C as the spec's keyboard table gives it; the table's last two missing shortcuts, F6 between panes and Left/Right to fold a file's passages; Search's indexing notice with counts, and "Searching…" after 300 ms; start-up notices (damaged index or settings) now stay on screen until closed; before, the next status refresh dropped them; the threat model published (SEC-3), with the CI-actions comment corrected from T8 to T7. All pushed.
 
 ---
 
