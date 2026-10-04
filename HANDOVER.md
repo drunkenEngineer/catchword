@@ -45,6 +45,7 @@ Overall health: **good**. On 2026-10-04, on Windows 11: 242 Rust tests and 51 in
 | Local logs, diagnostics report, crash reports | `[DONE]` |
 | Keyboard use and focus (A11Y-1); screen-reader announcements (A11Y-2, automated part) | `[DONE]` |
 | Conformance suites for extractors and models (MNT-2) | `[DONE]` |
+| Founding decisions ADR-1 to ADR-13 as files in `docs/adr/` (ARC-1) | `[DONE]` |
 | Licence notices (cargo-about), shown in About and shipped | `[DONE]` |
 | NSIS per-user installer (GitHub build) | `[DONE]`, install/update-uninstall/uninstall tested by hand once |
 | MSIX package (Store build) | `[IN PROGRESS]`: builds and its files are tested; never installed |
@@ -172,7 +173,7 @@ CLAUDE.md          # Rules and commands for the coding assistant
 
 ## 6. Important Decisions
 
-The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23 (Tauri shell and Rust engine; worker process model; one rebuildable SQLite index; exact vector search first; hybrid retrieval with rank fusion; content addressing; network policy; PDFium; OCR open; answers open; Apache-2.0; Store first then GitHub). Later ones are files in `docs/adr/`: ADR-14 to ADR-21. Do not reopen them without the owner. Further decisions made in sessions:
+The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23 (Tauri shell and Rust engine; worker process model; one rebuildable SQLite index; exact vector search first; hybrid retrieval with rank fusion; content addressing; network policy; PDFium; OCR open; answers open; Apache-2.0; Store first then GitHub). Each also has a file in `docs/adr/` (0001 to 0013) with what has happened since; the specification stays the source. Later decisions are only files: ADR-14 to ADR-21. Do not reopen them without the owner. Further decisions made in sessions:
 
 **Decision: Keep Granite as the model (ADR-20)**
 - Decision: granite-embedding-97m-multilingual-r2, 350-token passages with 50 overlapping, fusion K = 60 with 50 candidates.
@@ -240,7 +241,7 @@ The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23
 
 ## 7. Current Work
 
-- Current task: none in progress. The queue in `HANDOFF.md` (items 1 to 23) is done, except item 8's owner steps.
+- Current task: none in progress. The queue in `HANDOFF.md` (items 1 to 27) is done, except item 8's owner steps.
 - Files being modified: none.
 - Expected next step: whatever the owner chooses from section 10; the items marked `[DECISION NEEDED]` and `[BLOCKED]` need them. Without input, the best next steps are those under "High" in section 10 that need no decision.
 
@@ -335,7 +336,6 @@ The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23
 - MSIX install test and Store registration: owner steps in `docs/packaging.md`; then put the Store identity in `apps/desktop/msix/AppxManifest.xml`.
 
 **Medium**
-- Write ADR-1 to ADR-13 as files under `docs/adr/` (backlog ARC-1).
 - Move the data location (APP-7) and the synced-folder warning that goes with it.
 - Quantised vector search with rescoring if combined search misses 500 ms on the reference laptop (spec section 14, scale tiers).
 - Filter by modified date (SEA-6 says later).
@@ -549,7 +549,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
   - CI results unseen (gh not logged in).
 - Current state: everything committed; all checks pass.
 - Next step: CI results; the owner's decisions; the "High" items in section 10.
-- Later the same day: `HANDOVER.md` written; 11 commits pushed; the two low-disk tests limited to Windows (free space is read on Windows only, so CI on Linux and macOS would fail them); safe mode added and verified in a release build; hostile-input tests added, which found that a NUL in a query made search fail (fixed).
+- Later the same day: `HANDOVER.md` written; 11 commits pushed; the two low-disk tests limited to Windows (free space is read on Windows only, so CI on Linux and macOS would fail them); safe mode added and verified in a release build; hostile-input tests added, which found that a NUL in a query made search fail (fixed); 150 damaged PDFs and three resource-exhaustion files through the real worker; "nothing found" causes with counts; a notice when a result's file has moved; ADR-1 to ADR-13 written as files (ARC-1). All pushed.
 
 ---
 
