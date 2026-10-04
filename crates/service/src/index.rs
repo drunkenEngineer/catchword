@@ -8,8 +8,8 @@ use anyhow::{bail, Context, Result};
 use catchword_embed::Embedder;
 use catchword_engine::extract::{self, Limits, Outcome, Reason};
 use catchword_engine::{
-    chunk, chunk_pages, document_kind, hash_file, read_text, resolve_folder, scan, DocumentKind,
-    Exclusions, FileMeta, Passage, Tokenizer, WordTokenizer, PASSAGE_OVERLAP_TOKENS,
+    chunk_pages_while, chunk_while, document_kind, hash_file, read_text, resolve_folder, scan,
+    DocumentKind, Exclusions, FileMeta, Passage, Tokenizer, WordTokenizer, PASSAGE_OVERLAP_TOKENS,
     PASSAGE_TOKENS,
 };
 use catchword_store::{Problem, Store};
@@ -39,8 +39,11 @@ impl Cutter {
                     tokenizer: Box::new(model.tokenizer()),
                     max: PASSAGE_TOKENS,
                     overlap: PASSAGE_OVERLAP_TOKENS,
+                    // "in blocks": tokens counted 2,000 words at a time, so
+                    // long texts are counted to the end. Passages cut before
+                    // then are cut again (see Store::use_pipeline).
                     pipeline: format!(
-                        "{} tokens {PASSAGE_TOKENS}/{PASSAGE_OVERLAP_TOKENS}",
+                        "{} tokens {PASSAGE_TOKENS}/{PASSAGE_OVERLAP_TOKENS} in blocks",
                         model.manifest().id()
                     ),
                 }
@@ -196,8 +199,11 @@ pub fn index_folder(
         root: root.clone(),
         ..Report::default()
     };
-    // Found when the first PDF needs it, so text-only folders work without it.
-    let mut worker_path = None;
+    let mut reader = Reader {
+        worker,
+        found: None,
+        limits,
+    };
     let files = found.files;
     let mut seen = Vec::new();
 
@@ -237,13 +243,21 @@ pub fn index_folder(
                 continue;
             }
         }
-        let read = read_document(store, file, kind, worker, &mut worker_path, limits, cutter)?;
+        // Asked again while a long file is read, so a pause need not wait
+        // for the file to end (IDX-5).
+        let mut keep_going = || progress(done, files.len());
+        let read = read_document(store, file, kind, &mut reader, cutter, &mut keep_going)?;
         let (hash, passages) = match read {
-            Ok(read) => read,
-            Err(reason) => {
+            Read::Content(hash, passages) => (hash, passages),
+            Read::NotIndexed(reason) => {
                 store.record_problem(&path, file.size, file.modified_secs, reason)?;
                 report.not_indexed.push((path, reason));
                 continue;
+            }
+            // Nothing is stored for it; the next run reads it again.
+            Read::Stopped => {
+                report.stopped = true;
+                return Ok(report);
             }
         };
         if store.put_file(&path, file.size, file.modified_secs, &hash, &passages)? {
@@ -273,55 +287,82 @@ pub fn index_folder(
     Ok(report)
 }
 
-/// Read one document: the hash of its content, and its passages unless that
-/// content is already in the index. The inner error says why a file was not
-/// indexed; the outer one stops the whole run.
+/// What reading one document gave.
+enum Read {
+    /// The hash of its content, and its passages unless that content is
+    /// already in the index.
+    Content(String, Vec<Passage>),
+    NotIndexed(Reason),
+    /// Stopped part way, as for a pause.
+    Stopped,
+}
+
+/// How files are read: the limits, and the PDF reader, found when the
+/// first PDF needs it, so text-only folders work without it.
+struct Reader<'a> {
+    worker: &'a Worker,
+    found: Option<PathBuf>,
+    limits: &'a Limits,
+}
+
+impl Reader<'_> {
+    fn worker_path(&mut self) -> Result<&Path> {
+        if self.found.is_none() {
+            self.found = Some(self.worker.path()?);
+        }
+        Ok(self.found.as_deref().expect("found just above"))
+    }
+}
+
+/// Read one document. An error stops the whole run; a file that cannot be
+/// read is `Read::NotIndexed`, with why.
 fn read_document(
     store: &Store,
     file: &FileMeta,
     kind: DocumentKind,
-    worker: &Worker,
-    worker_path: &mut Option<PathBuf>,
-    limits: &Limits,
+    reader: &mut Reader,
     cutter: &Cutter,
-) -> Result<std::result::Result<(String, Vec<Passage>), Reason>> {
+    keep_going: &mut dyn FnMut() -> bool,
+) -> Result<Read> {
+    let limits = reader.limits;
     if file.size > limits.max_file_bytes {
-        return Ok(Err(Reason::TooLarge));
+        return Ok(Read::NotIndexed(Reason::TooLarge));
     }
     let tokenizer = cutter.tokenizer.as_ref();
+    let cut = |passages: Option<Vec<Passage>>, hash: String| match passages {
+        Some(passages) => Read::Content(hash, passages),
+        None => Read::Stopped,
+    };
     match kind {
         DocumentKind::Text => {
             let (text, hash) = match read_text(&file.path, limits.max_file_bytes) {
                 Ok(read) => read,
-                Err(reason) => return Ok(Err(reason)),
+                Err(reason) => return Ok(Read::NotIndexed(reason)),
             };
             // Known content (a copy or a moved file) costs nothing to index again.
-            let passages = if store.has_content(&hash)? {
-                Vec::new()
-            } else {
-                chunk(&text, cutter.max, cutter.overlap, tokenizer)
-            };
-            Ok(Ok((hash, passages)))
+            if store.has_content(&hash)? {
+                return Ok(Read::Content(hash, Vec::new()));
+            }
+            let passages = chunk_while(&text, cutter.max, cutter.overlap, tokenizer, keep_going);
+            Ok(cut(passages, hash))
         }
         DocumentKind::Pdf => {
             let Ok(hash) = hash_file(&file.path) else {
-                return Ok(Err(Reason::CannotOpen));
+                return Ok(Read::NotIndexed(Reason::CannotOpen));
             };
             if store.has_content(&hash)? {
-                return Ok(Ok((hash, Vec::new())));
+                return Ok(Read::Content(hash, Vec::new()));
             }
-            let program = match worker_path {
-                Some(path) => path,
-                None => worker_path.insert(worker.path()?),
-            };
-            let outcome =
-                extract::run(program, &file.path, limits).context("cannot start the PDF reader")?;
+            let program = reader.worker_path()?;
+            let outcome = extract::run_while(program, &file.path, limits, keep_going)
+                .context("cannot start the PDF reader")?;
             Ok(match outcome {
-                Outcome::Pages(pages) => Ok((
+                Outcome::Pages(pages) => cut(
+                    chunk_pages_while(&pages, cutter.max, cutter.overlap, tokenizer, keep_going),
                     hash,
-                    chunk_pages(&pages, cutter.max, cutter.overlap, tokenizer),
-                )),
-                Outcome::NotIndexed(reason) => Err(reason),
+                ),
+                Outcome::NotIndexed(reason) => Read::NotIndexed(reason),
+                Outcome::Stopped => Read::Stopped,
             })
         }
     }
@@ -370,9 +411,18 @@ pub fn embed_missing(
                 .context("cannot embed passages")?
                 .remove(0);
             vectors.push((*id, vector));
+            // Asked after every passage, so a pause takes effect at once;
+            // what is done so far is saved below.
+            if !progress(done + vectors.len() as i64, counts.passages) {
+                report.stopped = true;
+                break;
+            }
         }
         store.put_vectors(&vectors)?;
         done += vectors.len() as i64;
+        if report.stopped {
+            break;
+        }
     }
     Ok(report)
 }

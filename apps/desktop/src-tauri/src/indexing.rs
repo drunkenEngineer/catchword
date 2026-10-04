@@ -643,6 +643,30 @@ mod tests {
     }
 
     #[test]
+    fn a_pause_takes_effect_within_a_long_file() {
+        let (indexer, store) = indexer("pause-soon");
+        let folder = std::env::temp_dir().join("catchword-desktop-test-pause-soon");
+        let _ = std::fs::remove_dir_all(&folder);
+        std::fs::create_dir_all(&folder).unwrap();
+        // Three million words: seconds of cutting, even on a fast computer.
+        let words: Vec<String> = (0..3_000_000).map(|n| format!("w{}", n % 977)).collect();
+        std::fs::write(folder.join("long.txt"), words.join(" ")).unwrap();
+
+        indexer.start(vec![folder], Exclusions::default(), Arc::new(|| {}));
+        thread::sleep(Duration::from_millis(400));
+        let paused = Instant::now();
+        indexer.pause(PauseReason::You);
+        wait_until_idle(&indexer);
+        assert!(
+            paused.elapsed() < Duration::from_millis(1500),
+            "{:?}",
+            paused.elapsed()
+        );
+        // Stopped part way: nothing of the file is kept.
+        assert_eq!(Store::open(&store).unwrap().counts().unwrap().files, 0);
+    }
+
+    #[test]
     fn a_paused_indexer_starts_nothing_until_resumed() {
         let (indexer, store) = indexer("paused");
         indexer.pause(PauseReason::You);

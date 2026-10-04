@@ -223,6 +223,12 @@ impl Tokenizer for WordTokenizer {
     }
 }
 
+/// Words whose tokens are counted in one call to the tokenizer. A tokenizer
+/// may stop counting at a limit of its own (Granite's is 32,768 tokens), so
+/// a long text is counted a block at a time; between blocks it can also be
+/// stopped (see [`chunk_while`]).
+const BLOCK_WORDS: usize = 2_000;
+
 /// Split text into passages of at most `max_tokens` tokens, cutting only
 /// between words.
 ///
@@ -235,6 +241,18 @@ pub fn chunk(
     overlap_tokens: usize,
     tokenizer: &dyn Tokenizer,
 ) -> Vec<Passage> {
+    chunk_while(text, max_tokens, overlap_tokens, tokenizer, &mut || true).unwrap_or_default()
+}
+
+/// As [`chunk`], asking `keep_going` between blocks of words: None if it
+/// said no, so a pause need not wait for a long file (IDX-5).
+pub fn chunk_while(
+    text: &str,
+    max_tokens: usize,
+    overlap_tokens: usize,
+    tokenizer: &dyn Tokenizer,
+    keep_going: &mut dyn FnMut() -> bool,
+) -> Option<Vec<Passage>> {
     assert!(max_tokens > 0, "max_tokens must be positive");
     assert!(
         overlap_tokens < max_tokens,
@@ -248,7 +266,7 @@ pub fn chunk(
         }
     }
     if words.is_empty() {
-        return Vec::new();
+        return Some(Vec::new());
     }
 
     // Passages are cut from the words joined by single spaces. Each token
@@ -263,9 +281,17 @@ pub fn chunk(
         joined.push_str(word);
     }
     let mut tokens = vec![0usize; words.len()];
-    for end in tokenizer.token_ends(&joined) {
-        if end > 0 && end <= joined.len() {
-            tokens[starts.partition_point(|&start| start < end) - 1] += 1;
+    for first in (0..words.len()).step_by(BLOCK_WORDS) {
+        if !keep_going() {
+            return None;
+        }
+        let last = (first + BLOCK_WORDS).min(words.len()) - 1;
+        let offset = starts[first];
+        let block = &joined[offset..starts[last] + words[last].1.len()];
+        for end in tokenizer.token_ends(block) {
+            if end > 0 && end <= block.len() {
+                tokens[starts.partition_point(|&start| start < offset + end) - 1] += 1;
+            }
         }
     }
 
@@ -299,7 +325,7 @@ pub fn chunk(
         }
         start = next;
     }
-    passages
+    Some(passages)
 }
 
 /// Split each page into passages on its own, so every passage lies on one
@@ -310,9 +336,21 @@ pub fn chunk_pages(
     overlap_tokens: usize,
     tokenizer: &dyn Tokenizer,
 ) -> Vec<Passage> {
+    chunk_pages_while(pages, max_tokens, overlap_tokens, tokenizer, &mut || true)
+        .unwrap_or_default()
+}
+
+/// As [`chunk_pages`], asking `keep_going` as it goes: None if it said no.
+pub fn chunk_pages_while(
+    pages: &[String],
+    max_tokens: usize,
+    overlap_tokens: usize,
+    tokenizer: &dyn Tokenizer,
+    keep_going: &mut dyn FnMut() -> bool,
+) -> Option<Vec<Passage>> {
     let mut passages = Vec::new();
     for (index, text) in pages.iter().enumerate() {
-        for passage in chunk(text, max_tokens, overlap_tokens, tokenizer) {
+        for passage in chunk_while(text, max_tokens, overlap_tokens, tokenizer, keep_going)? {
             passages.push(Passage {
                 ordinal: passages.len() as u32,
                 page: Some(index as u32 + 1),
@@ -320,7 +358,7 @@ pub fn chunk_pages(
             });
         }
     }
-    passages
+    Some(passages)
 }
 
 #[cfg(test)]
@@ -614,6 +652,59 @@ mod tests {
         // The hash is of the bytes as they are on disk.
         assert_eq!(hash, content_hash(&bytes));
         fs::remove_dir_all(&folder).unwrap();
+    }
+
+    /// One token per word, like WordTokenizer, but it stops counting after
+    /// 3,000, as a real tokenizer stops at its own limit.
+    struct StopsCounting;
+
+    impl Tokenizer for StopsCounting {
+        fn token_ends(&self, text: &str) -> Vec<usize> {
+            let mut ends = WordTokenizer.token_ends(text);
+            ends.truncate(3_000);
+            ends
+        }
+    }
+
+    fn many_words(count: usize) -> String {
+        (0..count)
+            .map(|n| format!("word{n}"))
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    #[test]
+    fn every_word_of_a_long_text_is_counted_despite_the_tokenizer_limit() {
+        let text = many_words(10_000);
+        let passages = chunk(&text, 50, 10, &StopsCounting);
+        let longest = passages
+            .iter()
+            .map(|p| p.text.split_whitespace().count())
+            .max()
+            .unwrap();
+        assert_eq!(longest, 50);
+        assert!(passages.last().unwrap().text.ends_with("word9999"));
+    }
+
+    #[test]
+    fn cutting_a_long_text_can_be_stopped_between_blocks() {
+        let text = many_words(5_000);
+        let mut asked = 0;
+        let stopped = chunk_while(&text, 50, 10, &WordTokenizer, &mut || {
+            asked += 1;
+            asked < 2
+        });
+        assert_eq!(stopped, None);
+        assert_eq!(asked, 2);
+        let pages = vec![text.clone(), text];
+        let mut asked = 0;
+        let stopped = chunk_pages_while(&pages, 50, 10, &WordTokenizer, &mut || {
+            asked += 1;
+            asked < 4
+        });
+        assert_eq!(stopped, None);
+        let whole = chunk_while(&pages[0], 50, 10, &WordTokenizer, &mut || true).unwrap();
+        assert_eq!(whole, chunk(&pages[0], 50, 10, &WordTokenizer));
     }
 
     #[test]

@@ -52,11 +52,17 @@ impl Default for Limits {
     }
 }
 
+/// How long a worker may go between two questions whether to stop.
+const ASK_EVERY: Duration = Duration::from_millis(100);
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
     /// The text of each page, in order: the first entry is page 1.
     Pages(Vec<String>),
     NotIndexed(Reason),
+    /// Stopped on request before the end, as for a pause: nothing is known
+    /// about the file, and it is read again next time.
+    Stopped,
 }
 
 /// Why a file has no text in the index.
@@ -162,6 +168,17 @@ struct Events {
 /// worker could not be started or put under its limits; then no file was
 /// handed to it.
 pub fn run(worker: &Path, file: &Path, limits: &Limits) -> io::Result<Outcome> {
+    run_while(worker, file, limits, &mut || true)
+}
+
+/// As [`run`], asking `keep_going` every tenth of a second while the worker
+/// reads: if it says no, the worker is stopped at once (IDX-5).
+pub fn run_while(
+    worker: &Path,
+    file: &Path,
+    limits: &Limits,
+    keep_going: &mut dyn FnMut() -> bool,
+) -> io::Result<Outcome> {
     match fs::metadata(file) {
         Ok(meta) if meta.len() > limits.max_file_bytes => {
             return Ok(Outcome::NotIndexed(Reason::TooLarge))
@@ -213,10 +230,21 @@ pub fn run(worker: &Path, file: &Path, limits: &Limits) -> io::Result<Outcome> {
         let _ = sender.send(protocol::read_response(&mut stdout, max_bytes, max_pages));
     });
 
-    let answer = match receiver.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-        Ok(answer) => Some(answer),
-        Err(RecvTimeoutError::Timeout) => None,
-        Err(RecvTimeoutError::Disconnected) => Some(Err(ProtocolError::Truncated)),
+    let answer = loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            break None;
+        }
+        match receiver.recv_timeout(left.min(ASK_EVERY)) {
+            Ok(answer) => break Some(answer),
+            Err(RecvTimeoutError::Disconnected) => break Some(Err(ProtocolError::Truncated)),
+            Err(RecvTimeoutError::Timeout) if keep_going() => {}
+            Err(RecvTimeoutError::Timeout) => {
+                containment.kill(&mut child);
+                let _ = child.wait();
+                return Ok(Outcome::Stopped);
+            }
+        }
     };
     let timed_out = match &answer {
         None => true,

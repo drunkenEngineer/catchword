@@ -20,7 +20,7 @@ A free, open-source desktop app for Windows that searches a person's own documen
   - `apps/desktop/ui`: the React and TypeScript interface: first launch, Search, Library and Settings.
   - `crates/eval`: the retrieval evaluation and benchmark tool (`catchword-eval`), never shipped. The evaluation set is in `eval/` (ADR-19).
   - `crates/test-support`: test PDFs written by code, never shipped.
-- **Verified on Windows 11 with Rust 1.99.0** (pinned in `rust-toolchain.toml`): 209 Rust tests and 42 interface tests pass, and format, lint, type check and the privacy check are clean. PDFium, ONNX Runtime and the model come from `scripts/fetch-pdfium.sh` and `scripts/fetch-embedding.sh` (ADR-14, ADR-18).
+- **Verified on Windows 11 with Rust 1.99.0** (pinned in `rust-toolchain.toml`): 215 Rust tests and 42 interface tests pass, and format, lint, type check and the privacy check are clean. PDFium, ONNX Runtime and the model come from `scripts/fetch-pdfium.sh` and `scripts/fetch-embedding.sh` (ADR-14, ADR-18).
 - **Not built yet:** pause and resource modes, appearance settings, cloud-placeholder handling (SRC-4), OCR, the updater (and so the first launch's update-check step), the GitHub installer, notices for the Rust libraries, and the Store listing. An MSIX package builds (`docs/packaging.md`).
 
 ## Decisions already made
@@ -74,7 +74,8 @@ The rest of Phase 2: the MUST requirements of sections 6 and 7 that are still op
 
 Waiting for the owner: the updater (APP-2, REL-3, which needs an update signing key), licence and advisory checks (MNT-3), and the Store steps of item 8.
 
-17. ~~**Notices and the GitHub installer** (REL-2).~~ Done, 4 October 2026, with the owner's OK for cargo-about (a build tool, not shipped) and the NSIS download: `node scripts/notices.mjs` writes the third-party notices, shown in Settings, About, and shipped in both packages; `sh scripts/package-nsis.sh` builds a per-user NSIS installer whose uninstaller removes the index and logs (settings on request) and whose updates keep them. Install, upgrade and uninstall are checked by hand so far (`docs/packaging.md`).
+17. ~~**Notices and the GitHub installer** (REL-2).~~ Done, 4 October 2026, with the owner's OK for cargo-about (a build tool, not shipped) and the NSIS download: `node scripts/notices.mjs` writes the third-party notices, shown in Settings, About, and shipped in both packages; `sh scripts/package-nsis.sh` builds a per-user NSIS installer whose uninstaller removes the index and logs (settings on request) and whose updates keep them. Install, upgrade and uninstall are checked by hand so far (`docs/packaging.md`); on 4 October 2026 a silent install, an update-style uninstall (everything kept) and a normal uninstall (index and logs gone, settings unchanged) all behaved.
+18. ~~**Long texts and a quicker pause.**~~ Done, 4 October 2026. A bug: the model's tokenizer stops counting at 32,768 tokens, so every word of a long text or Markdown file after about the first 25,000 counted as zero tokens, and the rest of the file became a few giant passages (a 20 MB file gave 110 passages instead of about 11,000), slowing search. Tokens are now counted 2,000 words at a time; the cutting pipeline is renamed, so existing indexes are cut again once. A pause now takes effect within about a second: between blocks of words, every tenth of a second while the PDF reader works (the worker is stopped), and after every passage while embedding. A file stopped part way keeps nothing and is read again next time. The evaluation set is unaffected: its longest document is under 1,500 words.
 
 ## How to work with the owner
 

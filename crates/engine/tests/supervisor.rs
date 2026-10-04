@@ -15,7 +15,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use catchword_engine::extract::protocol::{self, Refusal, Response};
-use catchword_engine::extract::{run, Limits, Outcome, Reason};
+use catchword_engine::extract::{run, run_while, Limits, Outcome, Reason};
 
 const ROLE: &str = "CATCHWORD_TEST_ROLE";
 
@@ -29,6 +29,7 @@ fn main() {
         ("refusals_become_reasons", refusals),
         ("pages_without_text_need_ocr", pages_without_text),
         ("a_hanging_worker_is_stopped_at_the_time_limit", hanging),
+        ("a_worker_is_stopped_at_once_when_asked", stopped_when_asked),
         ("garbage_output_is_rejected", garbage),
         ("an_oversized_answer_is_rejected_at_once", oversized),
         ("bytes_after_the_answer_are_rejected", trailing),
@@ -210,6 +211,36 @@ fn hanging() {
     // The worker was alive, and is now really gone: the file stopped growing.
     let before = fs::metadata(&heartbeat).unwrap().len();
     assert!(before > 0, "the worker never ran");
+    thread::sleep(Duration::from_millis(300));
+    assert_eq!(fs::metadata(&heartbeat).unwrap().len(), before);
+}
+
+fn stopped_when_asked() {
+    let heartbeat = test_file("heartbeat-asked.txt", b"");
+    let started = Instant::now();
+    env::set_var(ROLE, "hang");
+    let mut asked = 0;
+    let outcome = run_while(
+        &env::current_exe().unwrap(),
+        &heartbeat,
+        &short_limits(),
+        &mut || {
+            asked += 1;
+            started.elapsed() < Duration::from_millis(500)
+        },
+    )
+    .unwrap();
+    env::remove_var(ROLE);
+    assert_eq!(outcome, Outcome::Stopped);
+    // Asked every tenth of a second, and stopped soon after the answer was
+    // no: not at the 20-second time limit.
+    assert!(asked >= 3, "{asked}");
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "{:?}",
+        started.elapsed()
+    );
+    let before = fs::metadata(&heartbeat).unwrap().len();
     thread::sleep(Duration::from_millis(300));
     assert_eq!(fs::metadata(&heartbeat).unwrap().len(), before);
 }

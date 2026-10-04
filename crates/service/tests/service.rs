@@ -353,3 +353,65 @@ fn files_in_a_sub_folder_that_cannot_be_read_are_kept() {
     assert_eq!(run.removed, 0);
     assert_eq!(store.counts().unwrap().files, 4);
 }
+
+#[test]
+fn a_pause_stops_a_long_file_part_way_and_keeps_nothing_of_it() {
+    let folder = scratch_folder("service-pause-in-file");
+    let long: Vec<String> = (0..10_000).map(|n| format!("word{n}")).collect();
+    fs::write(folder.join("long.txt"), long.join(" ")).unwrap();
+    let mut store = Store::open_in_memory().unwrap();
+    let cutter = Cutter::for_model(&Model::Unavailable("not needed".into()));
+    // The first question is before the file; the second comes while it is
+    // being cut, and is answered no, as after a pause.
+    let mut asked = 0;
+    let report = index_folder(
+        &mut store,
+        &folder,
+        &Exclusions::default(),
+        &cutter,
+        &Worker::NextToProgram,
+        &Limits::default(),
+        |_, _| {
+            asked += 1;
+            asked < 2
+        },
+    )
+    .unwrap();
+    assert!(report.stopped);
+    assert_eq!(asked, 2);
+    assert_eq!(store.counts().unwrap().files, 0);
+    assert!(store.problems().unwrap().is_empty());
+
+    // The next run reads it whole.
+    assert_eq!(index(&mut store, &folder, usize::MAX).added, 1);
+}
+
+#[test]
+fn the_meaning_stage_stops_after_the_passage_it_is_on() {
+    let model = Model::load(catchword_service::Threads::RUNTIME_DEFAULT);
+    let Some(ready) = model.ready() else {
+        panic!("no model; run sh scripts/fetch-embedding.sh");
+    };
+    let folder = three_files("service-meaning-pause");
+    let mut store = Store::open_in_memory().unwrap();
+    index_folder(
+        &mut store,
+        &folder,
+        &Exclusions::default(),
+        &Cutter::for_model(&model),
+        &Worker::NextToProgram,
+        &Limits::default(),
+        |_, _| true,
+    )
+    .unwrap();
+    // Asked before the batch, then after each passage: the third answer is
+    // no, so two passages are embedded and kept.
+    let mut asked = 0;
+    let report = embed_missing(&mut store, ready, |_, _| {
+        asked += 1;
+        asked < 3
+    })
+    .unwrap();
+    assert!(report.stopped);
+    assert_eq!(store.counts().unwrap().vectors, 2);
+}
