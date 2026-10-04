@@ -18,6 +18,9 @@ import { strings } from "./strings";
 /** How long to wait after the last key before searching. */
 const PAUSE_MS = 200;
 
+/** A search taking longer than this says it is searching (spec section 8). */
+const SLOW_MS = 300;
+
 interface Choice {
   file: FileHit;
   passage: PassageHit;
@@ -43,6 +46,8 @@ export function Search({ status, openLibrary }: { status: Status | null; openLib
   const [folded, setFolded] = useState<ReadonlySet<string>>(new Set());
   const [preview, setPreview] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  // A search still running after SLOW_MS, shown as such.
+  const [slow, setSlow] = useState(false);
   // A result's file that is no longer where the index says.
   const [missing, setMissing] = useState<string | null>(null);
   const box = useRef<HTMLInputElement>(null);
@@ -56,21 +61,31 @@ export function Search({ status, openLibrary }: { status: Status | null; openLib
       return;
     }
     let current = true;
+    let slowTimer: ReturnType<typeof setTimeout> | undefined;
     const timer = setTimeout(() => {
-      engine.search(text, filter).then(
-        (found) => {
-          if (current) {
-            setAnswer(found);
-            setSelected(0);
-            setFolded(new Set());
-          }
-        },
-        (error) => current && setMessage(String(error)),
-      );
+      slowTimer = setTimeout(() => current && setSlow(true), SLOW_MS);
+      engine
+        .search(text, filter)
+        .then(
+          (found) => {
+            if (current) {
+              setAnswer(found);
+              setSelected(0);
+              setFolded(new Set());
+            }
+          },
+          (error) => current && setMessage(String(error)),
+        )
+        .finally(() => {
+          clearTimeout(slowTimer);
+          if (current) setSlow(false);
+        });
     }, PAUSE_MS);
     return () => {
       current = false;
       clearTimeout(timer);
+      clearTimeout(slowTimer);
+      setSlow(false);
     };
   }, [query, engine, filter]);
 
@@ -233,7 +248,8 @@ export function Search({ status, openLibrary }: { status: Status | null; openLib
           </label>
         </div>
       )}
-      {status?.work && <p className="notice">{strings.search.partial}</p>}
+      {status?.work && <p className="notice">{indexingNotice(status)}</p>}
+      {slow && <p className="muted">{strings.search.searching}</p>}
       {missing && (
         <div className="missing" role="alert">
           <span dir="auto">{strings.search.missing(missing)}</span>
@@ -404,4 +420,16 @@ export function causes(status: Status | null): [Cause, number][] {
     counts.set(cause, (counts.get(cause) ?? 0) + 1);
   }
   return [...counts.entries()].sort((a, b) => b[1] - a[1]);
+}
+
+/** What Search says while indexing runs: how far it has got, and so how
+ * complete results are (spec section 8, states "Indexing" and "Index
+ * repairing"). */
+export function indexingNotice(status: Status): string | null {
+  const work = status.work;
+  if (!work) return null;
+  if (work.stage === "meaning") return strings.search.embedding(status.searchableByMeaning, status.passages);
+  return status.lastScanSecs === null
+    ? strings.search.firstReading(work.done, work.total)
+    : strings.search.checking(work.done, work.total);
 }

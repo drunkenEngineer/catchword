@@ -27,7 +27,7 @@ Last updated: 2026-10-04.
 
 ## 2. Current Status
 
-Overall health: **good**. On 2026-10-04, on Windows 11: 245 Rust tests and 54 interface tests pass; format, lint, type check and the privacy check are clean; the retrieval evaluation meets all 11 thresholds. CI has never been seen to run (see section 8).
+Overall health: **good**. On 2026-10-04, on Windows 11: 245 Rust tests and 56 interface tests pass; format, lint, type check and the privacy check are clean; the retrieval evaluation meets all 11 thresholds. CI has never been seen to run (see section 8).
 
 | Area | Status |
 | --- | --- |
@@ -347,6 +347,7 @@ The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23
 - Move the data location (APP-7) and the synced-folder warning that goes with it.
 - Quantised vector search with rescoring if combined search misses 500 ms on the reference laptop (spec section 14, scale tiers).
 - Filter by modified date (SEA-6 says later).
+- Keyword results first (spec section 8, state "Loading"): search returns words, meaning and names together; showing keyword results before meaning arrives needs a two-step search command.
 - Move the CI actions to their newer major versions (checkout v7, cache v6, setup-node v7 exist on 2026-10-04; the workflow uses v4 of each). Only once CI results can be seen, since a major version can change behaviour.
 
 - Coverage-guided fuzzing of the worker protocol and the text path (cargo-fuzz needs a nightly toolchain and a new tool: the owner's call).
@@ -414,7 +415,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 
 ## 13. Testing
 
-- Coverage on 2026-10-04: 245 Rust tests and 54 interface tests pass. There are four ignored tests: the packaged-files test and three measurements.
+- Coverage on 2026-10-04: 245 Rust tests and 56 interface tests pass. There are four ignored tests: the packaged-files test and three measurements.
 - The evaluation meets all 11 thresholds; combined recall@10 is 92.5%.
 - Rust tests:
   - unit tests in each crate;
@@ -497,6 +498,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
   - Privacy.
 - **Nothing found** lists likely causes with counts (scans without text, passwords, cloud-only, over the limits, unreadable), says if filters narrowed the search and offers to search everything, and links to Library. The causes come from each file's reason `code` in the `NotIndexed` contract type.
 - **Keyboard (spec section 8 table):** every shortcut in the table works: Ctrl+K/L, Up/Down, Left/Right (fold a file's passages to its best one, or unfold; clicking the file's header does the same), Enter, Ctrl+Enter, Ctrl+C, Ctrl+Shift+C, F6/Shift+F6 (panes marked `data-pane`, cycled by `apps/desktop/ui/src/panes.ts`), F5, Ctrl+1/2/3, Esc.
+- **While indexing (spec section 8, states):** Search says how far it has got (`indexingNotice` in `Search.tsx`): "Reading your files: N of M" for an index without a finished scan (new, or rebuilt after damage or on request: this is the "Index repairing" state), "Checking your files for changes" otherwise, and the share searchable by meaning in the second stage. The word-stage counts are per folder, as in Library. A search still running after 300 ms shows "Searching…".
 - **Copying (RES-3):** Copy passage (Ctrl+C) puts the passage and its source on the clipboard; Copy path (Ctrl+Shift+C) the file's whole path, with control characters removed (`FileHit.path`).
 - **A result whose file moved:** `open_file` and `reveal_file` return `FileAction::Missing` instead of opening anything; Search shows a notice naming the file, with Scan now (spec section 8, "File moved or deleted").
 - **Confirmations are inline:** the safe choice ("Keep") has the focus, and Escape picks it.
@@ -563,7 +565,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
   - CI results unseen (gh not logged in).
 - Current state: everything committed; all checks pass.
 - Next step: CI results; the owner's decisions; the "High" items in section 10.
-- Later the same day: `HANDOVER.md` written; 11 commits pushed; the two low-disk tests limited to Windows (free space is read on Windows only, so CI on Linux and macOS would fail them); safe mode added and verified in a release build; hostile-input tests added, which found that a NUL in a query made search fail (fixed); 150 damaged PDFs and three resource-exhaustion files through the real worker; "nothing found" causes with counts; a notice when a result's file has moved; ADR-1 to ADR-13 written as files (ARC-1); CI actions pinned to commit hashes, with a check; a test that links and junctions out of a chosen folder are not followed (SRC-6 had none); deleted content leaves the index file (PRIV-5, ADR-22): a byte-level test found that a purged file's words and name stayed in the keyword indexes, now fixed; Copy path (RES-3), with Ctrl+Shift+C as the spec's keyboard table gives it; the table's last two missing shortcuts, F6 between panes and Left/Right to fold a file's passages. All pushed.
+- Later the same day: `HANDOVER.md` written; 11 commits pushed; the two low-disk tests limited to Windows (free space is read on Windows only, so CI on Linux and macOS would fail them); safe mode added and verified in a release build; hostile-input tests added, which found that a NUL in a query made search fail (fixed); 150 damaged PDFs and three resource-exhaustion files through the real worker; "nothing found" causes with counts; a notice when a result's file has moved; ADR-1 to ADR-13 written as files (ARC-1); CI actions pinned to commit hashes, with a check; a test that links and junctions out of a chosen folder are not followed (SRC-6 had none); deleted content leaves the index file (PRIV-5, ADR-22): a byte-level test found that a purged file's words and name stayed in the keyword indexes, now fixed; Copy path (RES-3), with Ctrl+Shift+C as the spec's keyboard table gives it; the table's last two missing shortcuts, F6 between panes and Left/Right to fold a file's passages; Search's indexing notice with counts, and "Searching…" after 300 ms. All pushed.
 
 ---
 

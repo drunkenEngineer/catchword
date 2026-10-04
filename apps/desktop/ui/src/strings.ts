@@ -31,7 +31,15 @@ export const strings = {
     tip: "Put words in quotes to find them exactly as written, for example “notice period”.",
     examples: ["the letter about my tax refund", "notice period in the lease", "invoice number"],
     summary: (files: number) => `${files.toLocaleString()} files ready to search.`,
-    partial: "Indexing is under way, so results may be incomplete.",
+    /** While indexing runs (spec section 8, states). An index without a
+     * finished scan is new or being rebuilt: its results grow as files are read. */
+    firstReading: (done: number, total: number) =>
+      `Reading your files: ${done.toLocaleString()} of ${total.toLocaleString()}. Results appear as each file is read.`,
+    checking: (done: number, total: number) =>
+      `Checking your files for changes: ${done.toLocaleString()} of ${total.toLocaleString()}. Results may be incomplete.`,
+    embedding: (done: number, total: number) =>
+      `Searchable by meaning: ${done.toLocaleString()} of ${total.toLocaleString()} passages. Results may be incomplete.`,
+    searching: "Searching…",
     results: "Results",
     count: (files: number, ms: number) =>
       `${files} ${files === 1 ? "file" : "files"} in ${ms} ms`,

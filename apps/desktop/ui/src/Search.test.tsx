@@ -4,7 +4,7 @@ import type { SearchResponse } from "./contract/SearchResponse";
 import type { Status } from "./contract/Status";
 import type { Engine } from "./engine";
 import { createMockEngine } from "./mock";
-import { Search } from "./Search";
+import { indexingNotice, Search } from "./Search";
 import { renderWith } from "./test-utils";
 
 afterEach(cleanup);
@@ -36,6 +36,39 @@ describe("the search screen", () => {
     await show(engine);
     fireEvent.click(screen.getByRole("button", { name: "Add a folder" }));
     expect(addFolder).toHaveBeenCalled();
+  });
+
+  it("says how far indexing has got, so how complete results are", async () => {
+    const status = await createMockEngine().status();
+    const words = { stage: "words" as const, done: 1240, total: 8300, perSecond: null, secondsLeft: null };
+    // Numbers are written as the computer's language writes them.
+    const n = (number: number) => number.toLocaleString();
+    // A new index, or one being rebuilt, has no finished scan yet.
+    expect(indexingNotice({ ...status, work: words, lastScanSecs: null })).toBe(
+      `Reading your files: ${n(1240)} of ${n(8300)}. Results appear as each file is read.`,
+    );
+    expect(indexingNotice({ ...status, work: words, lastScanSecs: 1_759_000_000 })).toBe(
+      `Checking your files for changes: ${n(1240)} of ${n(8300)}. Results may be incomplete.`,
+    );
+    const meaning = { ...words, stage: "meaning" as const };
+    expect(indexingNotice({ ...status, work: meaning, searchableByMeaning: 400, passages: 4000 })).toBe(
+      `Searchable by meaning: 400 of ${n(4000)} passages. Results may be incomplete.`,
+    );
+    expect(indexingNotice({ ...status, work: null })).toBeNull();
+  });
+
+  it("says it is searching when a search takes a while", async () => {
+    const engine = createMockEngine();
+    let finish: () => void = () => undefined;
+    const search = engine.search.bind(engine);
+    vi.spyOn(engine, "search").mockImplementation(
+      (query, filter) => new Promise((resolve) => (finish = () => resolve(search(query, filter)))),
+    );
+    await show(engine, "tax");
+    expect(await screen.findByText("Searching…", {}, { timeout: 2000 })).toBeTruthy();
+    await act(async () => finish());
+    expect(await screen.findByRole("listbox")).toBeTruthy();
+    expect(screen.queryByText("Searching…")).toBeNull();
   });
 
   it("starts ready, with examples and a summary", async () => {
