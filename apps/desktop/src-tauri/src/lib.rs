@@ -50,11 +50,15 @@ pub fn run() {
             }
             app.manage(state);
             // On battery, indexing waits for mains power (IDX-9). The first
-            // look comes before indexing starts.
+            // look comes before indexing starts. Idle, the model is released
+            // to give its memory back (section 14).
             let handle = app.handle().clone();
             thread::spawn(move || loop {
                 let state = handle.state::<AppState>();
                 state.power_changed(power::on_battery(), notifier(&handle));
+                if state.release_model_if_idle(std::time::Instant::now()) {
+                    let _ = handle.emit(STATUS_CHANGED, ());
+                }
                 thread::sleep(power::CHECK_EVERY);
             });
             // The model takes a few seconds; the window is usable meanwhile.

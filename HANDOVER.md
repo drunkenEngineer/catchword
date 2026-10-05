@@ -27,7 +27,7 @@ Last updated: 2026-10-04.
 
 ## 2. Current Status
 
-Overall health: **good**. On 2026-10-05, on Windows 11: 258 Rust tests and 62 interface tests pass; format, lint, type check and the privacy check are clean; the retrieval evaluation meets all 11 thresholds. CI has never been seen to run (see section 8).
+Overall health: **good**. On 2026-10-05, on Windows 11: 259 Rust tests and 62 interface tests pass; format, lint, type check and the privacy check are clean; the retrieval evaluation meets all 11 thresholds. CI has never been seen to run (see section 8).
 
 | Area | Status |
 | --- | --- |
@@ -367,7 +367,6 @@ The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23
 - Coverage-guided fuzzing of the worker protocol and the text path (cargo-fuzz needs a nightly toolchain and a new tool: the owner's call).
 
 **Low**
-- Release the model after a long idle time (section 14 speaks of memory "with the model released").
 - Translations (1.0); strings are already in `apps/desktop/ui/src/strings.ts`.
 
 ## 11. Environment / Configuration
@@ -429,7 +428,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 
 ## 13. Testing
 
-- Coverage on 2026-10-05: 258 Rust tests and 62 interface tests pass. There are four ignored tests: the packaged-files test and three measurements.
+- Coverage on 2026-10-05: 259 Rust tests and 62 interface tests pass. There are four ignored tests: the packaged-files test and three measurements.
 - The evaluation meets all 11 thresholds; combined recall@10 is 92.5%.
 - Rust tests:
   - unit tests in each crate;
@@ -517,6 +516,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 - **Start-up notices (spec section 8, "Index unreadable"):** a damaged index or settings file is reported in `Status.notice`, said once by the engine; the window keeps it in a banner above every destination until the user presses OK. Before 2026-10-04 it travelled in `Status.problem`, which the next refresh replaced, so it was shown only to someone already in Library.
 - **Moving the index (APP-7, ADR-23):** Settings, Data: "Move the index…" opens the system's folder dialog (in the shell: the interface never sends a path); a confirmation then warns that uninstalling will not remove the index there, that search and indexing wait while its drive is not connected, and whether a cloud service copies the folder. "Move it back to its usual place" appears once moved. The move is a checked copy (`copy_index` in `commands.rs`); a drive missing at start gives a notice and `PauseReason::IndexAway`, and Resume opens the index once the drive is back.
 - **On battery (IDX-9):** every 10 s the shell asks Windows whether it runs on battery (`apps/desktop/src-tauri/src/power.rs`). Going on battery pauses indexing (`PauseReason::Battery`); plugging in resumes it. It acts only on the change (`power::step`), so a user who presses Resume on battery is not overruled until the next unplug, and it never lifts a pause for another reason. Settings has the switch, on by default. The battery pause is not saved: the next start looks again.
+- **The model is released when idle (section 14, risk R13):** after 10 minutes without a search or indexing (`RELEASE_MODEL_AFTER`), checked every 10 s by the shell's background loop in `lib.rs`. It gives back about 140 MB (`docs/benchmarks/2026-10-04-app.md`). The next full search loads it again and waits for it, about 2 s; the words-first results show meanwhile. A new indexing run loads it too. Status still says meaning is ready; diagnostics say "released while idle".
 - **Filters (SEA-6):** folder, kind (PDF, or text and Markdown) and "Changed": any time, the past week, month or year (`Changed` in the contract; `modified_since` in the store's `Filter`). The date is the file's modified time as last scanned. Of identical copies, the one the filter allows is shown. "Search everything" clears all three when nothing was found.
 - **Copying (RES-3):** Copy passage (Ctrl+C) puts the passage and its source on the clipboard; Copy path (Ctrl+Shift+C) the file's whole path, with control characters removed (`FileHit.path`).
 - **A result whose file moved:** `open_file` and `reveal_file` return `FileAction::Missing` instead of opening anything; Search shows a notice naming the file, with Scan now (spec section 8, "File moved or deleted").
@@ -591,7 +591,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 - Task: the owner's decision on APP-7 (warn at the move), then moving the index.
 - Changes: the index can be moved to a folder the user chooses, and back; the warning; a missing drive at start is waited for; Delete all data removes a moved index; ADR-23; threat model and packaging notes updated.
 - Files affected: `apps/desktop/src-tauri/src/{commands,indexing,settings,contract,lib}.rs`, `build.rs`, `capabilities/main.json`, `apps/desktop/ui/src/{Settings,Library,engine,mock,strings}.ts(x)` and tests, `docs/adr/0023-*`, `docs/threat-model.md`, `docs/packaging.md`.
-- Then: a date filter for search (SEA-6): any time, the past week, month or year.
+- Then: a date filter for search (SEA-6): any time, the past week, month or year. The app rebuilt and installed for the owner to try. The model released after 10 idle minutes, loaded again when needed.
 - Decisions: ADR-23 (the owner's).
 - Problems encountered: GitHub could not be reached for a while (connection timed out), so commits waited to be pushed.
 - Current state: everything committed; all checks pass.

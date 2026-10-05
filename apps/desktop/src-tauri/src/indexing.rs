@@ -114,8 +114,11 @@ struct Shared {
     store_path: Mutex<PathBuf>,
     worker: Worker,
     log: Arc<Logger>,
-    /// None while the model loads. Replaced when the resource mode changes.
+    /// None while the model loads, or after it was released. Replaced when
+    /// the resource mode changes.
     model: Mutex<Option<Arc<Model>>>,
+    /// The model was released while idle; it is loaded again when needed.
+    released: AtomicBool,
     model_ready: Condvar,
     control: Mutex<Control>,
     finished: Condvar,
@@ -146,6 +149,7 @@ impl Indexer {
                 worker,
                 log,
                 model: Mutex::new(None),
+                released: AtomicBool::new(false),
                 model_ready: Condvar::new(),
                 control: Mutex::new(Control::default()),
                 finished: Condvar::new(),
@@ -167,7 +171,30 @@ impl Indexer {
     /// model replaces the old one; a search holding the old one finishes.
     pub fn set_model(&self, model: Model) {
         *lock(&self.shared.model) = Some(Arc::new(model));
+        self.shared.released.store(false, Ordering::SeqCst);
         self.shared.model_ready.notify_all();
+    }
+
+    /// Let go of a loaded model to give its memory back, unless a run is
+    /// going. A search that holds it finishes first. True if released.
+    pub fn release_model(&self) -> bool {
+        // Held throughout, so no run can start meanwhile.
+        let control = lock(&self.shared.control);
+        if control.running {
+            return false;
+        }
+        let mut model = lock(&self.shared.model);
+        if !matches!(model.as_deref(), Some(Model::Ready(_))) {
+            return false;
+        }
+        *model = None;
+        self.shared.released.store(true, Ordering::SeqCst);
+        true
+    }
+
+    /// The model was released and is not loaded again yet.
+    pub fn is_released(&self) -> bool {
+        self.shared.released.load(Ordering::SeqCst)
     }
 
     /// Pause: the current run stops after its file or batch, and no run

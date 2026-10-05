@@ -7,12 +7,12 @@
 
 use std::path::{Path, PathBuf, MAIN_SEPARATOR};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context, Result};
 use catchword_engine::exclude::DEFAULT_PATTERNS;
 use catchword_engine::resolve_folder;
-use catchword_service::{group_by_file, search_within, search_words, Model, Worker};
+use catchword_service::{group_by_file, search_within, search_words, Model, Threads, Worker};
 use catchword_store::Store;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
@@ -53,6 +53,12 @@ pub struct AppState {
     report: Mutex<Option<String>>,
     /// Whether the computer was on battery when last looked at (IDX-9).
     power: Mutex<Option<bool>>,
+    /// When the model was last needed: a search, or indexing.
+    last_used: Mutex<Instant>,
+    /// Held while the model is loaded again, so it is loaded once.
+    loading: Mutex<()>,
+    /// How the model is loaded again; tests use a stand-in.
+    load_model: fn(Threads) -> Model,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -139,6 +145,9 @@ impl AppState {
             interface_up: std::sync::atomic::AtomicBool::new(false),
             report: Mutex::new(None),
             power: Mutex::new(None),
+            last_used: Mutex::new(Instant::now()),
+            loading: Mutex::new(()),
+            load_model: Model::load,
         })
     }
 
@@ -278,6 +287,55 @@ impl AppState {
         self.start_indexing(notify);
     }
 
+    /// Note that the model is needed now.
+    fn used(&self) {
+        *lock(&self.last_used) = Instant::now();
+    }
+
+    /// Release the model if nothing needed it for `RELEASE_MODEL_AFTER`
+    /// (section 14: memory when idle is measured with the model released).
+    /// Indexing counts as use while it runs. True if released.
+    pub fn release_model_if_idle(&self, now: Instant) -> bool {
+        if self.indexer.is_running() {
+            *lock(&self.last_used) = now;
+            return false;
+        }
+        let idle = now.saturating_duration_since(*lock(&self.last_used));
+        if idle < RELEASE_MODEL_AFTER || !self.indexer.release_model() {
+            return false;
+        }
+        self.log.info("model.released", &[]);
+        true
+    }
+
+    /// Load the model again if it was released, and wait for it: about
+    /// two seconds. Searches by words alone do not wait.
+    fn ensure_model(&self) {
+        if !self.indexer.is_released() {
+            return;
+        }
+        let _loading = lock(&self.loading);
+        if self.indexer.is_released() {
+            let threads = indexing::threads(self.resource_mode());
+            self.set_model((self.load_model)(threads));
+            self.log.info("model.reloaded", &[]);
+        }
+    }
+
+    /// `ensure_model`, to run on another thread.
+    fn model_loader(&self) -> impl FnOnce() + Send + 'static {
+        let indexer = self.indexer.clone();
+        let log = Arc::clone(&self.log);
+        let load = self.load_model;
+        let threads = indexing::threads(self.resource_mode());
+        move || {
+            if indexer.is_released() {
+                indexer.set_model(load(threads));
+                log.info("model.reloaded", &[]);
+            }
+        }
+    }
+
     /// The model has loaded, or failed to.
     pub fn set_model(&self, model: Model) {
         match &model {
@@ -301,6 +359,11 @@ impl AppState {
     }
 
     pub fn start_indexing(&self, notify: Notify) {
+        self.used();
+        if self.indexer.is_released() {
+            // A run waits for the model; it is loaded beside it.
+            std::thread::spawn(self.model_loader());
+        }
         let (exclusions, limits) = {
             let settings = lock(&self.settings);
             (settings.exclusions(), settings.limits())
@@ -376,6 +439,7 @@ impl AppState {
     /// exactly what is saved.
     pub fn diagnostics(&self, include_paths: bool) -> Result<String> {
         let (meaning, meaning_detail) = match self.indexer.model().as_deref() {
+            None if self.indexer.is_released() => ("released while idle", None),
             None => ("starting", None),
             Some(Model::Ready(_)) => ("ready", None),
             Some(Model::Unavailable(why)) => ("off", Some(why.clone())),
@@ -512,6 +576,8 @@ impl AppState {
         let snapshot = self.indexer.snapshot();
         let counts = lock(&self.reader).counts()?;
         let meaning = match self.indexer.model().as_deref() {
+            // Released while idle: the next search loads it again.
+            None if self.indexer.is_released() => Meaning::Ready,
             None => Meaning::Loading,
             Some(Model::Ready(_)) => Meaning::Ready,
             Some(Model::Unavailable(reason)) => Meaning::Off {
@@ -599,9 +665,11 @@ impl AppState {
                 .changed
                 .map(|changed| now_secs() - changed.days() * 24 * 60 * 60),
         };
+        self.used();
         let answer = if words_only {
             search_words(&lock(&self.reader), query, &filter)?
         } else {
+            self.ensure_model();
             let loading = Model::Unavailable("the model is still loading".into());
             let model = self.indexer.model();
             search_within(
@@ -914,6 +982,9 @@ fn read_first(places: &[PathBuf]) -> Option<String> {
         .iter()
         .find_map(|place| std::fs::read_to_string(place).ok())
 }
+
+/// The model is released after this long without a search or indexing.
+pub const RELEASE_MODEL_AFTER: Duration = Duration::from_secs(10 * 60);
 
 /// Now, in seconds since 1970.
 fn now_secs() -> i64 {
@@ -2108,6 +2179,61 @@ mod tests {
         found.sort();
         assert_eq!(found, vec!["lease.txt", "notice.md"]);
         assert!(words.notes.is_empty());
+    }
+
+    static LOADS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+    /// A stand-in for loading the model: quick, and counted.
+    fn load_word_model(_: Threads) -> Model {
+        LOADS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Model::Ready(Mutex::new(Box::new(catchword_test_support::WordModel)))
+    }
+
+    #[test]
+    fn the_model_is_released_when_idle_and_loaded_again_when_needed() {
+        let (mut state, docs) = state("release-model");
+        state.load_model = load_word_model;
+        state.set_model(load_word_model(indexing::threads(ResourceMode::Light)));
+        state.add_folder(&docs, Arc::new(|| {})).unwrap();
+        wait(&state);
+        let loads = || LOADS.load(std::sync::atomic::Ordering::SeqCst);
+        let before = loads();
+        let now = Instant::now();
+
+        // Used a moment ago: kept.
+        assert!(!state.release_model_if_idle(now + Duration::from_secs(60)));
+        // Ten minutes without use: released, and it gives its memory back.
+        let later = now + RELEASE_MODEL_AFTER + Duration::from_secs(1);
+        assert!(state.release_model_if_idle(later));
+        assert!(state.indexer.model().is_none());
+        // Still shown as ready: a search loads it again.
+        assert!(matches!(state.status().unwrap().meaning, Meaning::Ready));
+        // Nothing to release twice.
+        assert!(!state.release_model_if_idle(later));
+
+        // Searching by words alone does not wait for it...
+        let words = state
+            .search_filtered("notice", &SearchFilter::default(), true)
+            .unwrap();
+        assert_eq!(words.files.len(), 1);
+        assert_eq!(loads(), before);
+        // ...a full search loads it again, once.
+        let full = state.search("notice period").unwrap();
+        assert_eq!(full.files[0].name, "lease.txt");
+        assert!(full.notes.iter().all(|note| !note.contains("loading")));
+        assert_eq!(loads(), before + 1);
+        assert!(matches!(
+            state.indexer.model().as_deref(),
+            Some(Model::Ready(_))
+        ));
+
+        // Released again, indexing loads it too.
+        assert!(state.release_model_if_idle(Instant::now() + RELEASE_MODEL_AFTER * 2));
+        std::fs::write(docs.join("new.txt"), "a new note about the garden").unwrap();
+        state.start_indexing(Arc::new(|| {}));
+        wait(&state);
+        assert_eq!(state.status().unwrap().files, 3);
+        assert_eq!(loads(), before + 2);
     }
 
     #[test]
