@@ -47,4 +47,8 @@ maxPages: number,
 /**
  * Indexing waits while the computer runs on battery (IDX-9).
  */
-pauseOnBattery: boolean, };
+pauseOnBattery: boolean, 
+/**
+ * The index was moved out of its usual place (APP-7).
+ */
+indexMoved: boolean, };

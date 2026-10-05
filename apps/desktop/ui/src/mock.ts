@@ -2,6 +2,7 @@
 // (`npm run dev:mock`) and for tests (UI-1). Its documents are invented.
 import type { FileAction } from "./contract/FileAction";
 import type { Folder } from "./contract/Folder";
+import type { IndexFolderChoice } from "./contract/IndexFolderChoice";
 import type { FileHit } from "./contract/FileHit";
 import type { PassageHit } from "./contract/PassageHit";
 import type { PauseReason } from "./contract/PauseReason";
@@ -72,6 +73,9 @@ export function createMockEngine({ firstLaunch = false } = {}): Engine {
   let patterns = [...DEFAULT_PATTERNS];
   let detailedLogs = false;
   let pauseOnBattery = true;
+  const usualPlace = "C:\\Users\\you\\AppData\\Local\\Catchword\\data";
+  let dataFolder = usualPlace;
+  let picked: string | null = null;
   let paused: PauseReason | null = null;
   let resourceMode: ResourceMode = "balanced";
   let theme: Theme = "system";
@@ -211,7 +215,7 @@ export function createMockEngine({ firstLaunch = false } = {}): Engine {
         excludedFolders: [...excludedFolders],
         patterns: [...patterns],
         defaultPatterns: [...DEFAULT_PATTERNS],
-        dataFolder: "C:\\Users\\you\\AppData\\Local\\Catchword\\data",
+        dataFolder,
         indexBytes: folders.length === 0 ? 4096 : 18_350_080,
         detailedLogs,
         version: "0.0.1",
@@ -222,6 +226,7 @@ export function createMockEngine({ firstLaunch = false } = {}): Engine {
         maxFileMb,
         maxPages,
         pauseOnBattery,
+        indexMoved: dataFolder !== usualPlace,
       };
     },
 
@@ -259,6 +264,18 @@ export function createMockEngine({ firstLaunch = false } = {}): Engine {
 
     async setPauseOnBattery(on: boolean): Promise<void> {
       pauseOnBattery = on;
+    },
+
+    async pickIndexFolder(): Promise<IndexFolderChoice | null> {
+      picked = "D:\\Private\\Catchword index";
+      return { path: picked, syncedBy: null };
+    },
+
+    async moveIndex(toUsualPlace: boolean): Promise<void> {
+      if (!toUsualPlace && picked === null) throw "choose a folder for the index first";
+      dataFolder = toUsualPlace ? usualPlace : (picked as string);
+      picked = null;
+      changed();
     },
 
     async diagnostics(includePaths: boolean): Promise<string> {

@@ -120,6 +120,8 @@ export const strings = {
     pausedByYou: "Indexing is paused. Search works with what is indexed so far.",
     pausedBattery:
       "Indexing is paused while the computer runs on battery. It carries on when you plug it in, or resume it now.",
+    pausedIndexAway:
+      "The index is kept in a folder that cannot be reached now: is its drive connected? Connect it, then resume. Or move the index back to its usual place in Settings.",
     pausedLowDisk:
       "Indexing is paused: less than 1 GB is free on the drive that holds the index. Free some space, then resume.",
     pausedNewerIndex:
@@ -151,6 +153,19 @@ export const strings = {
     dataTitle: "Your data",
     dataPlace: (folder: string, size: string) => `The index is stored in ${folder} (${size}). It holds the text of your documents, so it stays on this computer.`,
     checkIndex: "Check the index",
+    moveIndex: "Move the index…",
+    moveBack: "Move it back to its usual place",
+    move: "Move",
+    moving: "Moving the index…",
+    moved: "The index was moved.",
+    /** The warning before a move (APP-7, PRIV-7): the owner's choice, 5 October 2026. */
+    confirmMove: (path: string, syncedBy: string | null) =>
+      `Move the index to ${path}? Uninstalling Catchword will not remove it from there: before you uninstall, ` +
+      `use Delete all data, or delete that folder yourself. If its drive is not connected, search and indexing wait for it.` +
+      (syncedBy
+        ? ` Warning: ${syncedBy} copies that folder to the internet, and the index holds the text of your documents.`
+        : ""),
+    confirmMoveBack: "Move the index back to its usual place, in your user profile?",
     indexSound: "No damage found.",
     indexDamaged: "The index is damaged. Rebuild it to read your files again.",
     rebuild: "Rebuild the index",

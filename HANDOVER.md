@@ -27,7 +27,7 @@ Last updated: 2026-10-04.
 
 ## 2. Current Status
 
-Overall health: **good**. On 2026-10-04, on Windows 11: 252 Rust tests and 60 interface tests pass; format, lint, type check and the privacy check are clean; the retrieval evaluation meets all 11 thresholds. CI has never been seen to run (see section 8).
+Overall health: **good**. On 2026-10-05, on Windows 11: 257 Rust tests and 62 interface tests pass; format, lint, type check and the privacy check are clean; the retrieval evaluation meets all 11 thresholds. CI has never been seen to run (see section 8).
 
 | Area | Status |
 | --- | --- |
@@ -39,7 +39,7 @@ Overall health: **good**. On 2026-10-04, on Windows 11: 252 Rust tests and 60 in
 | Offline folders, cloud-only files, unreadable sub-folders | `[DONE]` |
 | Pause/resume, resource modes, low-disk pause | `[DONE]` |
 | Pause on battery, resume when plugged in (IDX-9, a 0.2 SHOULD, done early) | `[DONE]` |
-| Moving the index to a folder the user chooses (APP-7, 0.2) | `[DECISION NEEDED]`: the spec disagrees with itself (section 10) |
+| Moving the index to a folder the user chooses (APP-7, 0.2, done early) | `[DONE]`, with a warning that uninstalling will not remove it there (ADR-23) |
 | Rebuild on demand, quick check at start, damaged-index recovery, newer-index refusal | `[DONE]` |
 | Safe mode after two unclean ends in a row (spec section 19) | `[DONE]` |
 | Hostile-input tests (REL-2, start of Phase 3): worker answers, decoding, cutting, patterns, queries, 150 damaged PDFs, a decompression bomb, deep nesting, a false page count | `[DONE]`; fuzzing tools (cargo-fuzz) `[TODO]` |
@@ -99,7 +99,7 @@ fuse, extract ───► catchword-worker (separate process, PDFium), under a 
   - `open.rs`: opening files through ShellExecuteW;
   - `views.rs`: store results to contract types;
   - `lib.rs`: setup.
-- **Commands (allow-list):** `status search add_folder remove_folder index_now retry_failed settings exclude_folder include_folder set_patterns finish_first_launch delete_all_data rebuild_index check_index notices set_appearance set_limits pause_indexing resume_indexing set_resource_mode set_pause_on_battery set_detailed_logs diagnostics save_diagnostics preview open_file reveal_file`. A new command needs all three: the list in `apps/desktop/src-tauri/build.rs`, `allow-<name>` in `capabilities/main.json`, and registration in `lib.rs`.
+- **Commands (allow-list):** `status search add_folder remove_folder index_now retry_failed settings exclude_folder include_folder set_patterns finish_first_launch delete_all_data rebuild_index check_index notices set_appearance set_limits pause_indexing resume_indexing set_resource_mode set_pause_on_battery pick_index_folder move_index set_detailed_logs diagnostics save_diagnostics preview open_file reveal_file`. A new command needs all three: the list in `apps/desktop/src-tauri/build.rs`, `allow-<name>` in `capabilities/main.json`, and registration in `lib.rs`.
 - **Database:** one SQLite file, `data/index.db`; see section 14.
 - **APIs:** none over a network. Worker protocol v1 over stdin/stdout: length-prefixed, versioned frames (ADR-15, `crates/engine/src/extract/protocol.rs`).
 - **Authentication:** none, by design.
@@ -178,7 +178,7 @@ CLAUDE.md          # Rules and commands for the coding assistant
 
 ## 6. Important Decisions
 
-The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23 (Tauri shell and Rust engine; worker process model; one rebuildable SQLite index; exact vector search first; hybrid retrieval with rank fusion; content addressing; network policy; PDFium; OCR open; answers open; Apache-2.0; Store first then GitHub). Each also has a file in `docs/adr/` (0001 to 0013) with what has happened since; the specification stays the source. Later decisions are only files: ADR-14 to ADR-22. Do not reopen them without the owner. Further decisions made in sessions:
+The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23 (Tauri shell and Rust engine; worker process model; one rebuildable SQLite index; exact vector search first; hybrid retrieval with rank fusion; content addressing; network policy; PDFium; OCR open; answers open; Apache-2.0; Store first then GitHub). Each also has a file in `docs/adr/` (0001 to 0013) with what has happened since; the specification stays the source. Later decisions are only files: ADR-14 to ADR-23. Do not reopen them without the owner. Further decisions made in sessions:
 
 **Decision: Keep Granite as the model (ADR-20)**
 - Decision: granite-embedding-97m-multilingual-r2, 350-token passages with 50 overlapping, fusion K = 60 with 50 candidates.
@@ -191,6 +191,12 @@ The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23
 - Reason: a worker per file costs about 42 ms; decoding is not format parsing.
 - Alternatives considered: the worker for every file.
 - Consequences: the one exception to rule 2; recorded.
+
+**Decision: The index may be moved anywhere, with a warning (ADR-23)**
+- Decision: the owner's, 5 October 2026. Any folder the user picks; the index gets a folder of its own there (`Catchword index`); before the move, the user is told that uninstalling will not remove it there.
+- Reason: APP-7 against PRIV-7 and the Store's uninstall: neither uninstaller can find a moved index.
+- Alternatives considered: only folders the uninstaller can find (impossible for the Store); leaving APP-7 out until encryption (PRIV-6).
+- Consequences: PRIV-7 holds for the usual place only, and the user is told. A drive missing at start pauses indexing (`IndexAway`) instead of starting an empty index elsewhere.
 
 **Decision: Deleted content leaves the index file (ADR-22)**
 - Decision: FTS5 secure-delete on both full-text indexes; a purge of more than 2% of the passages deletes plainly, then compacts; every purge empties the log into the file.
@@ -355,7 +361,6 @@ The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23
 - MSIX install test and Store registration: owner steps in `docs/packaging.md`; then put the Store identity in `apps/desktop/msix/AppxManifest.xml`.
 
 **Medium**
-- Move the data location (APP-7) `[DECISION NEEDED]`. APP-7 lets the index live in any folder the user picks, but PRIV-7 says uninstalling removes the index, and section 15 says a Store uninstall removes all app data. Windows removes only the app's own container on a Store uninstall, and our NSIS uninstaller only knows the default place, so a moved index would be left behind, a full-text copy of private documents. Options: allow only folders the uninstaller can find (write the location where `hooks.nsh` can read it; impossible for the Store build); warn at the move that uninstalling will not remove it; or drop APP-7 until index encryption (PRIV-6). Also undecided: what happens when the chosen drive is missing at start.
 - Quantised vector search with rescoring if combined search misses 500 ms on the reference laptop (spec section 14, scale tiers).
 - Filter by modified date (SEA-6 says later).
 - Move the CI actions to their newer major versions (checkout v7, cache v6, setup-node v7 exist on 2026-10-04; the workflow uses v4 of each). Only once CI results can be seen, since a major version can change behaviour.
@@ -425,7 +430,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 
 ## 13. Testing
 
-- Coverage on 2026-10-04: 252 Rust tests and 60 interface tests pass. There are four ignored tests: the packaged-files test and three measurements.
+- Coverage on 2026-10-05: 257 Rust tests and 62 interface tests pass. There are four ignored tests: the packaged-files test and three measurements.
 - The evaluation meets all 11 thresholds; combined recall@10 is 92.5%.
 - Rust tests:
   - unit tests in each crate;
@@ -453,7 +458,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 
 ## 14. Database / Data
 
-- **File:** `%LOCALAPPDATA%\org.catchword.desktop\data\index.db`, SQLite in WAL mode with `secure_delete`. Code: `crates/store/src/lib.rs`.
+- **File:** `%LOCALAPPDATA%\org.catchword.desktop\data\index.db`, SQLite in WAL mode with `secure_delete`. Code: `crates/store/src/lib.rs`. If the user moved it (APP-7, ADR-23): `<chosen folder>\Catchword index\index.db`, recorded as `index_folder` in the settings; a copy in progress is `index.db.partial` there.
 - **Deleted content (PRIV-5, ADR-22):** both FTS5 tables have FTS5's `secure-delete` option on, so deleted entries are removed at once. A purge of more than 2% of the passages (`BULK_SHARE`), or a new cutting pipeline, switches it off for its transaction and then compacts (`compact_keyword_indexes`: `optimize`, then the option back on, in one transaction). An index found with the option off is compacted at open. Every purge ends with `PRAGMA wal_checkpoint(TRUNCATE)`.
 - **Schema version 5** (`SCHEMA_VERSION`):
   - Version 2 added pages, 3 vectors, 4 `problems`, 5 `names_fts`.
@@ -469,7 +474,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
   - `passage_vectors`: sqlite-vec, 384 floats per passage.
   - `problems(path PK, size, modified_secs, reason, attempts)`: files not indexed. The reason codes are `needs-ocr`, `encrypted`, `too-large`, `cannot-open`, `damaged`, `timed-out`, `memory-limit`, `crashed`, `invalid-output`, `library-missing` and `cloud-only`. Failures are parked after 2 attempts; rule-based skips wait until the file changes; `cannot-open` and `cloud-only` are retried every run.
   - `temp.passage_words`: an fts5vocab view, per connection only.
-- **Settings:** `config\settings.json`, version 2, written atomically with the previous copy kept (`apps/desktop/src-tauri/src/settings.rs`). Fields: `folders`, `excluded_folders`, `patterns`, `welcomed`, `detailed_logs`, `resource_mode`, `paused`, `theme`, `text_size`, `max_file_mb`, `max_pages`, `pause_on_battery` (default on), `next_id`. Version 1 files are upgraded.
+- **Settings:** `config\settings.json`, version 2, written atomically with the previous copy kept (`apps/desktop/src-tauri/src/settings.rs`). Fields: `folders`, `excluded_folders`, `patterns`, `welcomed`, `detailed_logs`, `resource_mode`, `paused`, `theme`, `text_size`, `max_file_mb`, `max_pages`, `pause_on_battery` (default on), `index_folder` (where the index was moved, or none), `next_id`. Version 1 files are upgraded.
 - **Assumptions:** the index can always be rebuilt from the files. Settings are precious; the index is not.
 
 ## 15. External Services
@@ -511,6 +516,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 - **While indexing (spec section 8, states):** Search says how far it has got (`indexingNotice` in `Search.tsx`): "Reading your files: N of M" for an index without a finished scan (new, or rebuilt after damage or on request: this is the "Index repairing" state), "Checking your files for changes" otherwise, and the share searchable by meaning in the second stage. The word-stage counts are per folder, as in Library. A search still running after 300 ms shows "Searching…".
 - **Keyword results first (spec section 8, "Loading"):** Search asks for results by words and names alone (`search` with `wordsOnly`, `search_words` in the service: no model), then for the full search. The words-only results are shown only if the full ones have not followed within 150 ms (`WORDS_FIRST_MS`), so a quick search never reorders under the user; when the full results replace them, the passage the user moved to stays chosen if it is still there.
 - **Start-up notices (spec section 8, "Index unreadable"):** a damaged index or settings file is reported in `Status.notice`, said once by the engine; the window keeps it in a banner above every destination until the user presses OK. Before 2026-10-04 it travelled in `Status.problem`, which the next refresh replaced, so it was shown only to someone already in Library.
+- **Moving the index (APP-7, ADR-23):** Settings, Data: "Move the index…" opens the system's folder dialog (in the shell: the interface never sends a path); a confirmation then warns that uninstalling will not remove the index there, that search and indexing wait while its drive is not connected, and whether a cloud service copies the folder. "Move it back to its usual place" appears once moved. The move is a checked copy (`copy_index` in `commands.rs`); a drive missing at start gives a notice and `PauseReason::IndexAway`, and Resume opens the index once the drive is back.
 - **On battery (IDX-9):** every 10 s the shell asks Windows whether it runs on battery (`apps/desktop/src-tauri/src/power.rs`). Going on battery pauses indexing (`PauseReason::Battery`); plugging in resumes it. It acts only on the change (`power::step`), so a user who presses Resume on battery is not overruled until the next unplug, and it never lifts a pause for another reason. Settings has the switch, on by default. The battery pause is not saved: the next start looks again.
 - **Copying (RES-3):** Copy passage (Ctrl+C) puts the passage and its source on the clipboard; Copy path (Ctrl+Shift+C) the file's whole path, with control characters removed (`FileHit.path`).
 - **A result whose file moved:** `open_file` and `reveal_file` return `FileAction::Missing` instead of opening anything; Search shows a notice naming the file, with Scan now (spec section 8, "File moved or deleted").
@@ -579,6 +585,15 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 - Current state: everything committed; all checks pass.
 - Next step: CI results; the owner's decisions; the "High" items in section 10.
 - Later the same day: `HANDOVER.md` written; 11 commits pushed; the two low-disk tests limited to Windows (free space is read on Windows only, so CI on Linux and macOS would fail them); safe mode added and verified in a release build; hostile-input tests added, which found that a NUL in a query made search fail (fixed); 150 damaged PDFs and three resource-exhaustion files through the real worker; "nothing found" causes with counts; a notice when a result's file has moved; ADR-1 to ADR-13 written as files (ARC-1); CI actions pinned to commit hashes, with a check; a test that links and junctions out of a chosen folder are not followed (SRC-6 had none); deleted content leaves the index file (PRIV-5, ADR-22): a byte-level test found that a purged file's words and name stayed in the keyword indexes, now fixed; Copy path (RES-3), with Ctrl+Shift+C as the spec's keyboard table gives it; the table's last two missing shortcuts, F6 between panes and Left/Right to fold a file's passages; Search's indexing notice with counts, and "Searching…" after 300 ms; start-up notices (damaged index or settings) now stay on screen until closed; before, the next status refresh dropped them; the threat model published (SEC-3), with the CI-actions comment corrected from T8 to T7; the app's manifest declares it runs as the user (`asInvoker`), with a test on the built program; keyword results first when the full search is slow; indexing pauses on battery and carries on when plugged in (IDX-9); APP-7 found to conflict with PRIV-7 and the Store's uninstall, recorded for the owner. All pushed.
+
+
+**2026-10-05**
+- Task: the owner's decision on APP-7 (warn at the move), then moving the index.
+- Changes: the index can be moved to a folder the user chooses, and back; the warning; a missing drive at start is waited for; Delete all data removes a moved index; ADR-23; threat model and packaging notes updated.
+- Files affected: `apps/desktop/src-tauri/src/{commands,indexing,settings,contract,lib}.rs`, `build.rs`, `capabilities/main.json`, `apps/desktop/ui/src/{Settings,Library,engine,mock,strings}.ts(x)` and tests, `docs/adr/0023-*`, `docs/threat-model.md`, `docs/packaging.md`.
+- Decisions: ADR-23 (the owner's).
+- Current state: everything committed and pushed; all checks pass.
+- Next step: the next item in section 10 that needs no decision.
 
 ---
 

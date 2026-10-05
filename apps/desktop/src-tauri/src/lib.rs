@@ -89,6 +89,8 @@ pub fn run() {
             commands::resume_indexing,
             commands::set_resource_mode,
             commands::set_pause_on_battery,
+            commands::pick_index_folder,
+            commands::move_index,
             commands::set_detailed_logs,
             commands::diagnostics,
             commands::save_diagnostics,

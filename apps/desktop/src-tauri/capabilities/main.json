@@ -27,6 +27,8 @@
     "allow-resume-indexing",
     "allow-set-resource-mode",
     "allow-set-pause-on-battery",
+    "allow-pick-index-folder",
+    "allow-move-index",
     "allow-set-detailed-logs",
     "allow-diagnostics",
     "allow-save-diagnostics",

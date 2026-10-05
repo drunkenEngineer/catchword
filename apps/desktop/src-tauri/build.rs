@@ -23,6 +23,8 @@ fn main() {
         "resume_indexing",
         "set_resource_mode",
         "set_pause_on_battery",
+        "pick_index_folder",
+        "move_index",
         "set_detailed_logs",
         "diagnostics",
         "save_diagnostics",

@@ -54,6 +54,9 @@ pub enum PauseReason {
     /// The computer runs on battery; indexing carries on when it is
     /// plugged in (IDX-9).
     Battery,
+    /// The index was moved to a folder that cannot be reached now, such as
+    /// on a drive that is not connected (APP-7).
+    IndexAway,
 }
 
 /// Light or dark, or as Windows is set (APP-3).
@@ -120,6 +123,18 @@ pub struct SettingsView {
     pub max_pages: u32,
     /// Indexing waits while the computer runs on battery (IDX-9).
     pub pause_on_battery: bool,
+    /// The index was moved out of its usual place (APP-7).
+    pub index_moved: bool,
+}
+
+/// Where the index would go, for the user to confirm (APP-7).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct IndexFolderChoice {
+    /// The folder of its own the index would be kept in.
+    pub path: String,
+    /// The cloud service that copies that folder, if one does (PRIV-4).
+    pub synced_by: Option<String>,
 }
 
 /// A folder the user chose. The path is shown, never sent back.
@@ -318,6 +333,7 @@ mod tests {
             SearchFilter,
             FileKind,
             FileAction,
+            IndexFolderChoice,
             SearchResponse,
             FileHit,
             PassageHit,

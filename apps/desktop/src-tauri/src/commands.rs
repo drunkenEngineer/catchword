@@ -18,8 +18,8 @@ use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::contract::{
-    FileAction, FileKind, Folder, FolderState, FolderStatus, Meaning, PauseReason, ResourceMode,
-    SearchFilter, SearchResponse, SettingsView, Status, TextSize, Theme,
+    FileAction, FileKind, Folder, FolderState, FolderStatus, IndexFolderChoice, Meaning,
+    PauseReason, ResourceMode, SearchFilter, SearchResponse, SettingsView, Status, TextSize, Theme,
 };
 use crate::diagnostics::{self, Facts};
 use crate::indexing::{self, Indexer, Notify};
@@ -35,8 +35,12 @@ pub struct AppState {
     pub indexer: Indexer,
     settings: Mutex<Settings>,
     config_dir: PathBuf,
-    /// The index database file.
-    index: PathBuf,
+    /// The index database file, wherever it is now (APP-7).
+    index: Mutex<PathBuf>,
+    /// Its usual place, in the user's profile (PRIV-4).
+    usual_index: PathBuf,
+    /// The folder the user chose for the index, until they confirm the move.
+    proposed: Mutex<Option<PathBuf>>,
     /// A connection for searches, apart from the indexer's: reads never
     /// wait for writes (WAL).
     reader: Mutex<Store>,
@@ -59,9 +63,20 @@ impl AppState {
     /// `data` is the app's folder in the non-roaming profile (PRIV-4).
     pub fn open(data: &Path, worker: Worker) -> Result<Self> {
         let config_dir = data.join("config");
-        let index = data.join("data").join("index.db");
-        std::fs::create_dir_all(index.parent().unwrap_or(data))?;
+        let usual_index = data.join("data").join("index.db");
+        std::fs::create_dir_all(usual_index.parent().unwrap_or(data))?;
         let (settings, notice) = Settings::load(&config_dir);
+        let index = settings
+            .index_folder
+            .as_ref()
+            .map_or_else(|| usual_index.clone(), |folder| folder.join("index.db"));
+        // A folder the index was moved to, on a drive that is not connected:
+        // wait for it, rather than start an empty index somewhere else.
+        let away = settings
+            .index_folder
+            .as_ref()
+            .filter(|folder| !folder.is_dir())
+            .cloned();
         let log = Arc::new(Logger::new(data.join("logs"), settings.detailed_logs));
         log.info(
             "app.started",
@@ -73,7 +88,10 @@ impl AppState {
         if notice.is_some() {
             log.warn("settings.damaged", &[]);
         }
-        let (reader, opened) = open_index(&index, &log)?;
+        let (reader, opened) = match &away {
+            Some(_) => (Store::open_in_memory()?, Opened::Away),
+            None => open_index(&index, &log)?,
+        };
         let indexer = Indexer::new(index.clone(), worker, Arc::clone(&log));
         if settings.paused {
             indexer.pause(PauseReason::You);
@@ -93,12 +111,28 @@ impl AppState {
                 indexer.pause(PauseReason::NewerIndex);
                 notice
             }
+            Opened::Away => {
+                indexer.pause(PauseReason::IndexAway);
+                log.warn("index.away", &[]);
+                let folder = away.as_deref().unwrap_or(&index).display();
+                let away = format!(
+                    "The index is kept in {folder}, which cannot be reached now: is its \
+                     drive connected? Connect it, then resume indexing in Library, or move \
+                     the index back to its usual place in Settings."
+                );
+                Some(match notice {
+                    Some(settings) => format!("{away} {settings}"),
+                    None => away,
+                })
+            }
         };
         Ok(Self {
             indexer,
             settings: Mutex::new(settings),
             config_dir,
-            index,
+            index: Mutex::new(index),
+            usual_index,
+            proposed: Mutex::new(None),
             reader: Mutex::new(reader),
             notice: Mutex::new(notice),
             log,
@@ -173,6 +207,9 @@ impl AppState {
     /// Resume, whatever paused it. If disk space is still low, the run
     /// pauses again at once and says so.
     pub fn resume_indexing(&self, notify: Notify) -> Result<()> {
+        if self.indexer.paused() == Some(PauseReason::IndexAway) && !self.reconnect_index()? {
+            return Ok(());
+        }
         let mut settings = lock(&self.settings);
         settings.paused = false;
         settings.save(&self.config_dir)?;
@@ -293,7 +330,7 @@ impl AppState {
         ["", "-wal"]
             .iter()
             .filter_map(|suffix| {
-                std::fs::metadata(format!("{}{suffix}", self.index.display())).ok()
+                std::fs::metadata(format!("{}{suffix}", self.index_path().display())).ok()
             })
             .map(|meta| meta.len())
             .sum()
@@ -301,27 +338,28 @@ impl AppState {
 
     pub fn settings(&self) -> Result<SettingsView> {
         let index_bytes = self.index_bytes();
+        let index = self.index_path();
         let settings = lock(&self.settings);
         Ok(SettingsView {
             excluded_folders: settings.excluded_folders.iter().map(folder_view).collect(),
             patterns: settings.patterns.clone(),
             default_patterns: DEFAULT_PATTERNS.iter().map(|p| p.to_string()).collect(),
-            data_folder: self
-                .index
+            data_folder: index
                 .parent()
-                .unwrap_or(&self.index)
+                .unwrap_or(&index)
                 .to_string_lossy()
                 .to_string(),
             index_bytes,
             detailed_logs: settings.detailed_logs,
             version: env!("CARGO_PKG_VERSION").to_string(),
             resource_mode: settings.resource_mode,
-            data_synced_by: crate::disk::synced_by(&self.index).map(String::from),
+            data_synced_by: crate::disk::synced_by(&index).map(String::from),
             theme: settings.theme,
             text_size: settings.text_size,
             max_file_mb: settings.max_file_mb,
             max_pages: settings.max_pages,
             pause_on_battery: settings.pause_on_battery,
+            index_moved: settings.index_folder.is_some(),
         })
     }
 
@@ -437,13 +475,23 @@ impl AppState {
             remove_if_there(&report)?;
         }
         let mut reader = lock(&self.reader);
-        // Close the index, so its files can be deleted.
+        // Close the index, so its files can be deleted, wherever it is.
         *reader = Store::open_in_memory()?;
-        remove_index_files(&self.index)?;
-        remove_if_there(&set_aside_path(&self.index))?;
-        *reader = Store::open(&self.index).context("cannot create a new index")?;
+        let index = self.index_path();
+        remove_index_files(&index)?;
+        remove_if_there(&set_aside_path(&index))?;
+        if index != self.usual_index {
+            // Its own folder, now empty, goes too; a new index starts in
+            // the usual place, as the settings now say.
+            remove_own_folder(&index);
+            self.set_index_path(self.usual_index.clone());
+        }
+        *reader = Store::open(&self.usual_index).context("cannot create a new index")?;
         drop(reader);
-        if self.indexer.paused() == Some(PauseReason::NewerIndex) {
+        if matches!(
+            self.indexer.paused(),
+            Some(PauseReason::NewerIndex | PauseReason::IndexAway)
+        ) {
             self.indexer.resume();
         }
         self.log.info("data.deleted", &[]);
@@ -622,13 +670,20 @@ impl AppState {
     /// Delete the index and read every file again; folders and settings
     /// stay (IDX-7). Also the way out of an index from a newer version.
     pub fn rebuild_index(&self, notify: Notify) -> Result<()> {
+        if self.indexer.paused() == Some(PauseReason::IndexAway) {
+            return Err(anyhow!(
+                "the index's folder cannot be reached: connect its drive, or move the index \
+                 back to its usual place"
+            ));
+        }
         self.indexer.stop_and_wait();
+        let index = self.index_path();
         let mut reader = lock(&self.reader);
         // Close the index, so its files can be deleted.
         *reader = Store::open_in_memory()?;
-        remove_index_files(&self.index)?;
-        remove_if_there(&set_aside_path(&self.index))?;
-        *reader = Store::open(&self.index).context("cannot create a new index")?;
+        remove_index_files(&index)?;
+        remove_if_there(&set_aside_path(&index))?;
+        *reader = Store::open(&index).context("cannot create a new index")?;
         drop(reader);
         if self.indexer.paused() == Some(PauseReason::NewerIndex) {
             self.indexer.resume();
@@ -636,6 +691,125 @@ impl AppState {
         self.log.info("index.rebuilt", &[]);
         self.start_indexing(notify);
         Ok(())
+    }
+
+    /// The index file, wherever it is now.
+    fn index_path(&self) -> PathBuf {
+        lock(&self.index).clone()
+    }
+
+    /// Point the app and the indexer at the index's new place.
+    fn set_index_path(&self, index: PathBuf) {
+        self.indexer.set_store_path(index.clone());
+        *lock(&self.index) = index;
+    }
+
+    /// Note the folder the user chose for the index, inside which it would
+    /// get a folder of its own, and say what the move would mean (APP-7).
+    pub fn propose_index_folder(&self, chosen: &Path) -> IndexFolderChoice {
+        let folder = chosen.join(INDEX_FOLDER);
+        *lock(&self.proposed) = Some(folder.clone());
+        IndexFolderChoice {
+            path: folder.to_string_lossy().to_string(),
+            synced_by: crate::disk::synced_by(&folder).map(String::from),
+        }
+    }
+
+    /// Move the index to the folder last proposed, once the user confirmed.
+    pub fn move_index_to_proposed(&self, notify: Notify) -> Result<()> {
+        let folder = lock(&self.proposed)
+            .take()
+            .ok_or_else(|| anyhow!("choose a folder for the index first"))?;
+        self.move_index(Some(folder), notify)
+    }
+
+    /// Move the index into `folder`, or back to its usual place for None
+    /// (APP-7). The copy is checked before it is used, and the old one is
+    /// deleted only then: it holds the text of the documents. Searches wait
+    /// meanwhile. If anything fails, the index stays where it was.
+    pub fn move_index(&self, folder: Option<PathBuf>, notify: Notify) -> Result<()> {
+        let usual_folder = self.usual_index.parent().unwrap_or(&self.usual_index);
+        let target = folder.clone().unwrap_or_else(|| usual_folder.to_path_buf());
+        let to = target.join("index.db");
+        let from = self.index_path();
+        if to == from {
+            return Err(anyhow!("the index is already there"));
+        }
+        if folder.is_some() && (to.exists() || set_aside_path(&to).exists()) {
+            return Err(anyhow!(
+                "{} already holds a Catchword index. Choose another folder, or delete that one first.",
+                target.display()
+            ));
+        }
+        let away = self.indexer.paused() == Some(PauseReason::IndexAway);
+        self.indexer.stop_and_wait();
+        let mut reader = lock(&self.reader);
+        // Closed, everything in the index's log is in its file.
+        *reader = Store::open_in_memory()?;
+        let copied = if away {
+            // Nothing to copy: a new index is made there and filled.
+            std::fs::create_dir_all(&target)
+                .with_context(|| format!("cannot make {}", target.display()))
+        } else {
+            copy_index(&from, &target)
+        };
+        if let Err(error) = copied {
+            if !away {
+                *reader = Store::open(&from).context("cannot open the index again")?;
+            }
+            drop(reader);
+            self.start_indexing(notify);
+            return Err(error);
+        }
+        {
+            let mut settings = lock(&self.settings);
+            settings.index_folder = folder.clone();
+            settings.save(&self.config_dir)?;
+        }
+        self.set_index_path(to.clone());
+        let (store, opened) = open_index(&to, &self.log)?;
+        *reader = store;
+        drop(reader);
+        if !away {
+            remove_index_files(&from)?;
+            remove_if_there(&set_aside_path(&from))?;
+            if from.parent() != Some(usual_folder) {
+                remove_own_folder(&from);
+            }
+        }
+        if away {
+            self.indexer.resume();
+        }
+        if let Opened::Newer = opened {
+            self.indexer.pause(PauseReason::NewerIndex);
+        }
+        self.log.info(
+            "index.moved",
+            &[("usual_place", Value::Flag(folder.is_none()))],
+        );
+        self.start_indexing(notify);
+        Ok(())
+    }
+
+    /// The folder of an index that was away is back: open the index there.
+    /// False if it was made by a newer version, so indexing stays paused.
+    fn reconnect_index(&self) -> Result<bool> {
+        let index = self.index_path();
+        let folder = index.parent().unwrap_or(&index);
+        if !folder.is_dir() {
+            return Err(anyhow!(
+                "{} still cannot be reached. Connect its drive, or move the index back to its usual place in Settings.",
+                folder.display()
+            ));
+        }
+        let (store, opened) = open_index(&index, &self.log)?;
+        *lock(&self.reader) = store;
+        self.log.info("index.back", &[]);
+        if let Opened::Newer = opened {
+            self.indexer.pause(PauseReason::NewerIndex);
+            return Ok(false);
+        }
+        Ok(true)
     }
 
     /// The third-party notices shipped beside the program (REL-2), or None
@@ -679,6 +853,8 @@ enum Opened {
     Rebuilt,
     /// A newer version made it: untouched, and an empty one stands in.
     Newer,
+    /// Its folder cannot be reached: an empty one stands in (APP-7).
+    Away,
 }
 
 /// Open the index, after a quick check (section 12, corruption recovery).
@@ -734,6 +910,59 @@ fn read_first(places: &[PathBuf]) -> Option<String> {
     places
         .iter()
         .find_map(|place| std::fs::read_to_string(place).ok())
+}
+
+/// The folder of its own an index gets inside a folder the user chose, so
+/// that nothing else there is ever touched (APP-7).
+pub const INDEX_FOLDER: &str = "Catchword index";
+
+/// Copy the closed index at `from` into `folder`, and check the copy before
+/// it is put in place. A file left in the usual place before is Catchword's
+/// own, so it is replaced.
+fn copy_index(from: &Path, folder: &Path) -> Result<()> {
+    std::fs::create_dir_all(folder).with_context(|| format!("cannot make {}", folder.display()))?;
+    let to = folder.join("index.db");
+    if !from.is_file() {
+        // Nothing yet: a new index is made there.
+        return Ok(());
+    }
+    let size = std::fs::metadata(from)?.len();
+    if let Some(free) = crate::disk::free_bytes(folder) {
+        if free < size + crate::disk::MIN_FREE_BYTES {
+            return Err(anyhow!(
+                "not enough free space in {}: the index needs {} MB, and 1 GB must stay free",
+                folder.display(),
+                size.div_ceil(1 << 20)
+            ));
+        }
+    }
+    let partial = folder.join("index.db.partial");
+    let checked = (|| -> Result<()> {
+        std::fs::copy(from, &partial).context("cannot copy the index")?;
+        let sound = Store::open(&partial)
+            .and_then(|copy| copy.quick_check())
+            .unwrap_or(false);
+        if !sound {
+            return Err(anyhow!("the copy of the index could not be read back"));
+        }
+        remove_index_files(&to)?;
+        std::fs::rename(&partial, &to).context("cannot put the copy in place")?;
+        Ok(())
+    })();
+    if checked.is_err() {
+        let _ = remove_index_files(&partial);
+    }
+    checked
+}
+
+/// Remove the folder of its own an index had, once empty. A folder holding
+/// anything else is left as it is.
+fn remove_own_folder(index: &Path) {
+    if let Some(folder) = index.parent() {
+        if folder.file_name() == Some(std::ffi::OsStr::new(INDEX_FOLDER)) {
+            let _ = std::fs::remove_dir(folder);
+        }
+    }
 }
 
 /// Where a damaged index is kept until the next good start.
@@ -970,6 +1199,38 @@ pub async fn set_resource_mode(app: AppHandle, mode: ResourceMode) -> Result<(),
             });
         }
         Ok(())
+    })
+    .await
+}
+
+/// Opens the native folder dialog here, in the shell; the move waits for
+/// the user to confirm it (`move_index`).
+#[tauri::command]
+pub async fn pick_index_folder(app: AppHandle) -> Result<Option<IndexFolderChoice>, String> {
+    on_state(app, "pick_index_folder", |app, state| {
+        let Some(chosen) = app
+            .dialog()
+            .file()
+            .set_title("Choose where to keep the index")
+            .blocking_pick_folder()
+        else {
+            return Ok(None);
+        };
+        let chosen = chosen.into_path().map_err(|error| anyhow!("{error}"))?;
+        Ok(Some(state.propose_index_folder(&chosen)))
+    })
+    .await
+}
+
+/// Move the index to the folder just picked, or back to its usual place.
+#[tauri::command]
+pub async fn move_index(app: AppHandle, to_usual_place: bool) -> Result<(), String> {
+    on_state(app, "move_index", move |app, state| {
+        if to_usual_place {
+            state.move_index(None, notifier(app))
+        } else {
+            state.move_index_to_proposed(notifier(app))
+        }
     })
     .await
 }
@@ -1428,6 +1689,150 @@ mod tests {
         let data = docs.parent().unwrap().to_path_buf();
         let index = data.join("data").join("index.db");
         (data, index)
+    }
+
+    /// Move the index into a folder of its own inside `chosen` (APP-7).
+    fn move_to(state: &AppState, chosen: &Path) {
+        std::fs::create_dir_all(chosen).unwrap();
+        state.propose_index_folder(chosen);
+        state.move_index_to_proposed(Arc::new(|| {})).unwrap();
+        wait(state);
+    }
+
+    fn reopen(data: &Path) -> AppState {
+        let state = AppState::open(data, built_worker()).unwrap();
+        state
+            .indexer
+            .set_model(Model::Unavailable("not needed".into()));
+        state
+    }
+
+    #[test]
+    fn the_index_moves_to_a_chosen_folder_and_back() {
+        let (state, docs) = state("move-index");
+        state.add_folder(&docs, Arc::new(|| {})).unwrap();
+        wait(&state);
+        let (data, usual) = index_of(&docs);
+        let chosen = data.join("elsewhere");
+        std::fs::create_dir_all(&chosen).unwrap();
+        std::fs::write(chosen.join("mine.txt"), "the user's own file").unwrap();
+
+        let choice = state.propose_index_folder(&chosen);
+        assert!(choice.path.ends_with(INDEX_FOLDER));
+        assert_eq!(choice.synced_by, None);
+        move_to(&state, &chosen);
+        assert!(chosen.join(INDEX_FOLDER).join("index.db").is_file());
+        // The old copy holds the documents' text: it is gone.
+        assert!(!usual.exists());
+        assert_eq!(state.search("notice period").unwrap().files.len(), 1);
+        let view = state.settings().unwrap();
+        assert!(view.index_moved);
+        assert!(view.data_folder.ends_with(INDEX_FOLDER));
+
+        // The next start finds it there.
+        drop(state);
+        let state = reopen(&data);
+        assert_eq!(state.status().unwrap().files, 2);
+
+        // Back to the usual place: the folder of its own goes, nothing else.
+        state.move_index(None, Arc::new(|| {})).unwrap();
+        wait(&state);
+        assert!(usual.is_file());
+        assert!(!chosen.join(INDEX_FOLDER).exists());
+        assert!(chosen.join("mine.txt").is_file());
+        assert_eq!(state.status().unwrap().files, 2);
+        assert!(!state.settings().unwrap().index_moved);
+    }
+
+    #[test]
+    fn a_folder_that_already_holds_an_index_is_refused() {
+        let (state, docs) = state("move-refused");
+        state.add_folder(&docs, Arc::new(|| {})).unwrap();
+        wait(&state);
+        let (data, usual) = index_of(&docs);
+        let other = data.join("taken").join(INDEX_FOLDER).join("index.db");
+        std::fs::create_dir_all(other.parent().unwrap()).unwrap();
+        std::fs::write(&other, "another install's index").unwrap();
+        state.propose_index_folder(&data.join("taken"));
+        assert!(state.move_index_to_proposed(Arc::new(|| {})).is_err());
+        // Nothing changed, and the other index is untouched.
+        assert!(usual.is_file());
+        assert_eq!(
+            std::fs::read_to_string(&other).unwrap(),
+            "another install's index"
+        );
+        assert_eq!(state.search("notice period").unwrap().files.len(), 1);
+        // Nor can it move to where it is, or without a folder chosen.
+        assert!(state.move_index(None, Arc::new(|| {})).is_err());
+        assert!(state.move_index_to_proposed(Arc::new(|| {})).is_err());
+    }
+
+    #[test]
+    fn an_index_on_a_drive_that_is_not_connected_waits_for_it() {
+        let (state, docs) = state("move-away");
+        state.add_folder(&docs, Arc::new(|| {})).unwrap();
+        wait(&state);
+        let (data, usual) = index_of(&docs);
+        let drive = data.join("drive");
+        move_to(&state, &drive);
+        drop(state);
+
+        // As if its drive were unplugged.
+        let unplugged = data.join("drive-unplugged");
+        std::fs::rename(&drive, &unplugged).unwrap();
+        let state = reopen(&data);
+        let status = state.status().unwrap();
+        assert_eq!(status.paused, Some(PauseReason::IndexAway));
+        assert!(status.notice.unwrap().contains("cannot be reached"));
+        assert!(state.resume_indexing(Arc::new(|| {})).is_err());
+        assert!(state.rebuild_index(Arc::new(|| {})).is_err());
+        // Nothing is indexed anywhere else meanwhile.
+        state.start_indexing(Arc::new(|| {}));
+        wait(&state);
+        assert_eq!(state.status().unwrap().files, 0);
+        assert!(!usual.exists());
+
+        // Plugged in again: resuming finds it.
+        std::fs::rename(&unplugged, &drive).unwrap();
+        state.resume_indexing(Arc::new(|| {})).unwrap();
+        wait(&state);
+        let status = state.status().unwrap();
+        assert_eq!((status.paused, status.files), (None, 2));
+    }
+
+    #[test]
+    fn an_index_that_is_away_can_come_back_to_its_usual_place() {
+        let (state, docs) = state("move-away-back");
+        state.add_folder(&docs, Arc::new(|| {})).unwrap();
+        wait(&state);
+        let (data, usual) = index_of(&docs);
+        let drive = data.join("drive");
+        move_to(&state, &drive);
+        drop(state);
+        std::fs::rename(&drive, data.join("drive-unplugged")).unwrap();
+
+        let state = reopen(&data);
+        // A new index in the usual place, filled from the files.
+        state.move_index(None, Arc::new(|| {})).unwrap();
+        wait(&state);
+        let status = state.status().unwrap();
+        assert_eq!((status.paused, status.files), (None, 2));
+        assert!(usual.is_file());
+    }
+
+    #[test]
+    fn deleting_all_data_deletes_a_moved_index_too() {
+        let (state, docs) = state("move-delete");
+        state.add_folder(&docs, Arc::new(|| {})).unwrap();
+        wait(&state);
+        let (data, _) = index_of(&docs);
+        let chosen = data.join("elsewhere");
+        move_to(&state, &chosen);
+        std::fs::write(chosen.join("mine.txt"), "the user's own file").unwrap();
+        state.delete_all_data().unwrap();
+        assert!(!chosen.join(INDEX_FOLDER).exists());
+        assert!(chosen.join("mine.txt").is_file());
+        assert!(!state.settings().unwrap().index_moved);
     }
 
     #[test]

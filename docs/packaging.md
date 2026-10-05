@@ -22,6 +22,7 @@ This makes `target/release/bundle/nsis/Catchword_<version>_x64-setup.exe`. The f
 
 - It installs for the current user, into `%LOCALAPPDATA%\Catchword`, without administrator rights (SEC-4). (The specification says `%LOCALAPPDATA%\Programs`; Tauri's installer does not offer that place.)
 - Uninstalling removes the index and the logs (PRIV-7), which hold text and names from the user's documents. Settings stay unless the user ticks "Also delete your settings" on the uninstall page. An update (`/UPDATE`, as the updater will run it) keeps everything (REL-5). See `apps/desktop/src-tauri/nsis/hooks.nsh`.
+- An index the user moved elsewhere (APP-7, ADR-23) is not removed by either uninstaller: neither can find it. The user is told so before the move; Delete all data removes it wherever it is.
 - The uninstall page's text comes from `nsis/English.nsh`, a copy of Tauri's with that one line changed. When the Tauri CLI is updated, compare the two.
 - It is unsigned, so Windows warns before running it, until SignPath signs it (Q6).
 

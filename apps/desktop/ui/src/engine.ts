@@ -5,6 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 import { createContext, useContext } from "react";
 import type { FileAction } from "./contract/FileAction";
 import type { Folder } from "./contract/Folder";
+import type { IndexFolderChoice } from "./contract/IndexFolderChoice";
 import type { ResourceMode } from "./contract/ResourceMode";
 import type { SearchFilter } from "./contract/SearchFilter";
 import type { SearchResponse } from "./contract/SearchResponse";
@@ -48,6 +49,10 @@ export interface Engine {
   setDetailedLogs(on: boolean): Promise<void>;
   /** Indexing waits while the computer runs on battery (IDX-9). */
   setPauseOnBattery(on: boolean): Promise<void>;
+  /** Ask, in the system's folder dialog, where the index should go (APP-7). */
+  pickIndexFolder(): Promise<IndexFolderChoice | null>;
+  /** Move the index to the folder just picked, or back to its usual place. */
+  moveIndex(toUsualPlace: boolean): Promise<void>;
   /** The diagnostics report, as plain text, for the user to read. */
   diagnostics(includePaths: boolean): Promise<string>;
   /** Saves the report last shown; the file's name, or null if cancelled. */
@@ -86,6 +91,8 @@ export const tauriEngine: Engine = {
   deleteAllData: () => invoke("delete_all_data"),
   setDetailedLogs: (on) => invoke("set_detailed_logs", { on }),
   setPauseOnBattery: (on) => invoke("set_pause_on_battery", { on }),
+  pickIndexFolder: () => invoke("pick_index_folder"),
+  moveIndex: (toUsualPlace) => invoke("move_index", { toUsualPlace }),
   diagnostics: (includePaths) => invoke("diagnostics", { includePaths }),
   saveDiagnostics: () => invoke("save_diagnostics"),
   preview: (id) => invoke("preview", { id }),

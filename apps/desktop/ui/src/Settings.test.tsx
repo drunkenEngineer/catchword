@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { createMockEngine } from "./mock";
@@ -150,6 +150,49 @@ describe("the settings screen", () => {
     fireEvent.change(screen.getByRole("spinbutton", { name: /Most pages/ }), { target: { value: "0" } });
     await click("Save limits");
     expect(screen.getByRole("alert").textContent).toContain("between 1 and 100000");
+  });
+
+  it("warns before moving the index that uninstalling will not remove it", async () => {
+    const engine = createMockEngine();
+    const move = vi.spyOn(engine, "moveIndex");
+    renderWith(engine, <Settings />);
+    fireEvent.click(await screen.findByRole("button", { name: "Move the index…" }));
+    const warning = await screen.findByText(/Uninstalling Catchword will not remove it from there/);
+    expect(warning.textContent).toContain("D:\\Private\\Catchword index");
+    // Called off: nothing moves, and the focus goes back.
+    fireEvent.click(screen.getByRole("button", { name: "Keep" }));
+    expect(move).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Move the index…" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Move the index…" }));
+    await screen.findByText(/Uninstalling Catchword will not remove it/);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Move" }));
+    });
+    expect(move).toHaveBeenCalledWith(false);
+    expect(await screen.findByText("The index was moved.")).toBeTruthy();
+    expect(await screen.findByText(/stored in D:\\Private\\Catchword index/)).toBeTruthy();
+
+    // And back to its usual place.
+    fireEvent.click(await screen.findByRole("button", { name: "Move it back to its usual place" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Move" }));
+    });
+    expect(move).toHaveBeenLastCalledWith(true);
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Move it back to its usual place" })).toBeNull(),
+    );
+  });
+
+  it("warns when the chosen folder is copied to the internet", async () => {
+    const engine = createMockEngine();
+    vi.spyOn(engine, "pickIndexFolder").mockResolvedValue({
+      path: "C:\\Users\\you\\OneDrive\\Catchword index",
+      syncedBy: "OneDrive",
+    });
+    renderWith(engine, <Settings />);
+    fireEvent.click(await screen.findByRole("button", { name: "Move the index…" }));
+    expect(await screen.findByText(/OneDrive copies that folder to the internet/)).toBeTruthy();
   });
 
   it("pauses on battery unless told not to", async () => {

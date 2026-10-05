@@ -117,6 +117,11 @@ describe("the library screen", () => {
     expect(screen.getByText(/less than 1 GB is free/)).toBeTruthy();
 
     cleanup();
+    const away = { ...(await engine.status()), paused: "indexAway" as const };
+    renderWith(engine, <Library status={away} />);
+    expect(screen.getByText(/is its drive connected\?/)).toBeTruthy();
+
+    cleanup();
     const battery = { ...(await engine.status()), paused: "battery" as const };
     renderWith(engine, <Library status={battery} />);
     expect(screen.getByText(/runs on battery\. It carries on when you plug it in/)).toBeTruthy();

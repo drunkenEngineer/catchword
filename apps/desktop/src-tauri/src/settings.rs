@@ -76,6 +76,10 @@ pub struct Settings {
     /// Indexing waits while the computer runs on battery (IDX-9).
     #[serde(default = "yes")]
     pub pause_on_battery: bool,
+    /// The folder the index was moved to, if it was (APP-7); None for its
+    /// usual place in the user's profile.
+    #[serde(default)]
+    pub index_folder: Option<PathBuf>,
     next_id: u32,
 }
 
@@ -101,6 +105,7 @@ impl Default for Settings {
             max_file_mb: DEFAULT_MAX_FILE_MB,
             max_pages: DEFAULT_MAX_PAGES,
             pause_on_battery: true,
+            index_folder: None,
             next_id: 1,
         }
     }

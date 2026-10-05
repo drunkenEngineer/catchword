@@ -88,6 +88,8 @@ export function Library({ status }: { status: Status | null }) {
               ? strings.library.pausedLowDisk
               : status.paused === "battery"
                 ? strings.library.pausedBattery
+                : status.paused === "indexAway"
+                  ? strings.library.pausedIndexAway
                 : status.paused === "newerIndex"
                 ? strings.library.pausedNewerIndex
                 : status.paused === "safeMode"

@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { applyAppearance } from "./appearance";
 import { Confirm } from "./Confirm";
+import type { IndexFolderChoice } from "./contract/IndexFolderChoice";
 import type { ResourceMode } from "./contract/ResourceMode";
 import type { TextSize } from "./contract/TextSize";
 import type { Theme } from "./contract/Theme";
@@ -20,7 +21,10 @@ export function Settings() {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [confirmingRebuild, setConfirmingRebuild] = useState(false);
   // Which question was just called off: its button takes the focus back.
-  const [kept, setKept] = useState<"rebuild" | "delete" | null>(null);
+  const [kept, setKept] = useState<"rebuild" | "delete" | "move" | "moveBack" | null>(null);
+  // Where the index would go, while the user reads the warning (APP-7).
+  const [moving, setMoving] = useState<IndexFolderChoice | "usualPlace" | null>(null);
+  const [moveNote, setMoveNote] = useState<string | null>(null);
   const [checked, setChecked] = useState<boolean | null>(null);
   // The limits being edited; null while they match what is saved.
   const [limits, setLimits] = useState<{ mb: string; pages: string } | null>(null);
@@ -236,6 +240,65 @@ export function Settings() {
           <p className="problem" role="alert">
             {strings.settings.syncedWarning(view.dataSyncedBy)}
           </p>
+        )}
+        {moving ? (
+          <Confirm
+            question={
+              moving === "usualPlace"
+                ? strings.settings.confirmMoveBack
+                : strings.settings.confirmMove(moving.path, moving.syncedBy)
+            }
+            confirm={strings.settings.move}
+            keep={strings.settings.keep}
+            onConfirm={() => {
+              const toUsualPlace = moving === "usualPlace";
+              setMoving(null);
+              setProblem(null);
+              setMoveNote(strings.settings.moving);
+              engine.moveIndex(toUsualPlace).then(
+                () => {
+                  setMoveNote(strings.settings.moved);
+                  load();
+                },
+                (error: unknown) => {
+                  setMoveNote(null);
+                  fail(error);
+                },
+              );
+            }}
+            onKeep={() => {
+              setKept(moving === "usualPlace" ? "moveBack" : "move");
+              setMoving(null);
+            }}
+          />
+        ) : (
+          <div className="actions">
+            <button
+              type="button"
+              autoFocus={kept === "move"}
+              onClick={() => {
+                setKept(null);
+                setMoveNote(null);
+                engine.pickIndexFolder().then((choice) => choice && setMoving(choice), fail);
+              }}
+            >
+              {strings.settings.moveIndex}
+            </button>
+            {view.indexMoved && (
+              <button
+                type="button"
+                autoFocus={kept === "moveBack"}
+                onClick={() => {
+                  setKept(null);
+                  setMoveNote(null);
+                  setMoving("usualPlace");
+                }}
+              >
+                {strings.settings.moveBack}
+              </button>
+            )}
+            {moveNote && <span role="status">{moveNote}</span>}
+          </div>
         )}
         <div className="actions">
           <button type="button" onClick={() => engine.checkIndex().then(setChecked, fail)}>

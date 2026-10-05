@@ -110,7 +110,8 @@ pub struct Snapshot {
 }
 
 struct Shared {
-    store_path: PathBuf,
+    /// The index file. It changes only while no run is going (APP-7).
+    store_path: Mutex<PathBuf>,
     worker: Worker,
     log: Arc<Logger>,
     /// None while the model loads. Replaced when the resource mode changes.
@@ -141,7 +142,7 @@ impl Indexer {
     pub fn new(store_path: PathBuf, worker: Worker, log: Arc<Logger>) -> Self {
         Self {
             shared: Arc::new(Shared {
-                store_path,
+                store_path: Mutex::new(store_path),
                 worker,
                 log,
                 model: Mutex::new(None),
@@ -195,6 +196,12 @@ impl Indexer {
     #[cfg(test)]
     pub fn set_min_free_bytes(&self, bytes: u64) {
         self.shared.min_free.store(bytes, Ordering::SeqCst);
+    }
+
+    /// Where the index is now, after it was moved (APP-7). Call only after
+    /// `stop_and_wait`: a run keeps the file it opened.
+    pub fn set_store_path(&self, path: PathBuf) {
+        *lock(&self.shared.store_path) = path;
     }
 
     pub fn snapshot(&self) -> Snapshot {
@@ -279,7 +286,7 @@ fn pause(shared: &Shared, reason: PauseReason) {
 /// True if free space on the index's drive is below the minimum; then
 /// indexing pauses (RSC-3). Where free space cannot be told, it is not low.
 fn low_disk(shared: &Shared) -> bool {
-    let Some(free) = disk::free_bytes(&shared.store_path) else {
+    let Some(free) = disk::free_bytes(&lock(&shared.store_path)) else {
         return false;
     };
     if free >= shared.min_free.load(Ordering::SeqCst) {
@@ -337,7 +344,8 @@ fn run(
         lock(&shared.snapshot).work = Some(work(stage, done, total, per_second));
     };
     let log = &shared.log;
-    let mut store = match Store::open(&shared.store_path) {
+    let store_path = lock(&shared.store_path).clone();
+    let mut store = match Store::open(&store_path) {
         Ok(store) => store,
         Err(error) => {
             log.error(
