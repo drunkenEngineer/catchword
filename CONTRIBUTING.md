@@ -2,7 +2,7 @@
 
 Thank you for helping. The project is small and run by one maintainer, so please keep changes focused.
 
-Start with [How Catchword is built](docs/architecture/overview.md), a ten-minute tour of the parts, the data flow and the three guarded areas.
+Start with [How Catchword is built](docs/architecture/overview.md), a ten-minute tour of the parts, the data flow and the three guarded areas. To teach Catchword a new kind of file, the main way to contribute, follow [Adding a file format](docs/contributing/adding-a-file-format.md).
 
 ## Set up
 
