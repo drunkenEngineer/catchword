@@ -4,6 +4,7 @@
 // Document text, file names included, is untrusted: it is only ever placed
 // as text, never as HTML, so markup in a document stays inert (SEC-1).
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { Changed } from "./contract/Changed";
 import type { FileAction } from "./contract/FileAction";
 import type { FileKind } from "./contract/FileKind";
 import type { SearchFilter } from "./contract/SearchFilter";
@@ -14,6 +15,9 @@ import type { Span } from "./contract/Span";
 import type { Status } from "./contract/Status";
 import { useEngine } from "./engine";
 import { strings } from "./strings";
+
+/** Every folder, every kind, any date. */
+const NO_FILTER: SearchFilter = { folder: null, kind: null, changed: null };
 
 /** How long to wait after the last key before searching. */
 const PAUSE_MS = 200;
@@ -43,8 +47,8 @@ export function Search({ status, openLibrary }: { status: Status | null; openLib
   const engine = useEngine();
   const [query, setQuery] = useState("");
   const [answer, setAnswer] = useState<SearchResponse | null>(null);
-  const [filter, setFilter] = useState<SearchFilter>({ folder: null, kind: null });
-  const filtered = filter.folder !== null || filter.kind !== null;
+  const [filter, setFilter] = useState<SearchFilter>(NO_FILTER);
+  const filtered = filter.folder !== null || filter.kind !== null || filter.changed !== null;
   const [selected, setSelected] = useState(0);
   // Files, by path, whose passages are folded to the best one.
   const [folded, setFolded] = useState<ReadonlySet<string>>(new Set());
@@ -274,6 +278,22 @@ export function Search({ status, openLibrary }: { status: Status | null; openLib
               <option value="text">{strings.search.kinds.text}</option>
             </select>
           </label>
+          <label>
+            {strings.search.filterChanged}
+            <select
+              value={filter.changed ?? ""}
+              onChange={(event) =>
+                setFilter({ ...filter, changed: event.target.value === "" ? null : (event.target.value as Changed) })
+              }
+            >
+              <option value="">{strings.search.anyTime}</option>
+              {(["pastWeek", "pastMonth", "pastYear"] as Changed[]).map((changed) => (
+                <option key={changed} value={changed}>
+                  {strings.search.changed[changed]}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
       )}
       {status?.work && <p className="notice">{indexingNotice(status)}</p>}
@@ -326,7 +346,7 @@ export function Search({ status, openLibrary }: { status: Status | null; openLib
           </ul>
           <div className="actions">
             {filtered && (
-              <button type="button" onClick={() => setFilter({ folder: null, kind: null })}>
+              <button type="button" onClick={() => setFilter(NO_FILTER)}>
                 {strings.search.clearFilters}
               </button>
             )}

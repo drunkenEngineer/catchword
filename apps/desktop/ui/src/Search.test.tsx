@@ -193,19 +193,29 @@ describe("the search screen", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  it("keeps to one folder or one kind of file when asked", async () => {
+  it("keeps to one folder, one kind of file or recent files when asked", async () => {
     const engine = createMockEngine();
     const search = vi.spyOn(engine, "search");
     await show(engine, "notice");
     await screen.findAllByText("tenancy-agreement.txt");
     fireEvent.change(screen.getByRole("combobox", { name: "Kind" }), { target: { value: "pdf" } });
     await waitFor(() => expect(screen.queryAllByText("tenancy-agreement.txt")).toHaveLength(0));
-    expect(search).toHaveBeenLastCalledWith("notice", { folder: null, kind: "pdf" });
+    expect(search).toHaveBeenLastCalledWith("notice", { folder: null, kind: "pdf", changed: null });
 
     fireEvent.change(screen.getByRole("combobox", { name: "Kind" }), { target: { value: "" } });
     fireEvent.change(screen.getByRole("combobox", { name: "Folder" }), { target: { value: "2" } });
-    await waitFor(() => expect(search).toHaveBeenLastCalledWith("notice", { folder: 2, kind: null }));
+    await waitFor(() =>
+      expect(search).toHaveBeenLastCalledWith("notice", { folder: 2, kind: null, changed: null }),
+    );
     expect((await screen.findAllByText("tenancy-agreement.txt")).length).toBeGreaterThan(0);
+
+    // By date: the made-up documents last changed in March 2025.
+    fireEvent.change(screen.getByRole("combobox", { name: "Folder" }), { target: { value: "" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Changed" }), { target: { value: "pastMonth" } });
+    await waitFor(() =>
+      expect(search).toHaveBeenLastCalledWith("notice", { folder: null, kind: null, changed: "pastMonth" }),
+    );
+    await waitFor(() => expect(screen.queryAllByText("tenancy-agreement.txt")).toHaveLength(0));
   });
 
   it("shows when each file was last changed", async () => {
@@ -218,7 +228,7 @@ describe("the search screen", () => {
     expect(await screen.findByText("Nothing found for “zebra”.")).toBeTruthy();
     expect(screen.getByText(/1 file is a scan with no text layer/)).toBeTruthy();
     expect(screen.getByText(/1 file could not be read/)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Search all folders and kinds" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Search everything" })).toBeNull();
   });
 
   it("offers to search everything when a filter found nothing", async () => {
@@ -227,8 +237,8 @@ describe("the search screen", () => {
     await show(engine, "zebra");
     fireEvent.change(screen.getByRole("combobox", { name: "Kind" }), { target: { value: "pdf" } });
     expect(await screen.findByText(/because of the filters above/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Search all folders and kinds" }));
-    await waitFor(() => expect(search).toHaveBeenLastCalledWith("zebra", { folder: null, kind: null }));
+    fireEvent.click(screen.getByRole("button", { name: "Search everything" }));
+    await waitFor(() => expect(search).toHaveBeenLastCalledWith("zebra", { folder: null, kind: null, changed: null }));
   });
 
   it("shows right-to-left text in its own direction", async () => {

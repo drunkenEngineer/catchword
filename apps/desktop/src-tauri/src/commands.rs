@@ -595,6 +595,9 @@ impl AppState {
         let filter = catchword_store::Filter {
             folders,
             extensions: extensions.iter().map(|e| e.to_string()).collect(),
+            modified_since: filter
+                .changed
+                .map(|changed| now_secs() - changed.days() * 24 * 60 * 60),
         };
         let answer = if words_only {
             search_words(&lock(&self.reader), query, &filter)?
@@ -910,6 +913,13 @@ fn read_first(places: &[PathBuf]) -> Option<String> {
     places
         .iter()
         .find_map(|place| std::fs::read_to_string(place).ok())
+}
+
+/// Now, in seconds since 1970.
+fn now_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_secs() as i64)
 }
 
 /// The folder of its own an index gets inside a folder the user chose, so
@@ -1362,6 +1372,7 @@ pub async fn reveal_file(app: AppHandle, id: i64) -> Result<FileAction, String> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::contract::Changed;
     use std::time::Duration;
 
     /// The PDF reader as `cargo test --workspace` builds it.
@@ -2054,18 +2065,39 @@ mod tests {
         let in_first = SearchFilter {
             folder: Some(first.id),
             kind: None,
+            ..SearchFilter::default()
         };
         assert_eq!(names(in_first), vec!["lease.txt"]);
         let pdfs = SearchFilter {
             folder: None,
             kind: Some(FileKind::Pdf),
+            ..SearchFilter::default()
         };
         assert!(names(pdfs).is_empty());
         let unknown = SearchFilter {
             folder: Some(999),
             kind: None,
+            ..SearchFilter::default()
         };
         assert!(state.search_filtered("notice", &unknown, false).is_err());
+
+        // By date: the lease last changed two years ago is left out.
+        let two_years = std::time::Duration::from_secs(2 * 366 * 24 * 60 * 60);
+        std::fs::File::options()
+            .write(true)
+            .open(docs.join("lease.txt"))
+            .unwrap()
+            .set_modified(std::time::SystemTime::now() - two_years)
+            .unwrap();
+        state.start_indexing(Arc::new(|| {}));
+        wait(&state);
+        let this_year = SearchFilter {
+            changed: Some(Changed::PastYear),
+            ..SearchFilter::default()
+        };
+        assert_eq!(names(this_year), vec!["notice.md"]);
+        let ever = SearchFilter::default();
+        assert_eq!(names(ever), vec!["lease.txt", "notice.md"]);
 
         // By words alone: the same files, without asking the model, so
         // without its notes either.

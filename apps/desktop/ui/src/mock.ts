@@ -45,6 +45,9 @@ const DOCUMENTS: Document[] = [
   },
 ];
 
+/** When the made-up documents last changed: March 2025. */
+const MODIFIED_SECS = 1_741_000_000;
+
 /** Mark every occurrence of the query's words, as the real engine does. */
 function mark(text: string, words: string[]): Span[] {
   const spans: Span[] = [];
@@ -137,13 +140,17 @@ export function createMockEngine({ firstLaunch = false } = {}): Engine {
       for (const doc of folders.length === 0 ? [] : DOCUMENTS) {
         if (folder !== undefined && doc.folder !== folder) continue;
         if (filter?.kind && kindOf(doc.name) !== filter.kind) continue;
+        if (filter?.changed) {
+          const days = { pastWeek: 7, pastMonth: 31, pastYear: 366 }[filter.changed];
+          if (MODIFIED_SECS < Date.now() / 1000 - days * 24 * 60 * 60) continue;
+        }
         const passages: PassageHit[] = doc.passages
           .map((passage) => ({ ...passage, snippet: mark(passage.text, words) }))
           .filter((passage) => passage.snippet.some((span) => span.marked))
           .map(({ id, location, snippet }) => ({ id, location, snippet, found: "words" }));
         if (passages.length > 0) {
           const path = `${doc.folder}\\${doc.name}`;
-          files.push({ name: doc.name, folder: doc.folder, path, copies: 1, modifiedSecs: 1_741_000_000, passages });
+          files.push({ name: doc.name, folder: doc.folder, path, copies: 1, modifiedSecs: MODIFIED_SECS, passages });
         }
       }
       return { files, notes: [], elapsedMs: 4 };

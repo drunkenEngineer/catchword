@@ -60,7 +60,10 @@ export const strings = {
       failed: (n: number) => `${n} ${n === 1 ? "file" : "files"} could not be read.`,
     } as Record<"needs-ocr" | "encrypted" | "cloud-only" | "too-large" | "cannot-open" | "failed", (n: number) => string>,
     filtered: "Only part of your files was searched, because of the filters above.",
-    clearFilters: "Search all folders and kinds",
+    clearFilters: "Search everything",
+    filterChanged: "Changed",
+    anyTime: "Any time",
+    changed: { pastWeek: "In the past week", pastMonth: "In the past month", pastYear: "In the past year" },
     missing: (name: string) =>
       `“${name}” is no longer where it was: it was moved, renamed or deleted since the last scan.`,
     scanNow: "Scan now",

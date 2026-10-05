@@ -229,6 +229,27 @@ pub enum FileAction {
 pub struct SearchFilter {
     pub folder: Option<u32>,
     pub kind: Option<FileKind>,
+    #[serde(default)]
+    pub changed: Option<Changed>,
+}
+
+/// How recently a file must have changed to be shown (SEA-6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum Changed {
+    PastWeek,
+    PastMonth,
+    PastYear,
+}
+
+impl Changed {
+    pub fn days(self) -> i64 {
+        match self {
+            Changed::PastWeek => 7,
+            Changed::PastMonth => 31,
+            Changed::PastYear => 366,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, TS)]
@@ -332,6 +353,7 @@ mod tests {
             NotIndexed,
             SearchFilter,
             FileKind,
+            Changed,
             FileAction,
             IndexFolderChoice,
             SearchResponse,

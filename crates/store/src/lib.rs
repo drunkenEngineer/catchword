@@ -96,11 +96,21 @@ pub struct Filter {
     pub folders: Vec<String>,
     /// Name extensions, lower case and without the dot: a file must have one.
     pub extensions: Vec<String>,
+    /// A file must have changed at or after this time, in seconds since 1970.
+    pub modified_since: Option<i64>,
 }
 
 impl Filter {
     pub fn is_empty(&self) -> bool {
-        self.folders.is_empty() && self.extensions.is_empty()
+        self.folders.is_empty() && self.extensions.is_empty() && self.modified_since.is_none()
+    }
+
+    /// True if a file at `path`, last changed at `modified_secs`, may be shown.
+    fn admits(&self, path: &str, modified_secs: i64) -> bool {
+        self.allows(path)
+            && self
+                .modified_since
+                .is_none_or(|since| modified_secs >= since)
     }
 
     pub fn allows(&self, path: &str) -> bool {
@@ -709,13 +719,13 @@ impl Store {
         )?;
         let mut kept = Vec::new();
         for mut hit in hits {
-            if !filter.allows(&hit.path) {
+            if !filter.admits(&hit.path, self.modified_secs(&hit.path)?) {
                 let paths =
                     copies.query_map(params![hit.passage_id], |row| row.get::<_, String>(0))?;
                 let mut inside = None;
                 for path in paths {
                     let path = path?;
-                    if filter.allows(&path) {
+                    if filter.admits(&path, self.modified_secs(&path)?) {
                         inside = Some(path);
                         break;
                     }
@@ -1506,6 +1516,7 @@ mod tests {
         let filter = Filter {
             folders: vec!["C:\\docs\\tax".into()],
             extensions: vec!["pdf".into()],
+            ..Filter::default()
         };
         assert!(filter.allows("C:\\docs\\tax\\2025\\refund.PDF"));
         assert!(!filter.allows("C:\\docs\\tax\\notes.txt"));
@@ -1545,11 +1556,13 @@ mod tests {
         let in_b = Filter {
             folders: vec!["/b".into()],
             extensions: vec![],
+            ..Filter::default()
         };
         assert_eq!(paths(&in_b), vec!["/b/lease-copy.txt", "/b/rent.md"]);
         let markdown = Filter {
             folders: vec![],
             extensions: vec!["md".into()],
+            ..Filter::default()
         };
         assert_eq!(paths(&markdown), vec!["/b/rent.md"]);
     }
@@ -1603,6 +1616,7 @@ mod tests {
         let filter = Filter {
             folders: vec!["/docs".into()],
             extensions: vec!["txt".into()],
+            ..Filter::default()
         };
         let mut state: u64 = 5;
         for _ in 0..3_000 {
@@ -2373,6 +2387,49 @@ mod tests {
         assert_eq!(store.counts().unwrap().files, 1);
         assert!(store.use_pipeline("model tokens 350/50").unwrap());
         assert_eq!(store.counts().unwrap(), Counts::default());
+    }
+
+    #[test]
+    fn a_date_filter_keeps_recent_files_and_shows_the_recent_copy() {
+        let mut store = Store::open_in_memory().unwrap();
+        for (path, modified, hash, text) in [
+            (
+                "/old/lease.txt",
+                1_000,
+                "h-lease",
+                "the notice period is three months",
+            ),
+            (
+                "/recent/lease-copy.txt",
+                9_000,
+                "h-lease",
+                "the notice period is three months",
+            ),
+            (
+                "/old/notice.txt",
+                1_000,
+                "h-other",
+                "a notice about the old office",
+            ),
+        ] {
+            let passages = chunk(text, 50, 5, &WordTokenizer);
+            store.put_file(path, 1, modified, hash, &passages).unwrap();
+        }
+        let recent = Filter {
+            modified_since: Some(5_000),
+            ..Filter::default()
+        };
+        assert!(!recent.is_empty());
+        let found = store
+            .search_with_names("notice", None, 10, &recent)
+            .unwrap();
+        let paths: Vec<&str> = found.iter().map(|(hit, _)| hit.path.as_str()).collect();
+        assert_eq!(paths, vec!["/recent/lease-copy.txt"]);
+        assert_eq!(found[0].0.modified_secs, 9_000);
+        let all = store
+            .search_with_names("notice", None, 10, &Filter::default())
+            .unwrap();
+        assert_eq!(all.len(), 2);
     }
 
     /// Where `needle` appears in the bytes of the index file and its log.
