@@ -9,15 +9,13 @@ Catchword finds passages in your own documents, by meaning as well as by exact w
 A first desktop app for Windows, and a command-line tool. Both index text, Markdown and PDF files and search them by their words and by their meaning. The desktop app: a two-step first launch, add a folder, watch it being indexed, search, preview a passage, open the file or show it in its folder; in Settings, leave out folders and names, see where the index is, and delete all data. To run it, see CONTRIBUTING. The command-line tool:
 
 ```
-sh scripts/fetch-pdfium.sh
-sh scripts/fetch-embedding.sh
-cargo build --workspace
-cargo run -p catchword -- index  path/to/folder
-cargo run -p catchword -- search tax refund
+sh scripts/setup.sh
+cargo run -p catchword -- index eval/domain/docs
+cargo run -p catchword -- search "tax refund"
 cargo run -p catchword -- status
 ```
 
-On Windows, run the two scripts from Git Bash. They download the PDFium library, ONNX Runtime and the embedding model (about 200 MB together) and check each file against a pinned checksum.
+`scripts/setup.sh` checks that Rust and Node.js are installed, then downloads PDFium, ONNX Runtime, the embedding model and the evaluation data, about 340 MB in all, and checks each file against a pinned checksum. Finally it builds everything. On Windows, run it from Git Bash. `eval/domain/docs` holds sample letters in English, French and Arabic; point `index` at any folder of your own instead.
 
 - Search combines matches by words and by meaning, and says how each result was found. A query in one language finds passages in another. Words in quotes must appear exactly as written, and a search can keep to one folder, to PDFs or text files, or to files changed in the past week, month or year. File and folder names count too: "plumber invoice" finds `Plumber/invoice-march.pdf`. Each result shows when its file last changed.
 - Indexing is in two stages: everything is searchable by words first, then by meaning as passages are embedded on your computer. An interrupted run carries on where it stopped.

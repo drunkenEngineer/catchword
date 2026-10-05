@@ -6,16 +6,20 @@ Start with [How Catchword is built](docs/architecture/overview.md), a ten-minute
 
 ## Set up
 
-1. Install Rust (stable) from https://rustup.rs.
+1. Install Rust from https://rustup.rs, and Node.js 22 (22.22.2 or later) from https://nodejs.org. On Windows, also install Git for Windows, for Git Bash.
 2. Clone the repository.
-3. In the project folder, run `rustup toolchain install`. It installs the exact Rust version pinned in `rust-toolchain.toml`.
-4. Run `sh scripts/fetch-pdfium.sh` (on Windows, from Git Bash). It downloads the pinned PDFium library into `vendor/pdfium/` and refuses it if its checksum does not match.
-5. Run `sh scripts/fetch-embedding.sh` the same way. It downloads the pinned ONNX Runtime library and the embedding model (about 200 MB) into `vendor/`, with the same checks.
-6. Run `sh scripts/fetch-eval.sh` the same way. It downloads the evaluation data and the baseline model (about 140 MB), used by the retrieval evaluation and its tests.
-7. Install Node.js 22 (22.22 or later) and, in `apps/desktop/ui`, run `npm ci`.
-8. Run `cargo test --workspace`, and in `apps/desktop/ui` run `npm run typecheck` and `npm test`. Everything should pass.
-9. To run the desktop app: `cargo build --workspace`, then from `apps/desktop` run `./ui/node_modules/.bin/tauri dev`. To work on the interface alone, run `npm run dev:mock` in `apps/desktop/ui` and open http://127.0.0.1:1420: a made-up engine stands in.
-10. To build the Windows installer or the Store package, and the licence notices, see `docs/packaging.md`.
+3. In the project folder, run `sh scripts/setup.sh` (on Windows, from Git Bash). It:
+   - checks that the tools are installed, and says what is missing;
+   - installs the exact Rust version pinned in `rust-toolchain.toml`;
+   - downloads PDFium, ONNX Runtime, the embedding model, and the evaluation data with its baseline model, about 340 MB in all, into `vendor/`. It refuses any file whose checksum does not match;
+   - installs the interface's packages (`npm ci` in `apps/desktop/ui`);
+   - builds everything.
+
+   It can be run again at any time: what is already there is kept. `sh scripts/setup.sh --check` only checks the tools.
+4. Try it on the sample letters: `cargo run -p catchword -- index eval/domain/docs`, then `cargo run -p catchword -- search "tax refund"`.
+5. Run `cargo test --workspace`, and in `apps/desktop/ui` run `npm run typecheck` and `npm test`. Everything should pass.
+6. To run the desktop app: `cargo build --workspace`, then from `apps/desktop` run `./ui/node_modules/.bin/tauri dev`. To work on the interface alone, run `npm run dev:mock` in `apps/desktop/ui` and open http://127.0.0.1:1420: a made-up engine stands in.
+7. To build the Windows installer or the Store package, and the licence notices, see `docs/packaging.md`.
 
 ## Before you open a pull request
 

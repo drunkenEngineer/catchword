@@ -70,6 +70,10 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: apps/desktop/ui/package-lock.json
+      # A new contributor starts here (INF-3): it must find every tool.
+      - name: Setup script finds the tools
+        shell: bash
+        run: sh scripts/setup.sh --check
       - name: Interface type check and tests
         working-directory: apps/desktop/ui
         shell: bash

@@ -50,6 +50,7 @@ Overall health: **good**. On 2026-10-05, on Windows 11: 259 Rust tests and 63 in
 | Founding decisions ADR-1 to ADR-13 as files in `docs/adr/` (ARC-1) | `[DONE]` |
 | Deleted content cannot be read back from the index file (PRIV-5, ADR-22) | `[DONE]` |
 | Threat model published with its status per threat and the guarded-area checklist (SEC-3) | `[DONE]`: `docs/threat-model.md` |
+| Developer setup script (INF-3) | `[DONE]`: `scripts/setup.sh`, run in full on this PC; `--check` runs in CI (results not yet seen) |
 | "Add a file format" guide (DOC-3) | `[DONE]`: `docs/contributing/adding-a-file-format.md`; its acceptance test (an outside contributor follows it) needs a contributor |
 | Architecture overview for new contributors (DOC-1) | `[DONE]`: `docs/architecture/overview.md`; its acceptance test (a new reader can name the three guarded areas) needs a reader |
 | Draft user guide, network statement and Store privacy policy (DOC-2, a Phase 2 deliverable) | `[IN PROGRESS]`: drafts in `docs/user/`; needs a review by a non-technical tester, a firewall check run by hand, and the owner's contact address |
@@ -303,7 +304,7 @@ The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23
 
 **Node.js older than jsdom wants**
 - Status: `[TODO]`
-- Symptoms: npm warns that jsdom 30 wants Node 22.22.2 or later; this PC has 22.20.0. All interface tests pass anyway.
+- Symptoms: npm warns that jsdom 30 wants Node 22.22.2 or later; this PC has 22.20.0. All interface tests pass anyway. `scripts/setup.sh` refuses Node below 22.12 (what Vite and Vitest need) and only notes anything below 22.22.
 - Recommended next investigation: update Node on the owner's PC. CI uses `node-version: 22` (`actions/setup-node`), which takes the newest 22.
 
 **MSIX never installed**
@@ -416,6 +417,7 @@ All from the repository root unless said otherwise.
 | Rust tests | `cargo test --workspace` |
 | Lint | `cargo clippy --workspace --all-targets -- -D warnings` |
 | Format | `cargo fmt --all` |
+| A fresh clone to a working build | `sh scripts/setup.sh` (tools only: `--check`) |
 | Privacy check | `sh scripts/check-no-network.sh` |
 | CI actions pinned to commit hashes | `sh scripts/check-pinned-actions.sh` |
 | Interface checks | `cd apps/desktop/ui && npm run typecheck && npm test` |
@@ -599,7 +601,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 - Task: the owner's decision on APP-7 (warn at the move), then moving the index.
 - Changes: the index can be moved to a folder the user chooses, and back; the warning; a missing drive at start is waited for; Delete all data removes a moved index; ADR-23; threat model and packaging notes updated.
 - Files affected: `apps/desktop/src-tauri/src/{commands,indexing,settings,contract,lib}.rs`, `build.rs`, `capabilities/main.json`, `apps/desktop/ui/src/{Settings,Library,engine,mock,strings}.ts(x)` and tests, `docs/adr/0023-*`, `docs/threat-model.md`, `docs/packaging.md`.
-- Then: a date filter for search (SEA-6): any time, the past week, month or year. The app rebuilt and installed for the owner to try. The model released after 10 idle minutes, loaded again when needed. Draft user guide, network statement and Store privacy policy (DOC-2) in `docs/user/`; the app's network use checked by sampling (none in 20 s from start); Settings' stale "arrive in a later version" line replaced by the network statement; README brought up to date. Architecture overview (DOC-1). A wrong figure corrected: the evaluation has 2,544 queries, not 3,570. The "add a file format" guide (DOC-3); it found that the worker reads every request as a PDF, so the first new worker format needs a decision on how it tells formats apart.
+- Then: a date filter for search (SEA-6): any time, the past week, month or year. The app rebuilt and installed for the owner to try. The model released after 10 idle minutes, loaded again when needed. Draft user guide, network statement and Store privacy policy (DOC-2) in `docs/user/`; the app's network use checked by sampling (none in 20 s from start); Settings' stale "arrive in a later version" line replaced by the network statement; README brought up to date. Architecture overview (DOC-1). A wrong figure corrected: the evaluation has 2,544 queries, not 3,570. The "add a file format" guide (DOC-3); it found that the worker reads every request as a PDF, so the first new worker format needs a decision on how it tells formats apart. The setup script (INF-3), run in full; its first run failed because a `npm run dev:mock` server left running since 3 October held a file in `node_modules`, so that server was stopped.
 - Decisions: ADR-23 (the owner's).
 - Problems encountered: GitHub could not be reached for a while (connection timed out), so commits waited to be pushed.
 - Current state: everything committed; all checks pass.
