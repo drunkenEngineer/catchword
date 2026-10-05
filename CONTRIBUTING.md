@@ -2,6 +2,8 @@
 
 Thank you for helping. The project is small and run by one maintainer, so please keep changes focused.
 
+Start with [How Catchword is built](docs/architecture/overview.md), a ten-minute tour of the parts, the data flow and the three guarded areas.
+
 ## Set up
 
 1. Install Rust (stable) from https://rustup.rs.
