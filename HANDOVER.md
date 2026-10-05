@@ -27,7 +27,7 @@ Last updated: 2026-10-04.
 
 ## 2. Current Status
 
-Overall health: **good**. On 2026-10-05, on Windows 11: 259 Rust tests and 62 interface tests pass; format, lint, type check and the privacy check are clean; the retrieval evaluation meets all 11 thresholds. CI has never been seen to run (see section 8).
+Overall health: **good**. On 2026-10-05, on Windows 11: 259 Rust tests and 63 interface tests pass; format, lint, type check and the privacy check are clean; the retrieval evaluation meets all 11 thresholds. CI has never been seen to run (see section 8).
 
 | Area | Status |
 | --- | --- |
@@ -50,6 +50,7 @@ Overall health: **good**. On 2026-10-05, on Windows 11: 259 Rust tests and 62 in
 | Founding decisions ADR-1 to ADR-13 as files in `docs/adr/` (ARC-1) | `[DONE]` |
 | Deleted content cannot be read back from the index file (PRIV-5, ADR-22) | `[DONE]` |
 | Threat model published with its status per threat and the guarded-area checklist (SEC-3) | `[DONE]`: `docs/threat-model.md` |
+| Draft user guide, network statement and Store privacy policy (DOC-2, a Phase 2 deliverable) | `[IN PROGRESS]`: drafts in `docs/user/`; needs a review by a non-technical tester, a firewall check run by hand, and the owner's contact address |
 | Licence notices (cargo-about), shown in About and shipped | `[DONE]` |
 | NSIS per-user installer (GitHub build) | `[DONE]`, install/update-uninstall/uninstall tested by hand once |
 | MSIX package (Store build) | `[IN PROGRESS]`: builds and its files are tested; never installed |
@@ -168,6 +169,7 @@ docs/
 ├── benchmarks/        # 2026-10-03 Phase 0 benchmark; 2026-10-04 app measurements
 ├── packaging.md       # Installer, MSIX, notices, owner's install-test steps
 ├── threat-model.md    # Spec section 13 by threat: what is in place, where; guarded-area checklist
+├── user/              # guide.md, network.md (what leaves the computer, how to check), privacy-policy.md (Store)
 └── README.md          # Docs index; checklist before going public
 eval/              # Evaluation set: domain/ (written docs, queries.tsv), thresholds.txt
 vendor/            # Downloaded by scripts; gitignored: pdfium/, onnxruntime/, models/, eval/
@@ -366,6 +368,8 @@ The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23
 
 - Coverage-guided fuzzing of the worker protocol and the text path (cargo-fuzz needs a nightly toolchain and a new tool: the owner's call).
 
+- DOC-1 (architecture overview, `docs/architecture/`) and DOC-3 ("add a file format" guide, `docs/contributing/`): no decision needed.
+
 **Low**
 - Translations (1.0); strings are already in `apps/desktop/ui/src/strings.ts`.
 
@@ -428,7 +432,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 
 ## 13. Testing
 
-- Coverage on 2026-10-05: 259 Rust tests and 62 interface tests pass. There are four ignored tests: the packaged-files test and three measurements.
+- Coverage on 2026-10-05: 259 Rust tests and 63 interface tests pass. There are four ignored tests: the packaged-files test and three measurements.
 - The evaluation meets all 11 thresholds; combined recall@10 is 92.5%.
 - Rust tests:
   - unit tests in each crate;
@@ -591,7 +595,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 - Task: the owner's decision on APP-7 (warn at the move), then moving the index.
 - Changes: the index can be moved to a folder the user chooses, and back; the warning; a missing drive at start is waited for; Delete all data removes a moved index; ADR-23; threat model and packaging notes updated.
 - Files affected: `apps/desktop/src-tauri/src/{commands,indexing,settings,contract,lib}.rs`, `build.rs`, `capabilities/main.json`, `apps/desktop/ui/src/{Settings,Library,engine,mock,strings}.ts(x)` and tests, `docs/adr/0023-*`, `docs/threat-model.md`, `docs/packaging.md`.
-- Then: a date filter for search (SEA-6): any time, the past week, month or year. The app rebuilt and installed for the owner to try. The model released after 10 idle minutes, loaded again when needed.
+- Then: a date filter for search (SEA-6): any time, the past week, month or year. The app rebuilt and installed for the owner to try. The model released after 10 idle minutes, loaded again when needed. Draft user guide, network statement and Store privacy policy (DOC-2) in `docs/user/`; the app's network use checked by sampling (none in 20 s from start); Settings' stale "arrive in a later version" line replaced by the network statement; README brought up to date.
 - Decisions: ADR-23 (the owner's).
 - Problems encountered: GitHub could not be reached for a while (connection timed out), so commits waited to be pushed.
 - Current state: everything committed; all checks pass.

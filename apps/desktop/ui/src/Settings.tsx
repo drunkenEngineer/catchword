@@ -445,8 +445,8 @@ export function Settings() {
       <section aria-labelledby="privacy-title">
         <h2 id="privacy-title">{strings.settings.privacyTitle}</h2>
         <p>{strings.settings.privacy}</p>
+        <p>{strings.settings.network}</p>
       </section>
-      <p className="muted">{strings.settings.moreLater}</p>
     </div>
   );
 }

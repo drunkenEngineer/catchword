@@ -195,6 +195,15 @@ describe("the settings screen", () => {
     expect(await screen.findByText(/OneDrive copies that folder to the internet/)).toBeTruthy();
   });
 
+  it("says what reaches the network: nothing", async () => {
+    renderWith(createMockEngine(), <Settings />);
+    const privacy = await screen.findByRole("heading", { name: "Privacy" });
+    const section = privacy.closest("section") as HTMLElement;
+    expect(section.textContent).toContain("Your files never leave this computer.");
+    expect(section.textContent).toContain("This version makes no network requests at all.");
+    expect(screen.queryByText(/arrive in a later version/)).toBeNull();
+  });
+
   it("pauses on battery unless told not to", async () => {
     const engine = createMockEngine();
     const set = vi.spyOn(engine, "setPauseOnBattery");

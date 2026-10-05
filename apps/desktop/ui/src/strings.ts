@@ -218,7 +218,9 @@ export const strings = {
     privacyTitle: "Privacy",
     privacy:
       "Your files never leave this computer. Catchword sends no document text, search, file name or usage data anywhere, and has no account.",
-    moreLater: "Resource use, updates and appearance settings arrive in a later version.",
+    /** The network activity statement (spec section 8, Settings; docs/user/network.md). */
+    network:
+      "This version makes no network requests at all. A later version of the download from GitHub will offer to check for updates, which you can turn off.",
   },
 
   welcome: {
