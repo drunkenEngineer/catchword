@@ -8,6 +8,8 @@
   --text: #1b1b1f;
   --muted: #5a5a63;
   --border: #d8d8dd;
+  /* Fields to type or choose in: their edge must stand out (WCAG 1.4.11, 3:1). */
+  --control-border: #85858f;
   --accent: #1c4a5c;
   --accent-text: #ffffff;
   --selected: #e3eef2;
@@ -26,10 +28,11 @@
     --text: #ececf0;
     --muted: #a6a6b0;
     --border: #3b3c43;
+    --control-border: #787983;
     --accent: #7cc4dc;
     --accent-text: #0e1b20;
     --selected: #2f3d44;
-    --mark: #806a14;
+    --mark: #76610f;
     --danger: #ff8a8a;
   }
 }
@@ -41,10 +44,11 @@
   --text: #ececf0;
   --muted: #a6a6b0;
   --border: #3b3c43;
+  --control-border: #787983;
   --accent: #7cc4dc;
   --accent-text: #0e1b20;
   --selected: #2f3d44;
-  --mark: #806a14;
+  --mark: #76610f;
   --danger: #ff8a8a;
 }
 
@@ -197,7 +201,7 @@ button.link {
   padding: 10px 12px;
   font-size: 16px;
   background: var(--panel);
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: 8px;
 }
 
@@ -351,7 +355,7 @@ mark {
   padding: 8px;
   font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
   background: var(--panel);
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: 6px;
 }
 
@@ -457,7 +461,7 @@ mark {
   font: inherit;
   color: inherit;
   background: var(--panel);
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: 6px;
 }
 
@@ -477,7 +481,7 @@ mark {
   width: 120px;
   padding: 4px 6px;
   background: var(--panel);
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: 6px;
 }
 

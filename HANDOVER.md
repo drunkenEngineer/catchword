@@ -27,7 +27,7 @@ Last updated: 2026-10-04.
 
 ## 2. Current Status
 
-Overall health: **good**. On 2026-10-05, on Windows 11: 259 Rust tests and 63 interface tests pass; format, lint, type check and the privacy check are clean; the retrieval evaluation meets all 11 thresholds. CI has never been seen to run (see section 8).
+Overall health: **good**. On 2026-10-05, on Windows 11: 259 Rust tests and 69 interface tests pass; format, lint, type check and the privacy check are clean; the retrieval evaluation meets all 11 thresholds. CI has never been seen to run (see section 8).
 
 | Area | Status |
 | --- | --- |
@@ -46,6 +46,7 @@ Overall health: **good**. On 2026-10-05, on Windows 11: 259 Rust tests and 63 in
 | Desktop app: first launch, Search, Library, Settings (exclusions, limits, appearance, data, diagnostics, About) | `[DONE]` |
 | Local logs, diagnostics report, crash reports | `[DONE]` |
 | Keyboard use and focus (A11Y-1); screen-reader announcements (A11Y-2, automated part) | `[DONE]` |
+| Colour contrast to WCAG 2.2 AA, checked automatically; contrast themes and reduced motion respected (A11Y-3) | `[DONE]`: `apps/desktop/ui/src/contrast.test.ts`; text scaling to 200% not yet checked by hand |
 | Conformance suites for extractors and models (MNT-2) | `[DONE]` |
 | Founding decisions ADR-1 to ADR-13 as files in `docs/adr/` (ARC-1) | `[DONE]` |
 | Deleted content cannot be read back from the index file (PRIV-5, ADR-22) | `[DONE]` |
@@ -438,7 +439,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 
 ## 13. Testing
 
-- Coverage on 2026-10-05: 259 Rust tests and 63 interface tests pass. There are four ignored tests: the packaged-files test and three measurements.
+- Coverage on 2026-10-06: 259 Rust tests and 69 interface tests pass. There are four ignored tests: the packaged-files test and three measurements.
 - The evaluation meets all 11 thresholds; combined recall@10 is 92.5%.
 - Rust tests:
   - unit tests in each crate;
@@ -528,6 +529,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 - **On battery (IDX-9):** every 10 s the shell asks Windows whether it runs on battery (`apps/desktop/src-tauri/src/power.rs`). Going on battery pauses indexing (`PauseReason::Battery`); plugging in resumes it. It acts only on the change (`power::step`), so a user who presses Resume on battery is not overruled until the next unplug, and it never lifts a pause for another reason. Settings has the switch, on by default. The battery pause is not saved: the next start looks again.
 - **The model is released when idle (section 14, risk R13):** after 10 minutes without a search or indexing (`RELEASE_MODEL_AFTER`), checked every 10 s by the shell's background loop in `lib.rs`. It gives back about 140 MB (`docs/benchmarks/2026-10-04-app.md`). The next full search loads it again and waits for it, about 2 s; the words-first results show meanwhile. A new indexing run loads it too. Status still says meaning is ready; diagnostics say "released while idle".
 - **Filters (SEA-6):** folder, kind (PDF, or text and Markdown) and "Changed": any time, the past week, month or year (`Changed` in the contract; `modified_since` in the store's `Filter`). The date is the file's modified time as last scanned. Of identical copies, the one the filter allows is shown. "Search everything" clears all three when nothing was found.
+- **Contrast (A11Y-3):** every text colour is at least 4.5 to 1 against what it sits on, and field edges and focus rings at least 3 to 1, in both themes; `contrast.test.ts` reads `styles.css` and checks it, and that the dark colours, written twice, stay the same. Fields to type or choose in use `--control-border` (search box, filters, limits, names to leave out); buttons keep the softer `--border`, their label showing what they are. Windows contrast themes replace every colour (`forced-colors`), and reduced motion turns off transitions.
 - **Copying (RES-3):** Copy passage (Ctrl+C) puts the passage and its source on the clipboard; Copy path (Ctrl+Shift+C) the file's whole path, with control characters removed (`FileHit.path`).
 - **A result whose file moved:** `open_file` and `reveal_file` return `FileAction::Missing` instead of opening anything; Search shows a notice naming the file, with Scan now (spec section 8, "File moved or deleted").
 - **Confirmations are inline:** the safe choice ("Keep") has the focus, and Escape picks it.
