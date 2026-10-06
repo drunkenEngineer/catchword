@@ -19,7 +19,7 @@ Start with [How Catchword is built](docs/architecture/overview.md), a ten-minute
 4. Try it on the sample letters: `cargo run -p catchword -- index eval/domain/docs`, then `cargo run -p catchword -- search "tax refund"`.
 5. Run `cargo test --workspace`, and in `apps/desktop/ui` run `npm run typecheck` and `npm test`. Everything should pass.
 6. To run the desktop app: `cargo build --workspace`, then from `apps/desktop` run `./ui/node_modules/.bin/tauri dev`. To work on the interface alone, run `npm run dev:mock` in `apps/desktop/ui` and open http://127.0.0.1:1420: a made-up engine stands in.
-7. To build the Windows installer or the Store package, and the licence notices, see `docs/packaging.md`.
+7. To build the Windows installer or the Store package, and the licence notices, see `docs/packaging.md`. To make a release, follow [the release process](docs/contributing/release-process.md).
 
 ## Before you open a pull request
 

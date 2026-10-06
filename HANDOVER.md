@@ -27,7 +27,7 @@ Last updated: 2026-10-04.
 
 ## 2. Current Status
 
-Overall health: **good**. On 2026-10-05, on Windows 11: 259 Rust tests and 69 interface tests pass; format, lint, type check and the privacy check are clean; the retrieval evaluation meets all 11 thresholds. CI has never been seen to run (see section 8).
+Overall health: **good**. On 2026-10-06, on Windows 11: 260 Rust tests and 69 interface tests pass; format, lint, type check and the privacy check are clean; the retrieval evaluation meets all 11 thresholds. CI has never been seen to run (see section 8).
 
 | Area | Status |
 | --- | --- |
@@ -51,6 +51,8 @@ Overall health: **good**. On 2026-10-05, on Windows 11: 259 Rust tests and 69 in
 | Founding decisions ADR-1 to ADR-13 as files in `docs/adr/` (ARC-1) | `[DONE]` |
 | Deleted content cannot be read back from the index file (PRIV-5, ADR-22) | `[DONE]` |
 | Threat model published with its status per threat and the guarded-area checklist (SEC-3) | `[DONE]`: `docs/threat-model.md` |
+| Release checklist, rollback steps and rollback drill (REL-5, written part) | `[DONE]`: `docs/contributing/release-process.md`; the drill itself `[TODO]`, by hand before 0.1 |
+| One version number everywhere (spec section 18) | `[DONE]`: `apps/desktop/src-tauri/tests/version.rs` |
 | Developer setup script (INF-3) | `[DONE]`: `scripts/setup.sh`, run in full on this PC; `--check` runs in CI (results not yet seen) |
 | "Add a file format" guide (DOC-3) | `[DONE]`: `docs/contributing/adding-a-file-format.md`; its acceptance test (an outside contributor follows it) needs a contributor |
 | Architecture overview for new contributors (DOC-1) | `[DONE]`: `docs/architecture/overview.md`; its acceptance test (a new reader can name the three guarded areas) needs a reader |
@@ -175,7 +177,7 @@ docs/
 ├── threat-model.md    # Spec section 13 by threat: what is in place, where; guarded-area checklist
 ├── user/              # guide.md, network.md (what leaves the computer, how to check), privacy-policy.md (Store)
 ├── architecture/      # overview.md: the ten-minute tour for contributors (DOC-1)
-├── contributing/      # adding-a-file-format.md (DOC-3)
+├── contributing/      # adding-a-file-format.md (DOC-3), release-process.md (REL-5)
 └── README.md          # Docs index; checklist before going public
 eval/              # Evaluation set: domain/ (written docs, queries.tsv), thresholds.txt
 vendor/            # Downloaded by scripts; gitignored: pdfium/, onnxruntime/, models/, eval/
@@ -439,7 +441,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 
 ## 13. Testing
 
-- Coverage on 2026-10-06: 259 Rust tests and 69 interface tests pass. There are four ignored tests: the packaged-files test and three measurements.
+- Coverage on 2026-10-06: 260 Rust tests and 69 interface tests pass. There are four ignored tests: the packaged-files test and three measurements.
 - The evaluation meets all 11 thresholds; combined recall@10 is 92.5%.
 - Rust tests:
   - unit tests in each crate;
@@ -608,6 +610,13 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 - Problems encountered: GitHub could not be reached for a while (connection timed out), so commits waited to be pushed.
 - Current state: everything committed; all checks pass.
 - Next step: the next item in section 10 that needs no decision.
+
+
+**2026-10-06**
+- Task: the next steps that need no decision.
+- Changes: WCAG AA colour contrast, with an automated check (two failures fixed: the dark theme's found-word highlight, and field edges in both themes); the release checklist, rollback steps and rollback drill (`docs/contributing/release-process.md`); a test that the version is the same in `Cargo.toml`, `tauri.conf.json` and the interface's `package.json` and lock file; the CHANGELOG's Unreleased section brought up to date.
+- Current state: everything committed and pushed; all checks pass.
+- Next step: the owner's decisions and hand checks (section 10); the rollback drill once there are two releases to practise with.
 
 ---
 
