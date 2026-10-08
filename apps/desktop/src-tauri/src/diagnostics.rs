@@ -230,12 +230,21 @@ mod tests {
     use catchword_engine::exclude::DEFAULT_PATTERNS;
     use catchword_engine::extract::Reason;
 
+    /// A user's folder, written as this system writes paths: a folder left
+    /// out must be inside a chosen one, which needs real separators.
+    fn medical() -> std::path::PathBuf {
+        let home = if cfg!(windows) {
+            std::path::PathBuf::from(r"C:\Users\ana")
+        } else {
+            std::path::PathBuf::from("/home/ana")
+        };
+        home.join("Documents").join("Medical")
+    }
+
     fn facts() -> Facts {
         let mut settings = Settings::default();
-        settings.add_folder(r"C:\Users\ana\Documents\Medical".into());
-        settings
-            .exclude_folder(r"C:\Users\ana\Documents\Medical\Therapy".into())
-            .unwrap();
+        settings.add_folder(medical());
+        settings.exclude_folder(medical().join("Therapy")).unwrap();
         settings.set_patterns(&["*divorce*".to_string()]).unwrap();
         Facts {
             made: SystemTime::UNIX_EPOCH,
@@ -305,9 +314,11 @@ mod tests {
     #[test]
     fn with_consent_paths_names_and_private_log_lines_are_included() {
         let text = report(&facts(), true);
+        let folder = medical().display().to_string();
+        let left_out = medical().join("Therapy").display().to_string();
         for wanted in [
-            r"C:\Users\ana\Documents\Medical",
-            r"C:\Users\ana\Documents\Medical\Therapy",
+            folder.as_str(),
+            left_out.as_str(),
             "*divorce*",
             r"scan.pdf: needs-ocr",
             "cannot read",

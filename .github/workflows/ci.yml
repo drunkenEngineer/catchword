@@ -56,8 +56,9 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Lint
         run: cargo clippy --workspace --all-targets -- -D warnings
+      # Every test runs even after a failure, so one run shows them all.
       - name: Test
-        run: cargo test --workspace
+        run: cargo test --workspace --no-fail-fast
       - name: Privacy invariant
         if: runner.os == 'Linux'
         run: sh scripts/check-no-network.sh

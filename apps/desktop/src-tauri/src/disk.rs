@@ -75,20 +75,25 @@ mod tests {
 
     #[test]
     fn a_folder_in_a_synced_place_is_recognised() {
-        let onedrive = [PathBuf::from(r"C:\Users\ana\OneDrive")];
-        let synced = |path: &str| synced_by_in(Path::new(path), &onedrive);
+        // Paths as this system writes them, from its root.
+        let root = if cfg!(windows) { r"C:\" } else { "/" };
+        let place = |parts: &[&str]| {
+            parts
+                .iter()
+                .fold(PathBuf::from(root), |path, part| path.join(part))
+        };
+        let onedrive = [place(&["Users", "ana", "OneDrive"])];
+        let synced = |parts: &[&str]| synced_by_in(&place(parts), &onedrive);
         assert_eq!(
-            synced(r"C:\Users\ana\OneDrive\Catchword\data"),
+            synced(&["Users", "ana", "OneDrive", "Catchword", "data"]),
             Some("OneDrive")
         );
-        assert_eq!(synced(r"D:\dropbox\apps\catchword"), Some("Dropbox"));
-        assert_eq!(synced(r"G:\My Drive\catchword"), Some("Google Drive"));
-        assert_eq!(
-            synced(r"C:\Users\ana\AppData\Local\org.catchword.desktop\data"),
-            None
-        );
+        assert_eq!(synced(&["dropbox", "apps", "catchword"]), Some("Dropbox"));
+        assert_eq!(synced(&["My Drive", "catchword"]), Some("Google Drive"));
+        let local = ["Users", "ana", "AppData", "Local", "org.catchword.desktop"];
+        assert_eq!(synced(&local), None);
         // A folder that merely starts the same is not synced.
-        assert_eq!(synced(r"C:\Users\ana\OneDrive-old\data"), None);
+        assert_eq!(synced(&["Users", "ana", "OneDrive-old", "data"]), None);
     }
 
     #[test]
