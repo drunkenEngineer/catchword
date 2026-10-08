@@ -63,7 +63,7 @@ Overall health: **good**. On 2026-10-06, on Windows 11: 260 Rust tests and 69 in
 | Speed and memory against section 14 | `[DONE]` measured on the owner's laptop; two targets missed (section 8) |
 | CI on Windows, Linux, macOS | `[IN PROGRESS]`: the repository is public since 8 October 2026, so CI runs (the private repository's free minutes had run out). Windows passes; three Linux and macOS test failures fixed in `edef380` |
 | Updater in the GitHub build (APP-2, APP-1's update choice; ADR-24) | `[DONE]`, not yet tried against a real release; a beta channel (REL-3) `[TODO]` |
-| Dependency licence and advisory checks (MNT-3) | `[DECISION NEEDED]`: a new tool (e.g. cargo-deny) needs the owner's OK |
+| Dependency licence and advisory checks (MNT-3) | `[DONE]`: cargo-deny (approved by the owner, 8 October 2026), `deny.toml`, in CI and the local checks; two unmaintained compile-time macros excepted, with reasons |
 | Store registration, name reservation, Store identity in the manifest | `[BLOCKED]`: owner's steps |
 | Screen-reader check by hand with Narrator and NVDA (A11Y-2) | `[TODO]` |
 | Measurements on a reference laptop (4 cores, about 2020, 8 GB) | `[TODO]` |
@@ -371,7 +371,6 @@ The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23
 
 **High**
 - Try the updater end to end with two real releases (0.1.0, then 0.1.1): `scripts/sign-update.sh`, attach the files, promote, and check the offer and the install. A beta channel (REL-3) after that.
-- Dependency licence and advisory checks (MNT-3): propose cargo-deny to the owner (a new tool). `about.toml` already blocks unknown licences in the notices step.
 - Screen-reader pass with Narrator and NVDA (A11Y-2): result counts and progress must be read out.
 - Measure on a reference laptop: `scripts/measure-app.ps1`, then the two release-build measurement tests (section 12).
 - MSIX install test and Store registration: owner steps in `docs/packaging.md`; then put the Store identity in `apps/desktop/msix/AppxManifest.xml`.
@@ -428,6 +427,7 @@ All from the repository root unless said otherwise.
 | Format | `cargo fmt --all` |
 | A fresh clone to a working build | `sh scripts/setup.sh` (tools only: `--check`) |
 | Privacy check | `sh scripts/check-no-network.sh` |
+| Dependency policy | `cargo deny check` (rules in `deny.toml`) |
 | CI actions pinned to commit hashes | `sh scripts/check-pinned-actions.sh` |
 | Interface checks | `cd apps/desktop/ui && npm run typecheck && npm test` |
 | Interface with a made-up engine | `cd apps/desktop/ui && npm run dev:mock`, then http://127.0.0.1:1420 (`?first-launch` for the first-launch steps) |
@@ -630,7 +630,8 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 - Changes: CI's history explained (the private repository's free minutes had run out); three tests made to pass on Linux and macOS; CI runs every test even after a failure; the updater in the GitHub build (ADR-24): `updates.rs`, `update_net.rs`, the first-launch question, a one-time banner for installs that skipped it, an offer banner, Settings' Updates section, `scripts/sign-update.sh` and its test, notices with `--updater`, the privacy check extended to the Store build.
 - Decisions: the owner's: make the repository public; `tauri-plugin-updater`; the update key (public key in `tauri.conf.json`, private key with the owner, never in the repository).
 - Current state: committed and pushed; CI runs on all three systems.
-- Next step: cargo-deny (MNT-3, approved by the owner).
+- Then: cargo-deny (MNT-3, approved by the owner): `deny.toml` checks advisories, licences (the same list as `about.toml`, kept equal by a test) and sources for all three systems, with the updater; all our crates marked `publish = false`; two unmaintained compile-time macros excepted (`paste` through tokenizers, `proc-macro-error` through Tauri's Linux GTK libraries).
+- Next step: CI green on all three systems; then the owner's remaining decisions.
 
 ---
 

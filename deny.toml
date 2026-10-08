@@ -1,0 +1,69 @@
+# cargo-deny (MNT-3, threat T7): every Rust library Catchword uses is
+# checked for known security problems (the RustSec database, fetched at each
+# run), for its licence, and for where it comes from.
+#
+#   cargo deny check
+#
+# The licences allowed are the same as in about.toml, which the licence
+# notices use: no GPL or AGPL (CLAUDE.md, rule 8). An exception to any rule
+# needs a written reason beside it.
+
+[graph]
+# What Catchword ships for, and where its tests run.
+targets = [
+    "x86_64-pc-windows-msvc",
+    "x86_64-unknown-linux-gnu",
+    "aarch64-apple-darwin",
+]
+# The GitHub build's updater too (ADR-24).
+all-features = true
+
+[advisories]
+# A known vulnerability fails the check; so does a yanked version, or a
+# crate that is no longer maintained.
+yanked = "deny"
+ignore = [
+    # Both are procedural macros: they run while compiling, and none of
+    # their code is in the built program. Neither is a vulnerability.
+    { id = "RUSTSEC-2024-0436", reason = "paste, unmaintained: a compile-time macro used by tokenizers (Hugging Face). Drop when tokenizers replaces it." },
+    { id = "RUSTSEC-2024-0370", reason = "proc-macro-error, unmaintained: a compile-time macro of the GTK libraries under Tauri's menus, in the Linux build only, which is not shipped. Drop when Tauri moves to newer GTK bindings." },
+]
+
+[licenses]
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "BSL-1.0",
+    "CC0-1.0",
+    "0BSD",
+    "Unlicense",
+    "MPL-2.0",
+    "CDLA-Permissive-2.0",
+]
+confidence-threshold = 0.9
+exceptions = []
+# The list matches about.toml (a test checks it), so some on it may be unused.
+unused-allowed-license = "allow"
+
+[bans]
+# Tauri and its libraries bring more than one version of some crates. That
+# costs build time, not safety, so it is not refused.
+multiple-versions = "allow"
+# Every dependency names its version; our own crates, which are not
+# published, are found by path.
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+# Only crates.io; no other registry and no git repository.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

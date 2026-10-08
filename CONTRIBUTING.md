@@ -27,6 +27,8 @@ Start with [How Catchword is built](docs/architecture/overview.md), a ten-minute
 - `cargo clippy --workspace --all-targets -- -D warnings`
 - `cargo test --workspace`
 - `sh scripts/check-no-network.sh`
+- If you added or changed a Rust dependency: `cargo deny check` (once: `cargo install cargo-deny --locked`). The rules are in `deny.toml`; CI runs it anyway
+- If you changed the updater: `cargo test -p catchword-desktop --features updater`
 - In `apps/desktop/ui`: `npm run typecheck` and `npm test`
 - If you changed a type in `apps/desktop/src-tauri/src/contract.rs`: `UPDATE_CONTRACT=1 cargo test -p catchword-desktop contract`, and commit the regenerated TypeScript
 

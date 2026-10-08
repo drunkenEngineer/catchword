@@ -65,6 +65,11 @@ jobs:
       - name: Actions pinned to commit hashes
         if: runner.os == 'Linux'
         run: sh scripts/check-pinned-actions.sh
+      # Every dependency, for all three systems: known security problems,
+      # licences and sources (MNT-3). The rules are in deny.toml.
+      - name: Dependency policy
+        if: runner.os == 'Linux'
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
       - name: Interface packages
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:

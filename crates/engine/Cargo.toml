@@ -4,6 +4,8 @@ description = "Catchword engine: scanning, reading and splitting documents. No n
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+# Part of the Catchword app, not a library for crates.io.
+publish = false
 
 [dependencies]
 chardetng.workspace = true

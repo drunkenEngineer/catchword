@@ -11,6 +11,7 @@ The full plan is `docs/specification.md` (26 sections). Before any work, read se
 - Format: `cargo fmt --all`
 - Privacy check: `sh scripts/check-no-network.sh`
 - CI actions pinned to commit hashes: `sh scripts/check-pinned-actions.sh`
+- Dependency policy (security advisories, licences, sources; rules in `deny.toml`): `cargo deny check` (once: `cargo install cargo-deny --locked`)
 - A fresh clone to a working build (tools check, downloads, `npm ci`, build): `sh scripts/setup.sh`; tools only: `sh scripts/setup.sh --check`
 - PDFium, ONNX Runtime and the model (once, and after a pin changes): `sh scripts/fetch-pdfium.sh` and `sh scripts/fetch-embedding.sh`
 - Try it: `cargo build --workspace` (builds the PDF worker too), then `cargo run -p catchword -- index <folder>` and `cargo run -p catchword -- search <words>`

@@ -29,6 +29,7 @@ To set the app's version:
   - `cargo clippy --workspace --all-targets -- -D warnings`;
   - `cargo test --workspace`;
   - `sh scripts/check-no-network.sh` and `sh scripts/check-pinned-actions.sh`;
+  - `cargo deny check`: no known security problem in any dependency;
   - in `apps/desktop/ui`: `npm run typecheck` and `npm test`.
 
   CI runs the same checks on Windows, Linux and macOS.
