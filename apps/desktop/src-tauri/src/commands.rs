@@ -20,6 +20,7 @@ use tauri_plugin_dialog::DialogExt;
 use crate::contract::{
     FileAction, FileKind, Folder, FolderState, FolderStatus, IndexFolderChoice, Meaning,
     PauseReason, ResourceMode, SearchFilter, SearchResponse, SettingsView, Status, TextSize, Theme,
+    UpdateOffer, Updates,
 };
 use crate::diagnostics::{self, Facts};
 use crate::indexing::{self, Indexer, Notify};
@@ -59,6 +60,10 @@ pub struct AppState {
     loading: Mutex<()>,
     /// How the model is loaded again; tests use a stand-in.
     load_model: fn(Threads) -> Model,
+    /// A newer version, found by the last check for updates (APP-2).
+    offer: Mutex<Option<UpdateOffer>>,
+    /// When a check for updates was last tried, in seconds since 1970.
+    update_attempt: Mutex<Option<i64>>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -148,6 +153,8 @@ impl AppState {
             last_used: Mutex::new(Instant::now()),
             loading: Mutex::new(()),
             load_model: Model::load,
+            offer: Mutex::new(None),
+            update_attempt: Mutex::new(None),
         })
     }
 
@@ -285,6 +292,63 @@ impl AppState {
         self.indexer.stop_and_wait();
         self.set_model(Model::load(indexing::threads(self.resource_mode())));
         self.start_indexing(notify);
+    }
+
+    /// The user's choice about checking for updates (APP-1, APP-2).
+    pub fn set_update_check(&self, on: bool) -> Result<()> {
+        let mut settings = lock(&self.settings);
+        settings.update_check = Some(on);
+        settings.save(&self.config_dir)?;
+        drop(settings);
+        if !on {
+            *lock(&self.offer) = None;
+        }
+        self.log
+            .info("update.choice", &[("check", Value::Flag(on))]);
+        Ok(())
+    }
+
+    /// True if a daily check for updates should start now (see
+    /// `updates::due`); it is then noted as tried.
+    pub fn begin_update_check(&self, now: i64) -> bool {
+        let (check, last) = {
+            let settings = lock(&self.settings);
+            (settings.update_check, settings.last_update_check)
+        };
+        let mut attempt = lock(&self.update_attempt);
+        if !crate::updates::due(check, last, *attempt, now) {
+            return false;
+        }
+        *attempt = Some(now);
+        true
+    }
+
+    /// What a check for updates found. A failure, offline for example, is
+    /// logged and tried again later.
+    pub fn finish_update_check(
+        &self,
+        now: i64,
+        found: Result<Option<UpdateOffer>>,
+    ) -> Result<Option<UpdateOffer>> {
+        match found {
+            Ok(offer) => {
+                let mut settings = lock(&self.settings);
+                settings.last_update_check = Some(now);
+                settings.save(&self.config_dir)?;
+                drop(settings);
+                self.log
+                    .info("update.checked", &[("newer", Value::Flag(offer.is_some()))]);
+                *lock(&self.offer) = offer.clone();
+                Ok(offer)
+            }
+            Err(error) => {
+                self.log.warn(
+                    "update.check_failed",
+                    &[("error", Value::Private(format!("{error:#}")))],
+                );
+                Err(error)
+            }
+        }
     }
 
     /// Note that the model is needed now.
@@ -624,6 +688,15 @@ impl AppState {
             first_launch,
             paused: snapshot.paused,
             last_scan_secs,
+            updates: {
+                let settings = lock(&self.settings);
+                Updates {
+                    in_build: crate::updates::IN_BUILD,
+                    check: settings.update_check,
+                    last_check_secs: settings.last_update_check,
+                    offer: lock(&self.offer).clone(),
+                }
+            },
         })
     }
 
@@ -987,7 +1060,7 @@ fn read_first(places: &[PathBuf]) -> Option<String> {
 pub const RELEASE_MODEL_AFTER: Duration = Duration::from_secs(10 * 60);
 
 /// Now, in seconds since 1970.
-fn now_secs() -> i64 {
+pub(crate) fn now_secs() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |since| since.as_secs() as i64)
@@ -1315,6 +1388,63 @@ pub async fn move_index(app: AppHandle, to_usual_place: bool) -> Result<(), Stri
     })
     .await
 }
+
+/// Whether to check for updates once a day (APP-1, APP-2).
+#[tauri::command]
+pub async fn set_update_check(app: AppHandle, on: bool) -> Result<(), String> {
+    on_state(app, "set_update_check", move |app, state| {
+        state.set_update_check(on)?;
+        notifier(app)();
+        Ok(())
+    })
+    .await
+}
+
+/// Check for a newer version now, as the user asked.
+#[tauri::command]
+pub async fn check_for_update(app: AppHandle) -> Result<Option<UpdateOffer>, String> {
+    on_state(app, "check_for_update", |app, state| {
+        let offer = state.finish_update_check(now_secs(), network_check(app))?;
+        notifier(app)();
+        Ok(offer)
+    })
+    .await
+}
+
+/// Download the newer version, check its signature and install it; the
+/// installer closes Catchword and starts it again. The user asked for this.
+#[tauri::command]
+pub async fn install_update(app: AppHandle) -> Result<(), String> {
+    on_state(app, "install_update", |app, state| {
+        state.log.info("update.install", &[]);
+        network_install(app)
+    })
+    .await
+}
+
+#[cfg(feature = "updater")]
+fn network_check(app: &AppHandle) -> Result<Option<UpdateOffer>> {
+    crate::update_net::check(app)
+}
+
+#[cfg(not(feature = "updater"))]
+fn network_check(_: &AppHandle) -> Result<Option<UpdateOffer>> {
+    Err(anyhow!(NOT_IN_BUILD))
+}
+
+#[cfg(feature = "updater")]
+fn network_install(app: &AppHandle) -> Result<()> {
+    crate::update_net::install(app)
+}
+
+#[cfg(not(feature = "updater"))]
+fn network_install(_: &AppHandle) -> Result<()> {
+    Err(anyhow!(NOT_IN_BUILD))
+}
+
+/// Builds without the updater, such as the Store's, have no network code.
+#[cfg(not(feature = "updater"))]
+const NOT_IN_BUILD: &str = "this build of Catchword does not check for updates itself";
 
 #[tauri::command]
 pub async fn set_pause_on_battery(app: AppHandle, on: bool) -> Result<(), String> {
@@ -2234,6 +2364,51 @@ mod tests {
         wait(&state);
         assert_eq!(state.status().unwrap().files, 3);
         assert_eq!(loads(), before + 2);
+    }
+
+    #[test]
+    fn checking_for_updates_follows_the_users_choice_and_what_was_found() {
+        let (state, docs) = state("updates");
+        let updates = |state: &AppState| state.status().unwrap().updates;
+        assert_eq!(updates(&state).in_build, cfg!(feature = "updater"));
+        assert_eq!(updates(&state).check, None);
+        let now = 1_800_000_000;
+        // Not asked yet: no check.
+        assert!(!state.begin_update_check(now));
+
+        state.set_update_check(true).unwrap();
+        assert!(state.begin_update_check(now));
+        // Tried a moment ago: not again at once.
+        assert!(!state.begin_update_check(now + 1));
+        // Offline: logged, and tried again after an hour.
+        let offline = state.finish_update_check(now, Err(anyhow!("offline")));
+        assert!(offline.is_err());
+        assert_eq!(updates(&state).last_check_secs, None);
+        assert!(state.begin_update_check(now + crate::updates::RETRY_AFTER_SECS));
+
+        let offer = UpdateOffer {
+            version: "0.2.0".into(),
+            notes: "Faster search.".into(),
+        };
+        let later = now + crate::updates::RETRY_AFTER_SECS;
+        state
+            .finish_update_check(later, Ok(Some(offer.clone())))
+            .unwrap();
+        assert_eq!(updates(&state).offer, Some(offer));
+        assert_eq!(updates(&state).last_check_secs, Some(later));
+        // Next check a day later.
+        assert!(!state.begin_update_check(later + 2 * crate::updates::RETRY_AFTER_SECS));
+
+        // Turned off: the offer goes, and the choice is remembered.
+        state.set_update_check(false).unwrap();
+        assert_eq!(updates(&state).offer, None);
+        let (data, _) = index_of(&docs);
+        drop(state);
+        let again = AppState::open(&data, built_worker()).unwrap();
+        assert_eq!(again.status().unwrap().updates.check, Some(false));
+        // Delete all data: asked again, as a new install.
+        again.delete_all_data().unwrap();
+        assert_eq!(again.status().unwrap().updates.check, None);
     }
 
     #[test]

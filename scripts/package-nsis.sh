@@ -24,10 +24,12 @@ done
 
 echo "Building the PDF reader and the notices..."
 cargo build --release --locked -p catchword-worker
-node scripts/notices.mjs
+node scripts/notices.mjs --updater
 
 echo "Building the app and its installer..."
 # The packaging settings live apart from tauri.conf.json, so that ordinary
 # builds do not need the files they bundle.
-(cd apps/desktop && ./ui/node_modules/.bin/tauri build --bundles nsis --config src-tauri/tauri.nsis.conf.json)
+# With the updater (ADR-24): the GitHub build checks for new versions, if
+# the user agrees. Sign a release with scripts/sign-update.sh afterwards.
+(cd apps/desktop && ./ui/node_modules/.bin/tauri build --bundles nsis --features updater --config src-tauri/tauri.nsis.conf.json)
 ls target/release/bundle/nsis/*-setup.exe

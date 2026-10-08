@@ -1,6 +1,6 @@
 # What leaves your computer
 
-**Nothing about your documents leaves your computer.** This version of Catchword makes no network requests at all. It has no account, no cloud service and no usage statistics.
+**Nothing about your documents leaves your computer.** Catchword has no account, no cloud service and no usage statistics. The one network request it can make is a check for new versions, in the download from GitHub, and only if you agree to it. The Microsoft Store version makes none at all.
 
 This page says exactly what does and does not leave your computer, and how you can check it yourself.
 
@@ -14,7 +14,8 @@ This page says exactly what does and does not leave your computer, and how you c
 | File and folder names | Never. A diagnostics report you prepare in Settings includes them only if you tick the box. Even then it is saved as a file on your computer, and nothing is sent |
 | Usage statistics | Not collected |
 | Crash reports | Written beside the app's logs, on your computer. Nothing is sent |
-| Update check | Not in this version. The download from GitHub will later ask for one small file, to see whether a new version exists, and you can turn this off. GitHub would see your IP address and Catchword's version number. The Microsoft Store version never checks: Windows updates it |
+| Check for new versions | Only in the download from GitHub, and only if you agree: Catchword asks at first launch, and Settings can change your answer. Then, once a day, it asks GitHub for one small file, to see whether a newer version exists. GitHub sees your computer's internet address; nothing else is sent, not even Catchword's version. A newer version is installed only when you choose to. The Microsoft Store version never checks: Windows updates it |
+| Installing a new version | Only when you choose "Install and restart": it is downloaded from Catchword's releases on GitHub, and checked against Catchword's signature before it runs |
 | Installing from the Microsoft Store (when available) | Microsoft learns that you installed Catchword, as for any Store app |
 | Installing from GitHub | GitHub sees the download, as for any download |
 
@@ -22,6 +23,7 @@ The embedding model, which lets Catchword search by meaning, comes inside the in
 
 ## How Catchword keeps this promise
 
+- **One small part can use the network,** in the download from GitHub only: the check for new versions (`apps/desktop/src-tauri/src/update_net.rs`). It asks one fixed address, downloads only from Catchword's own releases, and only with your agreement. The Microsoft Store version is built without it.
 - **The engine has no network code.** The parts that read, index and search your documents are built without any library that can use the network. An automated check enforces this on every change (`scripts/check-no-network.sh`).
 - **The window cannot contact anything.** Catchword's window shows pages that come from the app itself. Its security policy forbids them from connecting to any address.
 - **Documents are read in a separate program** (`catchword-worker.exe`), which has no network code either.
@@ -46,7 +48,7 @@ If Catchword needed the network, blocking it would break something. It does not.
 5. Choose **Block the connection**, then **Next**. Leave all three profiles ticked, then **Next**.
 6. Name it **Block Catchword**, then **Finish**.
 7. Repeat steps 2 to 6 for `%LOCALAPPDATA%\Catchword\catchword-worker.exe`, the program that reads your documents.
-8. Use Catchword as usual: add a folder, let it index, and search. Everything should work, because nothing in Catchword needs the network. If something does not, please report it: that would be a bug in this promise.
+8. Use Catchword as usual: add a folder, let it index, and search. Everything should work, because nothing in Catchword needs the network. Only "Check now" in Settings, Updates, fails, as it should. If anything else does not work, please report it: that would be a bug in this promise.
 
 To undo this, delete the two rules from **Outbound Rules**.
 

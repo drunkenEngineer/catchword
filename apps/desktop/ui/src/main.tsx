@@ -8,9 +8,11 @@ import "./styles.css";
 // Inside the app window, the real engine. In a plain browser, or with
 // `npm run dev:mock`, a made-up one, for working on the interface (UI-1).
 const inApp = "__TAURI_INTERNALS__" in window && import.meta.env.MODE !== "mock";
-// `?first-launch` shows the made-up engine as a new install.
-const firstLaunch = new URLSearchParams(window.location.search).has("first-launch");
-const engine = inApp ? tauriEngine : createMockEngine({ firstLaunch });
+// `?first-launch` shows the made-up engine as a new install; `?updates` as
+// the download from GitHub, which checks for new versions.
+const params = new URLSearchParams(window.location.search);
+const firstLaunch = params.has("first-launch");
+const engine = inApp ? tauriEngine : createMockEngine({ firstLaunch, updates: params.has("updates") });
 
 const root = document.getElementById("root");
 if (root) {

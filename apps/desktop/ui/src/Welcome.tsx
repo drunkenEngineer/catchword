@@ -1,12 +1,11 @@
-// The first-launch steps (UI-5, APP-1): the privacy promise, then the
-// folders to search. Shown once; Search opens after. Indexing starts as soon
-// as a folder is added, so the first search can follow within a minute.
+// The first-launch steps (UI-5, APP-1): the privacy promise, the folders to
+// search, and, in the download from GitHub, whether to check for new
+// versions. Shown once; Search opens after. Indexing starts as soon as a
+// folder is added, so the first search can follow within a minute.
 import { useState } from "react";
 import type { Status } from "./contract/Status";
 import { useEngine } from "./engine";
 import { strings } from "./strings";
-
-const STEPS = 2;
 
 export function Welcome({ status }: { status: Status }) {
   const engine = useEngine();
@@ -14,10 +13,15 @@ export function Welcome({ status }: { status: Status }) {
   const [problem, setProblem] = useState<string | null>(null);
   const fail = (error: unknown) => setProblem(String(error));
   const folders = status.folders;
+  const steps = status.updates.inBuild ? 3 : 2;
+  const finish = (check?: boolean) =>
+    (check === undefined ? Promise.resolve() : engine.setUpdateCheck(check))
+      .then(() => engine.finishFirstLaunch())
+      .catch(fail);
 
   return (
     <main className="welcome">
-      <p className="muted">{strings.welcome.step(step, STEPS)}</p>
+      <p className="muted">{strings.welcome.step(step, steps)}</p>
       {step === 1 ? (
         <section aria-labelledby="welcome-title">
           <h1 id="welcome-title">{strings.welcome.promiseTitle}</h1>
@@ -32,6 +36,25 @@ export function Welcome({ status }: { status: Status }) {
               {strings.welcome.continue}
             </button>
           </div>
+        </section>
+      ) : step === 3 ? (
+        <section aria-labelledby="welcome-title">
+          <h1 id="welcome-title">{strings.updates.askTitle}</h1>
+          <p>{strings.updates.ask}</p>
+          {problem && (
+            <p className="problem" role="alert" dir="auto">
+              {problem}
+            </p>
+          )}
+          <div className="actions">
+            <button type="button" className="primary" autoFocus onClick={() => void finish(true)}>
+              {strings.updates.yes}
+            </button>
+            <button type="button" onClick={() => void finish(false)}>
+              {strings.updates.no}
+            </button>
+          </div>
+          <p className="muted">{strings.welcome.updatesLater}</p>
         </section>
       ) : (
         <section aria-labelledby="welcome-title">
@@ -63,9 +86,9 @@ export function Welcome({ status }: { status: Status }) {
             <button
               type="button"
               className={folders.length > 0 ? "primary" : undefined}
-              onClick={() => engine.finishFirstLaunch().catch(fail)}
+              onClick={() => (steps === 3 ? setStep(3) : void finish())}
             >
-              {folders.length > 0 ? strings.welcome.start : strings.welcome.skip}
+              {steps === 3 ? strings.welcome.next : folders.length > 0 ? strings.welcome.start : strings.welcome.skip}
             </button>
           </div>
           <p className="muted">{strings.welcome.leftOut}</p>

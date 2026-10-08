@@ -16,6 +16,9 @@ mod open;
 mod power;
 mod session;
 mod settings;
+#[cfg(feature = "updater")]
+mod update_net;
+mod updates;
 mod views;
 
 use std::thread;
@@ -27,7 +30,7 @@ use crate::commands::{notifier, AppState, STATUS_CHANGED};
 
 pub fn run() {
     log::mark_start();
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         // First, so a second start only brings this window forward.
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             if let Some(window) = app.get_webview_window("main") {
@@ -36,7 +39,11 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_window_state::Builder::default().build())
-        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_dialog::init());
+    // The GitHub build only: its key and settings are in tauri.conf.json.
+    #[cfg(feature = "updater")]
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+    builder
         .setup(|app| {
             let data = app.path().app_local_data_dir()?;
             let unclean = session::start(&data);
@@ -58,6 +65,14 @@ pub fn run() {
                 state.power_changed(power::on_battery(), notifier(&handle));
                 if state.release_model_if_idle(std::time::Instant::now()) {
                     let _ = handle.emit(STATUS_CHANGED, ());
+                }
+                // Once a day, if the user agreed (APP-2).
+                #[cfg(feature = "updater")]
+                if state.begin_update_check(commands::now_secs()) {
+                    let found = update_net::check(&handle);
+                    if let Ok(Some(_)) = state.finish_update_check(commands::now_secs(), found) {
+                        let _ = handle.emit(STATUS_CHANGED, ());
+                    }
                 }
                 thread::sleep(power::CHECK_EVERY);
             });
@@ -95,6 +110,9 @@ pub fn run() {
             commands::set_pause_on_battery,
             commands::pick_index_folder,
             commands::move_index,
+            commands::set_update_check,
+            commands::check_for_update,
+            commands::install_update,
             commands::set_detailed_logs,
             commands::diagnostics,
             commands::save_diagnostics,

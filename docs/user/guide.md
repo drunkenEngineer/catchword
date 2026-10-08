@@ -25,10 +25,12 @@ Catchword runs on Windows 11. Windows 10 should work, but is not tested yet. It 
 
 ## The first start
 
-Catchword asks two things.
+Catchword asks two things, or three in the download from GitHub.
 
 1. **The promise.** Your files never leave this computer. Nothing about your documents or your searches is sent anywhere, and your files are never changed, moved or deleted. Choose **Continue**.
 2. **Your folders.** Choose **Add a folder** and pick a folder that holds your documents, such as Documents. Add as many as you like, then choose **Start searching**. You can also skip this and add folders later, in Library.
+
+3. **New versions** (the download from GitHub only). Catchword asks whether it may check for new versions once a day. If you agree, it asks GitHub for one small file; GitHub sees your computer's internet address, and nothing else. You can change your answer in Settings.
 
 Catchword then reads your folders. Some things are left out by default:
 
@@ -184,6 +186,15 @@ Catchword keeps small logs on your computer, at most about 3 MB. They never hold
 
 - **Detailed logs** also record file names and error details. Turn them on only while tracking down a problem.
 - **Prepare a diagnostics report** shows you the report exactly as it will be saved. File names are left out unless you tick the box. **Save the report…** saves it as a file; nothing is sent. Share it only if you choose to.
+
+### Updates
+
+In the download from GitHub only:
+
+- **Check for new versions once a day** turns the check on or off.
+- **Check now** asks at once.
+
+When a newer version exists, a message says so, with what changed. Choose **Install and restart** to install it: it is checked against Catchword's signature first. **Later** puts it off. The Microsoft Store version is updated by Windows.
 
 ### About and Privacy
 

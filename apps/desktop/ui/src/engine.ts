@@ -6,6 +6,7 @@ import { createContext, useContext } from "react";
 import type { FileAction } from "./contract/FileAction";
 import type { Folder } from "./contract/Folder";
 import type { IndexFolderChoice } from "./contract/IndexFolderChoice";
+import type { UpdateOffer } from "./contract/UpdateOffer";
 import type { ResourceMode } from "./contract/ResourceMode";
 import type { SearchFilter } from "./contract/SearchFilter";
 import type { SearchResponse } from "./contract/SearchResponse";
@@ -53,6 +54,12 @@ export interface Engine {
   pickIndexFolder(): Promise<IndexFolderChoice | null>;
   /** Move the index to the folder just picked, or back to its usual place. */
   moveIndex(toUsualPlace: boolean): Promise<void>;
+  /** Whether to check for new versions once a day (APP-2, GitHub build). */
+  setUpdateCheck(on: boolean): Promise<void>;
+  /** Check now; null if this is the newest version. */
+  checkForUpdate(): Promise<UpdateOffer | null>;
+  /** Download, verify and install the newer version; Catchword restarts. */
+  installUpdate(): Promise<void>;
   /** The diagnostics report, as plain text, for the user to read. */
   diagnostics(includePaths: boolean): Promise<string>;
   /** Saves the report last shown; the file's name, or null if cancelled. */
@@ -93,6 +100,9 @@ export const tauriEngine: Engine = {
   setPauseOnBattery: (on) => invoke("set_pause_on_battery", { on }),
   pickIndexFolder: () => invoke("pick_index_folder"),
   moveIndex: (toUsualPlace) => invoke("move_index", { toUsualPlace }),
+  setUpdateCheck: (on) => invoke("set_update_check", { on }),
+  checkForUpdate: () => invoke("check_for_update"),
+  installUpdate: () => invoke("install_update"),
   diagnostics: (includePaths) => invoke("diagnostics", { includePaths }),
   saveDiagnostics: () => invoke("save_diagnostics"),
   preview: (id) => invoke("preview", { id }),

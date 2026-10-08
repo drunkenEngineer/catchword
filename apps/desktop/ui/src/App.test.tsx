@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { announcement, App } from "./App";
 import { createMockEngine } from "./mock";
@@ -28,6 +28,44 @@ describe("the window", () => {
     expect(document.activeElement).toBe(screen.getByRole("heading", { level: 1, name: "Settings" }));
     fireEvent.keyDown(window, { key: "1", ctrlKey: true });
     expect(document.activeElement).toBe(screen.getByRole("searchbox"));
+  });
+
+  it("asks once whether to check for new versions, when the first launch did not", async () => {
+    const engine = createMockEngine({ updates: true });
+    const setUpdateCheck = vi.spyOn(engine, "setUpdateCheck");
+    renderWith(engine, <App />);
+    const ask = await screen.findByRole("region", { name: "Check for new versions?" });
+    await act(async () => {
+      fireEvent.click(within(ask).getByRole("button", { name: "Check once a day" }));
+    });
+    expect(setUpdateCheck).toHaveBeenCalledWith(true);
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Check for new versions?" })).toBeNull());
+  });
+
+  it("offers a newer version, and installs it only when asked", async () => {
+    const engine = createMockEngine({ updates: true });
+    await engine.setUpdateCheck(true);
+    await engine.checkForUpdate();
+    const install = vi.spyOn(engine, "installUpdate");
+    renderWith(engine, <App />);
+    const offer = await screen.findByRole("region", { name: "Catchword 0.2.0 is available." });
+    expect(offer.textContent).toContain("Word documents, and faster search.");
+    expect(install).not.toHaveBeenCalled();
+    await act(async () => {
+      fireEvent.click(within(offer).getByRole("button", { name: "Install and restart" }));
+    });
+    expect(install).toHaveBeenCalled();
+    expect(await screen.findByText(/Downloading and installing/)).toBeTruthy();
+  });
+
+  it("puts a newer version off with Later", async () => {
+    const engine = createMockEngine({ updates: true });
+    await engine.setUpdateCheck(true);
+    await engine.checkForUpdate();
+    renderWith(engine, <App />);
+    const offer = await screen.findByRole("region", { name: "Catchword 0.2.0 is available." });
+    fireEvent.click(within(offer).getByRole("button", { name: "Later" }));
+    expect(screen.queryByRole("region", { name: "Catchword 0.2.0 is available." })).toBeNull();
   });
 
   it("keeps a notice from the start on screen until it is closed", async () => {

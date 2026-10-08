@@ -3,6 +3,7 @@
 import type { FileAction } from "./contract/FileAction";
 import type { Folder } from "./contract/Folder";
 import type { IndexFolderChoice } from "./contract/IndexFolderChoice";
+import type { UpdateOffer } from "./contract/UpdateOffer";
 import type { FileHit } from "./contract/FileHit";
 import type { PassageHit } from "./contract/PassageHit";
 import type { PauseReason } from "./contract/PauseReason";
@@ -62,7 +63,8 @@ function mark(text: string, words: string[]): Span[] {
 const DEFAULT_PATTERNS = ["$RECYCLE.BIN", "Thumbs.db", "node_modules", "*.kdbx", "*.pem", "id_rsa*", "*passwords*"];
 
 /** `firstLaunch`: start as a new install, with no folders. */
-export function createMockEngine({ firstLaunch = false } = {}): Engine {
+/** `updates`: as the download from GitHub, which checks for new versions. */
+export function createMockEngine({ firstLaunch = false, updates = false } = {}): Engine {
   let folders: Folder[] = firstLaunch
     ? []
     : [
@@ -86,6 +88,9 @@ export function createMockEngine({ firstLaunch = false } = {}): Engine {
   let maxFileMb = 200;
   let maxPages = 5000;
   let report: string | null = null;
+  let updateCheck: boolean | null = null;
+  let lastUpdateCheck: number | null = null;
+  let offer: UpdateOffer | null = null;
   const listeners = new Set<() => void>();
   const changed = () => listeners.forEach((listener) => listener());
 
@@ -122,6 +127,7 @@ export function createMockEngine({ firstLaunch = false } = {}): Engine {
               ],
         problem: null,
         notice: null,
+        updates: { inBuild: updates, check: updateCheck, lastCheckSecs: lastUpdateCheck, offer },
         firstLaunch: !welcomed,
         paused,
         lastScanSecs: folders.length === 0 ? null : 1_759_500_000,
@@ -268,6 +274,21 @@ export function createMockEngine({ firstLaunch = false } = {}): Engine {
     async setDetailedLogs(on: boolean): Promise<void> {
       detailedLogs = on;
     },
+
+    async setUpdateCheck(on: boolean): Promise<void> {
+      updateCheck = on;
+      if (!on) offer = null;
+      changed();
+    },
+
+    async checkForUpdate(): Promise<UpdateOffer | null> {
+      lastUpdateCheck = Math.floor(Date.now() / 1000);
+      offer = { version: "0.2.0", notes: "Word documents, and faster search." };
+      changed();
+      return offer;
+    },
+
+    async installUpdate(): Promise<void> {},
 
     async setPauseOnBattery(on: boolean): Promise<void> {
       pauseOnBattery = on;

@@ -9,11 +9,15 @@ import type { ResourceMode } from "./contract/ResourceMode";
 import type { TextSize } from "./contract/TextSize";
 import type { Theme } from "./contract/Theme";
 import type { SettingsView } from "./contract/SettingsView";
+import type { Status } from "./contract/Status";
 import { useEngine } from "./engine";
 import { strings } from "./strings";
 
-export function Settings() {
+export function Settings({ status = null }: { status?: Status | null }) {
   const engine = useEngine();
+  const updates = status?.updates;
+  // What "Check now" found, said once.
+  const [checkNote, setCheckNote] = useState<string | null>(null);
   const [view, setView] = useState<SettingsView | null>(null);
   // The names being edited; null while they match what is saved.
   const [draft, setDraft] = useState<string | null>(null);
@@ -445,8 +449,44 @@ export function Settings() {
       <section aria-labelledby="privacy-title">
         <h2 id="privacy-title">{strings.settings.privacyTitle}</h2>
         <p>{strings.settings.privacy}</p>
-        <p>{strings.settings.network}</p>
+        <p>{updates?.inBuild ? strings.settings.networkWithUpdates : strings.settings.network}</p>
       </section>
+
+      {updates?.inBuild && (
+        <section aria-labelledby="updates-title">
+          <h2 id="updates-title">{strings.settings.updatesTitle}</h2>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={updates.check === true}
+              onChange={(event) => engine.setUpdateCheck(event.target.checked).catch(fail)}
+            />
+            {strings.settings.updatesCheck}
+          </label>
+          <div className="actions">
+            <button
+              type="button"
+              onClick={() => {
+                setCheckNote(strings.settings.checking);
+                engine.checkForUpdate().then(
+                  (offer) =>
+                    setCheckNote(offer ? strings.updates.available(offer.version) : strings.settings.upToDate),
+                  (error: unknown) => {
+                    setCheckNote(null);
+                    fail(error);
+                  },
+                );
+              }}
+            >
+              {strings.settings.checkNow}
+            </button>
+            {checkNote && <span role="status">{checkNote}</span>}
+          </div>
+          {updates.lastCheckSecs !== null && (
+            <p className="muted">{strings.settings.lastUpdateCheck(updates.lastCheckSecs)}</p>
+          )}
+        </section>
+      )}
     </div>
   );
 }

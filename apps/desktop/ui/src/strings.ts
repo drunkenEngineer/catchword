@@ -5,6 +5,18 @@ export const strings = {
   app: "Catchword",
   /** Closes a notice from the start (the index or settings were damaged). */
   closeNotice: "OK",
+
+  /** Checking for updates, in the download from GitHub (APP-1, APP-2). */
+  updates: {
+    askTitle: "Check for new versions?",
+    ask: "Once a day, Catchword can ask GitHub, where it is published, whether a newer version exists. GitHub sees your computer's internet address, and nothing else: nothing about your documents, searches or files is sent. Nothing is installed without your OK.",
+    yes: "Check once a day",
+    no: "Don't check",
+    available: (version: string) => `Catchword ${version} is available.`,
+    install: "Install and restart",
+    later: "Later",
+    installing: "Downloading and installing. Catchword starts again when it is done.",
+  },
   navigation: "Main navigation",
   destinations: { search: "Search", library: "Library", settings: "Settings" },
 
@@ -220,7 +232,16 @@ export const strings = {
       "Your files never leave this computer. Catchword sends no document text, search, file name or usage data anywhere, and has no account.",
     /** The network activity statement (spec section 8, Settings; docs/user/network.md). */
     network:
-      "This version makes no network requests at all. A later version of the download from GitHub will offer to check for updates, which you can turn off.",
+      "This build makes no network requests at all. The download from Microsoft Store is updated by Windows.",
+    networkWithUpdates:
+      "The only network request Catchword makes is the check for new versions below, and only if you turn it on.",
+    updatesTitle: "Updates",
+    updatesCheck: "Check for new versions once a day. GitHub sees your computer's internet address, and nothing else.",
+    checkNow: "Check now",
+    checking: "Checking…",
+    upToDate: "You have the newest version.",
+    lastUpdateCheck: (secs: number) =>
+      `Last checked: ${new Date(secs * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`,
   },
 
   welcome: {
@@ -239,6 +260,8 @@ export const strings = {
     addAnother: "Add another folder",
     start: "Start searching",
     skip: "Skip for now",
+    next: "Next",
+    updatesLater: "You can change this at any time in Settings.",
     leftOut: "System files and files that often hold passwords or keys are left out. You can change this in Settings.",
   },
 

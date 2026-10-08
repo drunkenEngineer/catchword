@@ -200,8 +200,27 @@ describe("the settings screen", () => {
     const privacy = await screen.findByRole("heading", { name: "Privacy" });
     const section = privacy.closest("section") as HTMLElement;
     expect(section.textContent).toContain("Your files never leave this computer.");
-    expect(section.textContent).toContain("This version makes no network requests at all.");
+    expect(section.textContent).toContain("This build makes no network requests at all.");
+    expect(screen.queryByRole("heading", { name: "Updates" })).toBeNull();
     expect(screen.queryByText(/arrive in a later version/)).toBeNull();
+  });
+
+  it("lets the download from GitHub check for new versions, or not", async () => {
+    const engine = createMockEngine({ updates: true });
+    const setUpdateCheck = vi.spyOn(engine, "setUpdateCheck");
+    renderWith(engine, <Settings status={await engine.status()} />);
+    await screen.findByRole("heading", { name: "Updates" });
+    expect(screen.getByText(/The only network request Catchword makes/)).toBeTruthy();
+    const box = screen.getByRole("checkbox", { name: /Check for new versions once a day/ }) as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    await act(async () => {
+      fireEvent.click(box);
+    });
+    expect(setUpdateCheck).toHaveBeenCalledWith(true);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Check now" }));
+    });
+    expect(await screen.findByText("Catchword 0.2.0 is available.")).toBeTruthy();
   });
 
   it("pauses on battery unless told not to", async () => {

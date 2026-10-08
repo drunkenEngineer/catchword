@@ -16,7 +16,7 @@ You can delete all of it at any time in **Settings, Delete all data**. Uninstall
 
 ## Network use
 
-This version of Catchword makes no network requests. See [What leaves your computer](network.md) for the details, and for how to check this yourself.
+The version from the Microsoft Store makes no network requests at all: Windows updates it. The version from GitHub can check for new versions once a day, if you agree; it then asks GitHub for one small file, and GitHub sees your computer's internet address. See [What leaves your computer](network.md) for the details, and for how to check this yourself.
 
 ## The Microsoft Store
 

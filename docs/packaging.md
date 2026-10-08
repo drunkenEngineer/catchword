@@ -14,6 +14,8 @@ cargo install cargo-about --locked --features cli
 
 ## The GitHub installer (NSIS)
 
+It carries the updater (ADR-24), which the Store package does not: `package-nsis.sh` builds with `--features updater`, and its licence notices include the updater's libraries. To sign a release for the updater, run `sh scripts/sign-update.sh` afterwards (see `docs/contributing/release-process.md`).
+
 ```bash
 sh scripts/package-nsis.sh
 ```

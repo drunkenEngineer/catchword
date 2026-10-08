@@ -41,7 +41,8 @@ To set the app's version:
 
 ### 2. Build
 
-- [ ] `sh scripts/package-nsis.sh`: the GitHub installer, in `target/release/bundle/nsis/`.
+- [ ] `sh scripts/package-nsis.sh`: the GitHub installer, in `target/release/bundle/nsis/`, with the updater.
+- [ ] `sh scripts/sign-update.sh`: signs the installer for the updater with your private key (it asks for the password), and writes `latest.json` beside it. Run it on your own computer only; the key never goes anywhere else.
 - [ ] `sh scripts/package-msix.sh`: the Store package, in `target/package/`.
 - [ ] `cargo test -p catchword --test package -- --ignored`: the packages hold every file the app needs, and the licence notices.
 - [ ] Checksums, from the project folder:
@@ -73,10 +74,11 @@ On a clean Windows 11 machine, and a quick check on Windows 10. The steps are in
   ```
 - [ ] On GitHub, draft a release from the tag:
   - the changelog entry as its text;
-  - the installer and `SHA256SUMS.txt` attached;
+  - the installer, its `.sig`, `latest.json` and `SHA256SUMS.txt` attached;
   - marked as a **pre-release**, which is the beta channel for now.
 - [ ] Submit the MSIX to the Microsoft Store (Partner Center), as in [docs/packaging.md](../packaging.md).
-- **Not built yet:** the update manifests for the beta and stable channels, and the update key's signatures (APP-2, REL-3); the winget manifest.
+- The updater finds the newest release that is not a pre-release: users of the GitHub download are offered it once it is promoted (step 5), not while it is a pre-release.
+- **Not built yet:** a beta channel for the updater (REL-3); the winget manifest.
 
 ### 5. After the beta period
 
@@ -113,7 +115,7 @@ Practise this once before 0.1, then once a year. Write down the date and the res
 These are done by hand, or skipped, until they exist:
 
 - the release pipeline from a tag (REL-4);
-- the updater and its key (APP-2, REL-3);
+- a beta channel for the updater (REL-3);
 - SignPath signing;
 - end-to-end tests (TST-3);
 - the winget manifest.

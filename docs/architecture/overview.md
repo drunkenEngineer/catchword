@@ -12,7 +12,7 @@ Three parts of the code decide how safe Catchword is. A change to any of them ne
 
 1. **The commands the interface can call** (`apps/desktop/src-tauri/src/commands.rs`, the allow-list in `build.rs` and `capabilities/main.json`, and the content security policy in `tauri.conf.json`). This is the only door between the web page, which shows untrusted document text, and the rest of the computer. Commands take ids from the index, never paths.
 2. **The worker protocol** (`crates/engine/src/extract/`, ADR-15). This is how the program that parses untrusted PDFs talks back. Everything it sends is checked as if an attacker wrote it.
-3. **The network module.** It does not exist yet. When the updater comes, network code may live only in the desktop shell, to a fixed list of hosts. Everything else is built without network libraries, and `scripts/check-no-network.sh` checks that on every change.
+3. **The network module** (`apps/desktop/src-tauri/src/update_net.rs`, ADR-24). It checks for new versions, in the GitHub build only and with the user's agreement. It asks one fixed address and downloads only from this repository's releases. Everything else, the Store build included, is built without network libraries, and `scripts/check-no-network.sh` checks that on every change.
 
 ## Processes
 

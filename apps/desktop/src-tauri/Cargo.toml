@@ -24,6 +24,7 @@ tauri = { version = "2.12.1", features = [] }
 tauri-plugin-dialog = "2.8.1"
 tauri-plugin-opener = "2.7.0"
 tauri-plugin-single-instance = "2.5.2"
+tauri-plugin-updater = { version = "2", optional = true }
 tauri-plugin-window-state = "2.5.0"
 ts-rs = "12.0.1"
 
@@ -46,3 +47,8 @@ windows-sys = { workspace = true, features = [
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
+
+[features]
+# The GitHub build checks for updates itself; the Store build has no
+# network code at all (ADR-24). scripts/package-nsis.sh turns it on.
+updater = ["dep:tauri-plugin-updater"]

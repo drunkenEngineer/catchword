@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { createMockEngine } from "./mock";
+import { Welcome } from "./Welcome";
 import { renderWith } from "./test-utils";
 
 afterEach(cleanup);
@@ -41,5 +42,22 @@ describe("the first launch", () => {
     renderWith(createMockEngine(), <App />);
     await screen.findByRole("button", { name: "Up to date" });
     expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
+  });
+
+  it("asks, in the download from GitHub, whether to check for new versions", async () => {
+    const engine = createMockEngine({ firstLaunch: true, updates: true });
+    const setUpdateCheck = vi.spyOn(engine, "setUpdateCheck");
+    const finish = vi.spyOn(engine, "finishFirstLaunch");
+    renderWith(engine, <Welcome status={await engine.status()} />);
+    expect(screen.getByText("Step 1 of 3")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByRole("heading", { name: "Check for new versions?" })).toBeTruthy();
+    expect(finish).not.toHaveBeenCalled();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Don't check" }));
+    });
+    expect(setUpdateCheck).toHaveBeenCalledWith(false);
+    expect(finish).toHaveBeenCalled();
   });
 });

@@ -42,7 +42,7 @@ Scanned documents need OCR, which is planned for a later version. Until then the
 
 ## Privacy
 
-This version makes no network requests at all. The engine contains no network code, and a check in CI enforces that. Later, the download from GitHub will offer an update check, which you can turn off. [What leaves your computer](docs/user/network.md) gives the details, and how to check them yourself with the Windows firewall.
+The engine contains no network code, and a check in CI enforces that. The only network request Catchword can make is a daily check for new versions, in the download from GitHub, and only if you agree at first launch; updates are verified against Catchword's signature before they install. The Microsoft Store version makes none. [What leaves your computer](docs/user/network.md) gives the details, and how to check them yourself with the Windows firewall.
 
 The [user guide](docs/user/guide.md) explains how to use the app (a draft).
 

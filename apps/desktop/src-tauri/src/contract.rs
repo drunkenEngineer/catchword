@@ -37,6 +37,8 @@ pub struct Status {
     /// When a scan of every folder last finished, in seconds since 1970.
     #[ts(type = "number | null")]
     pub last_scan_secs: Option<i64>,
+    /// Checking for updates, in the GitHub build (APP-2).
+    pub updates: Updates,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
@@ -125,6 +127,31 @@ pub struct SettingsView {
     pub pause_on_battery: bool,
     /// The index was moved out of its usual place (APP-7).
     pub index_moved: bool,
+}
+
+/// Checking for updates (APP-2, ADR-24).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct Updates {
+    /// This build checks for updates itself: the GitHub download. The Store
+    /// build is updated by Windows.
+    pub in_build: bool,
+    /// The user's choice; None until asked.
+    pub check: Option<bool>,
+    /// When a check last succeeded, in seconds since 1970.
+    #[ts(type = "number | null")]
+    pub last_check_secs: Option<i64>,
+    /// A newer version, found by the last check.
+    pub offer: Option<UpdateOffer>,
+}
+
+/// A newer version of Catchword (APP-2).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateOffer {
+    pub version: String,
+    /// What changed, as written for the release. Shown as plain text.
+    pub notes: String,
 }
 
 /// Where the index would go, for the user to confirm (APP-7).
@@ -356,6 +383,8 @@ mod tests {
             Changed,
             FileAction,
             IndexFolderChoice,
+            Updates,
+            UpdateOffer,
             SearchResponse,
             FileHit,
             PassageHit,

@@ -82,6 +82,14 @@ jobs:
           npm ci --no-fund --no-audit
           npm run typecheck
           npm test
+      # The GitHub build carries the updater (ADR-24): lint and test it too.
+      - name: The GitHub build, with the updater
+        run: |
+          cargo clippy -p catchword-desktop --all-targets --features updater -- -D warnings
+          cargo test -p catchword-desktop --features updater
+      - name: Signing an update
+        shell: bash
+        run: sh scripts/test-sign-update.sh
       # Search quality must stay above eval/thresholds.txt (ADR-19, ADR-20).
       - name: Retrieval evaluation
         if: runner.os == 'Linux'

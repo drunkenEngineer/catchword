@@ -7,6 +7,7 @@ import { useEngine } from "./engine";
 import { Library } from "./Library";
 import { Search } from "./Search";
 import { Settings } from "./Settings";
+import { UpdateBanner } from "./UpdateBanner";
 import { movePane } from "./panes";
 import { strings } from "./strings";
 import { Welcome } from "./Welcome";
@@ -127,6 +128,7 @@ export function App() {
             </button>
           </div>
         )}
+        {status && <UpdateBanner status={status} />}
         {/* Search marks its own panes; the other destinations are one each. */}
         <main
           className="destination"
@@ -137,7 +139,7 @@ export function App() {
             <Search status={status} openLibrary={() => setDestination("library")} />
           )}
           {destination === "library" && <Library status={status} />}
-          {destination === "settings" && <Settings />}
+          {destination === "settings" && <Settings status={status} />}
         </main>
       </div>
     </div>

@@ -80,6 +80,13 @@ pub struct Settings {
     /// usual place in the user's profile.
     #[serde(default)]
     pub index_folder: Option<PathBuf>,
+    /// Whether to check for updates once a day (APP-1, APP-2); None until
+    /// the user is asked. The GitHub build only.
+    #[serde(default)]
+    pub update_check: Option<bool>,
+    /// When a check for updates last succeeded, in seconds since 1970.
+    #[serde(default)]
+    pub last_update_check: Option<i64>,
     next_id: u32,
 }
 
@@ -106,6 +113,8 @@ impl Default for Settings {
             max_pages: DEFAULT_MAX_PAGES,
             pause_on_battery: true,
             index_folder: None,
+            update_check: None,
+            last_update_check: None,
             next_id: 1,
         }
     }

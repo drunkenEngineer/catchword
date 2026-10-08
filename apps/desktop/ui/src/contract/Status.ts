@@ -3,6 +3,7 @@ import type { FolderStatus } from "./FolderStatus";
 import type { Meaning } from "./Meaning";
 import type { NotIndexed } from "./NotIndexed";
 import type { PauseReason } from "./PauseReason";
+import type { Updates } from "./Updates";
 import type { Work } from "./Work";
 
 /**
@@ -38,4 +39,8 @@ paused: PauseReason | null,
 /**
  * When a scan of every folder last finished, in seconds since 1970.
  */
-lastScanSecs: number | null, };
+lastScanSecs: number | null, 
+/**
+ * Checking for updates, in the GitHub build (APP-2).
+ */
+updates: Updates, };

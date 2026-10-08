@@ -2,7 +2,9 @@
 // Catchword that others made, each with its licence text (REL-2). The app
 // shows the file in Settings, About; the packages carry it beside the program.
 //
-//   node scripts/notices.mjs
+//   node scripts/notices.mjs            for the Store package
+//   node scripts/notices.mjs --updater  for the GitHub installer, which also
+//                                       carries the updater's libraries (ADR-24)
 //
 // Needs cargo-about (cargo install cargo-about --locked --features cli), and
 // PDFium, ONNX Runtime and the model in vendor/ (scripts/fetch-*.sh). Reads
@@ -21,10 +23,10 @@ const RULE = "=".repeat(78);
 const LINE = "-".repeat(78);
 
 /** The Rust libraries a program uses, by licence text. Our own crates are left out. */
-function rustLicences(manifest, into) {
+function rustLicences(manifest, into, features = []) {
   const json = execFileSync(
     "cargo",
-    ["about", "generate", "--format", "json", "-c", "about.toml", "-m", manifest, "--frozen", "--fail"],
+    ["about", "generate", "--format", "json", "-c", "about.toml", "-m", manifest, "--frozen", "--fail", ...features],
     { cwd: root, encoding: "utf8", maxBuffer: 1 << 28, stdio: ["ignore", "pipe", "inherit"] },
   );
   for (const licence of JSON.parse(json).licenses) {
@@ -58,7 +60,8 @@ function javascriptPackages() {
 }
 
 const rust = new Map();
-rustLicences("apps/desktop/src-tauri/Cargo.toml", rust);
+const updater = process.argv.includes("--updater") ? ["--features", "updater"] : [];
+rustLicences("apps/desktop/src-tauri/Cargo.toml", rust, updater);
 rustLicences("crates/worker/Cargo.toml", rust);
 const version = JSON.parse(readFileSync(join(root, "apps", "desktop", "src-tauri", "tauri.conf.json"), "utf8")).version;
 

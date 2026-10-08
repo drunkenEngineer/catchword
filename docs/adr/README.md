@@ -29,3 +29,4 @@ ADR-1 to ADR-13 are the founding decisions in section 23 of `docs/specification.
 | [0021](0021-component-interfaces-and-conformance.md) | Component interfaces and their conformance suites |
 | [0022](0022-deleted-content-leaves-the-index.md) | Deleted content leaves the index file |
 | [0023](0023-moving-the-index.md) | Moving the index to a folder the user chooses |
+| [0024](0024-the-updater.md) | The updater in the GitHub build |

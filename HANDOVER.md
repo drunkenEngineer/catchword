@@ -61,8 +61,8 @@ Overall health: **good**. On 2026-10-06, on Windows 11: 260 Rust tests and 69 in
 | NSIS per-user installer (GitHub build) | `[DONE]`, install/update-uninstall/uninstall tested by hand once |
 | MSIX package (Store build) | `[IN PROGRESS]`: builds and its files are tested; never installed |
 | Speed and memory against section 14 | `[DONE]` measured on the owner's laptop; two targets missed (section 8) |
-| CI on Windows, Linux, macOS | `[BLOCKED]`: results never seen; needs the owner's GitHub CLI login or pasted logs |
-| Updater (APP-2, REL-3) | `[BLOCKED]`: needs an update signing key from the owner |
+| CI on Windows, Linux, macOS | `[IN PROGRESS]`: the repository is public since 8 October 2026, so CI runs (the private repository's free minutes had run out). Windows passes; three Linux and macOS test failures fixed in `edef380` |
+| Updater in the GitHub build (APP-2, APP-1's update choice; ADR-24) | `[DONE]`, not yet tried against a real release; a beta channel (REL-3) `[TODO]` |
 | Dependency licence and advisory checks (MNT-3) | `[DECISION NEEDED]`: a new tool (e.g. cargo-deny) needs the owner's OK |
 | Store registration, name reservation, Store identity in the manifest | `[BLOCKED]`: owner's steps |
 | Screen-reader check by hand with Narrator and NVDA (A11Y-2) | `[TODO]` |
@@ -106,7 +106,7 @@ fuse, extract ───► catchword-worker (separate process, PDFium), under a 
   - `open.rs`: opening files through ShellExecuteW;
   - `views.rs`: store results to contract types;
   - `lib.rs`: setup.
-- **Commands (allow-list):** `status search add_folder remove_folder index_now retry_failed settings exclude_folder include_folder set_patterns finish_first_launch delete_all_data rebuild_index check_index notices set_appearance set_limits pause_indexing resume_indexing set_resource_mode set_pause_on_battery pick_index_folder move_index set_detailed_logs diagnostics save_diagnostics preview open_file reveal_file`. A new command needs all three: the list in `apps/desktop/src-tauri/build.rs`, `allow-<name>` in `capabilities/main.json`, and registration in `lib.rs`.
+- **Commands (allow-list):** `status search add_folder remove_folder index_now retry_failed settings exclude_folder include_folder set_patterns finish_first_launch delete_all_data rebuild_index check_index notices set_appearance set_limits pause_indexing resume_indexing set_resource_mode set_pause_on_battery pick_index_folder move_index set_update_check check_for_update install_update set_detailed_logs diagnostics save_diagnostics preview open_file reveal_file`. A new command needs all three: the list in `apps/desktop/src-tauri/build.rs`, `allow-<name>` in `capabilities/main.json`, and registration in `lib.rs`.
 - **Database:** one SQLite file, `data/index.db`; see section 14.
 - **APIs:** none over a network. Worker protocol v1 over stdin/stdout: length-prefixed, versioned frames (ADR-15, `crates/engine/src/extract/protocol.rs`).
 - **Authentication:** none, by design.
@@ -188,7 +188,7 @@ CLAUDE.md          # Rules and commands for the coding assistant
 
 ## 6. Important Decisions
 
-The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23 (Tauri shell and Rust engine; worker process model; one rebuildable SQLite index; exact vector search first; hybrid retrieval with rank fusion; content addressing; network policy; PDFium; OCR open; answers open; Apache-2.0; Store first then GitHub). Each also has a file in `docs/adr/` (0001 to 0013) with what has happened since; the specification stays the source. Later decisions are only files: ADR-14 to ADR-23. Do not reopen them without the owner. Further decisions made in sessions:
+The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23 (Tauri shell and Rust engine; worker process model; one rebuildable SQLite index; exact vector search first; hybrid retrieval with rank fusion; content addressing; network policy; PDFium; OCR open; answers open; Apache-2.0; Store first then GitHub). Each also has a file in `docs/adr/` (0001 to 0013) with what has happened since; the specification stays the source. Later decisions are only files: ADR-14 to ADR-24. Do not reopen them without the owner. Further decisions made in sessions:
 
 **Decision: Keep Granite as the model (ADR-20)**
 - Decision: granite-embedding-97m-multilingual-r2, 350-token passages with 50 overlapping, fusion K = 60 with 50 candidates.
@@ -201,6 +201,12 @@ The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23
 - Reason: a worker per file costs about 42 ms; decoding is not format parsing.
 - Alternatives considered: the worker for every file.
 - Consequences: the one exception to rule 2; recorded.
+
+**Decision: The updater, in the GitHub build only (ADR-24)**
+- Decision: a Cargo feature `updater` (on for `package-nsis.sh`, off for the Store); one network module (`update_net.rs`) asking one address, the newest release's `latest.json` on GitHub; downloads only from this repository's releases; off until the user agrees; at most once a day; installs only on "Install and restart"; `requireSignedVersion` on, downgrades off.
+- Reason: APP-2 and PRIV-2. The owner approved `tauri-plugin-updater` and generated the key on 8 October 2026.
+- Alternatives considered: the updater in every build (the Store build must have no network code); endpoints in `tauri.conf.json` (the address is fixed in code, next to its tests).
+- Consequences: each release needs the installer, its `.sig` and `latest.json`, from `scripts/sign-update.sh`, run by the owner. Pre-releases are not offered.
 
 **Decision: The index may be moved anywhere, with a warning (ADR-23)**
 - Decision: the owner's, 5 October 2026. Any folder the user picks; the index gets a folder of its own there (`Catchword index`); before the move, the user is told that uninstalling will not remove it there.
@@ -364,7 +370,7 @@ The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23
 - Get the owner's decisions on the two missed targets (section 8).
 
 **High**
-- Updater (APP-2, REL-3): needs an update signing key, kept offline by the owner. Network code only in the desktop shell, to a fixed host list (PRIV-2). Then the first launch's update-check step (APP-1, GitHub build only).
+- Try the updater end to end with two real releases (0.1.0, then 0.1.1): `scripts/sign-update.sh`, attach the files, promote, and check the offer and the install. A beta channel (REL-3) after that.
 - Dependency licence and advisory checks (MNT-3): propose cargo-deny to the owner (a new tool). `about.toml` already blocks unknown licences in the notices step.
 - Screen-reader pass with Narrator and NVDA (A11Y-2): result counts and progress must be read out.
 - Measure on a reference laptop: `scripts/measure-app.ps1`, then the two release-build measurement tests (section 12).
@@ -485,7 +491,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
   - `passage_vectors`: sqlite-vec, 384 floats per passage.
   - `problems(path PK, size, modified_secs, reason, attempts)`: files not indexed. The reason codes are `needs-ocr`, `encrypted`, `too-large`, `cannot-open`, `damaged`, `timed-out`, `memory-limit`, `crashed`, `invalid-output`, `library-missing` and `cloud-only`. Failures are parked after 2 attempts; rule-based skips wait until the file changes; `cannot-open` and `cloud-only` are retried every run.
   - `temp.passage_words`: an fts5vocab view, per connection only.
-- **Settings:** `config\settings.json`, version 2, written atomically with the previous copy kept (`apps/desktop/src-tauri/src/settings.rs`). Fields: `folders`, `excluded_folders`, `patterns`, `welcomed`, `detailed_logs`, `resource_mode`, `paused`, `theme`, `text_size`, `max_file_mb`, `max_pages`, `pause_on_battery` (default on), `index_folder` (where the index was moved, or none), `next_id`. Version 1 files are upgraded.
+- **Settings:** `config\settings.json`, version 2, written atomically with the previous copy kept (`apps/desktop/src-tauri/src/settings.rs`). Fields: `folders`, `excluded_folders`, `patterns`, `welcomed`, `detailed_logs`, `resource_mode`, `paused`, `theme`, `text_size`, `max_file_mb`, `max_pages`, `pause_on_battery` (default on), `index_folder` (where the index was moved, or none), `update_check` (none until asked), `last_update_check`, `next_id`. Version 1 files are upgraded.
 - **Assumptions:** the index can always be rebuilt from the files. Settings are precious; the index is not.
 
 ## 15. External Services
@@ -617,6 +623,14 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 - Changes: WCAG AA colour contrast, with an automated check (two failures fixed: the dark theme's found-word highlight, and field edges in both themes); the release checklist, rollback steps and rollback drill (`docs/contributing/release-process.md`); a test that the version is the same in `Cargo.toml`, `tauri.conf.json` and the interface's `package.json` and lock file; the CHANGELOG's Unreleased section brought up to date.
 - Current state: everything committed and pushed; all checks pass.
 - Next step: the owner's decisions and hand checks (section 10); the rollback drill once there are two releases to practise with.
+
+
+**2026-10-08**
+- Task: the repository went public; CI; the updater; then cargo-deny.
+- Changes: CI's history explained (the private repository's free minutes had run out); three tests made to pass on Linux and macOS; CI runs every test even after a failure; the updater in the GitHub build (ADR-24): `updates.rs`, `update_net.rs`, the first-launch question, a one-time banner for installs that skipped it, an offer banner, Settings' Updates section, `scripts/sign-update.sh` and its test, notices with `--updater`, the privacy check extended to the Store build.
+- Decisions: the owner's: make the repository public; `tauri-plugin-updater`; the update key (public key in `tauri.conf.json`, private key with the owner, never in the repository).
+- Current state: committed and pushed; CI runs on all three systems.
+- Next step: cargo-deny (MNT-3, approved by the owner).
 
 ---
 
