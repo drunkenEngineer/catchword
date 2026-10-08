@@ -61,7 +61,7 @@ Overall health: **good**. On 2026-10-06, on Windows 11: 260 Rust tests and 69 in
 | NSIS per-user installer (GitHub build) | `[DONE]`, install/update-uninstall/uninstall tested by hand once |
 | MSIX package (Store build) | `[IN PROGRESS]`: builds and its files are tested; never installed |
 | Speed and memory against section 14 | `[DONE]` measured on the owner's laptop; two targets missed (section 8) |
-| CI on Windows, Linux, macOS | `[IN PROGRESS]`: the repository is public since 8 October 2026, so CI runs (the private repository's free minutes had run out). Windows passes; three Linux and macOS test failures fixed in `edef380` |
+| CI on Windows, Linux, macOS | `[DONE]`: green on all three since `edef380` (8 October 2026), with the updater build, the signing test and cargo-deny; the repository is public, so CI minutes are free |
 | Updater in the GitHub build (APP-2, APP-1's update choice; ADR-24) | `[DONE]`, not yet tried against a real release; a beta channel (REL-3) `[TODO]` |
 | Dependency licence and advisory checks (MNT-3) | `[DONE]`: cargo-deny (approved by the owner, 8 October 2026), `deny.toml`, in CI and the local checks; two unmaintained compile-time macros excepted, with reasons |
 | Store registration, name reservation, Store identity in the manifest | `[BLOCKED]`: owner's steps |
@@ -302,14 +302,11 @@ The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23
 - Attempts already made: none. The packaging scripts run `tauri build` just before copying the app, so they package the right program.
 - Recommended next investigation: rename the command-line tool's program (for example `catchword-cli`), which changes how it is run: ask the owner.
 
-**CI results unknown; Linux and macOS never built**
-- Status: `[BLOCKED]`
-- Symptoms: the first push (2026-10-04) triggered CI on three systems; nobody has seen the result.
-- Cause: the GitHub CLI is installed but not logged in (`C:\Program Files\GitHub CLI\gh.exe`); the repository is private.
-- Recommended next investigation: the owner runs `gh auth login` or pastes failing logs. Expect Linux/macOS failures. Areas at risk:
-  - Windows-only code: job objects, file attributes, `disk.rs`, `open.rs`;
-  - Windows-only tests (most are `#[cfg(windows)]`);
-  - paths with backslashes in tests.
+**CI: resolved 8 October 2026**
+- Status: `[DONE]`
+- What it was: every run had failed. The private repository's free CI minutes had run out, so GitHub refused to start the jobs ("recent account payments have failed or your spending limit needs to be increased"). The few early runs that did start found a Windows timing test too strict, already loosened, and three desktop tests that wrote paths with backslashes, which fail on Linux and macOS.
+- Fix: the owner made the repository public (free minutes); the three tests now write paths as each system does (`edef380`); CI runs every test even after a failure (`--no-fail-fast`).
+- Watch for: `ubuntu-latest` moves to Ubuntu 26 from 19 October 2026 (a GitHub notice in the logs).
 
 **Node.js older than jsdom wants**
 - Status: `[TODO]`
@@ -366,7 +363,6 @@ The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23
 ## 10. TODO / Roadmap
 
 **Critical**
-- See CI results for the first push, and fix Linux and macOS failures (`.github/workflows/ci.yml`). Needs the owner's `gh auth login` or pasted logs.
 - Get the owner's decisions on the two missed targets (section 8).
 
 **High**
@@ -631,7 +627,8 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 - Decisions: the owner's: make the repository public; `tauri-plugin-updater`; the update key (public key in `tauri.conf.json`, private key with the owner, never in the repository).
 - Current state: committed and pushed; CI runs on all three systems.
 - Then: cargo-deny (MNT-3, approved by the owner): `deny.toml` checks advisories, licences (the same list as `about.toml`, kept equal by a test) and sources for all three systems, with the updater; all our crates marked `publish = false`; two unmaintained compile-time macros excepted (`paste` through tokenizers, `proc-macro-error` through Tauri's Linux GTK libraries).
-- Next step: CI green on all three systems; then the owner's remaining decisions.
+- CI: green on all three systems from `edef380` on, including the updater and cargo-deny.
+- Next step: the owner's remaining decisions (section 10); moving the CI actions to their newer major versions, now that results can be seen.
 
 ---
 
