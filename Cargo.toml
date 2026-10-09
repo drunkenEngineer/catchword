@@ -10,7 +10,7 @@ license = "Apache-2.0"
 [workspace.dependencies]
 anyhow = "1"
 # Guessing a text file's legacy encoding (EXT-2), from the Firefox team.
-chardetng = "0.1"
+chardetng = "1.0"
 dunce = "1"
 # Decoding text in any WHATWG encoding (EXT-2).
 encoding_rs = "0.8"

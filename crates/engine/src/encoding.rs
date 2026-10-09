@@ -1,6 +1,6 @@
 //! Turning a text file's bytes into text, whatever its encoding (EXT-2).
 
-use chardetng::EncodingDetector;
+use chardetng::{EncodingDetector, Iso2022JpDetection, Utf8Detection};
 use encoding_rs::{Encoding, UTF_16BE, UTF_16LE};
 
 /// How much of a file the legacy-encoding guess reads. Plenty to tell
@@ -27,10 +27,14 @@ pub fn decode_text(bytes: &[u8]) -> String {
     if let Ok(text) = std::str::from_utf8(bytes) {
         return text.to_string();
     }
-    let mut detector = EncodingDetector::new();
+    // ISO-2022-JP is considered, as chardetng always did before 1.0: its
+    // warning is for web pages that run scripts, and document text is shown
+    // as plain text only.
+    let mut detector = EncodingDetector::new(Iso2022JpDetection::Allow);
     let sample = &bytes[..bytes.len().min(GUESS_FROM)];
     detector.feed(sample, sample.len() == bytes.len());
-    let encoding = detector.guess(None, false);
+    // Not UTF-8: that was ruled out above.
+    let encoding = detector.guess(None, Utf8Detection::Deny);
     encoding.decode_without_bom_handling(bytes).0.into_owned()
 }
 
