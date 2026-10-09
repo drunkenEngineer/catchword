@@ -64,6 +64,7 @@ Overall health: **good**. On 2026-10-06, on Windows 11: 260 Rust tests and 69 in
 | Speed and memory against section 14 | `[DONE]` measured on the owner's laptop; two targets missed (section 8) |
 | CI on Windows, Linux, macOS | `[DONE]`: green on all three since `edef380` (8 October 2026), with the updater build, the signing test and cargo-deny; the repository is public, so CI minutes are free |
 | Updater in the GitHub build (APP-2, APP-1's update choice; ADR-24) | `[DONE]`, not yet tried against a real release; a beta channel (REL-3) `[TODO]` |
+| Weekly dependency update pull requests (Dependabot) | `[DONE]`, approved by the owner on 9 October 2026: Rust, npm and CI actions, grouped; `ort`, `pdfium-render` and Tauri's minor and major versions move by hand (`.github/dependabot.yml`). PDFium and ONNX Runtime themselves are pinned in the fetch scripts, which Dependabot cannot watch |
 | Dependency licence and advisory checks (MNT-3) | `[DONE]`: cargo-deny (approved by the owner, 8 October 2026), `deny.toml`, in CI and the local checks; two unmaintained compile-time macros excepted, with reasons |
 | Store registration, name reservation, Store identity in the manifest | `[BLOCKED]`: owner's steps |
 | Screen-reader check by hand with Narrator and NVDA (A11Y-2) | `[TODO]` |
@@ -633,7 +634,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 
 **2026-10-09**
 - Task: what needs no decision from the owner.
-- Changes: the CI actions moved to checkout v7.0.1, cache v6.1.0 and setup-node v7.1.0; CI also runs every Monday morning and by hand (CI-2); the PDF worker lowers itself to low integrity on Windows before reading anything (SEC-6), tested on the real worker.
+- Changes: Dependabot, approved by the owner (weekly grouped pull requests; `ort`, `pdfium-render` and Tauri's minor and major versions by hand); the CI actions moved to checkout v7.0.1, cache v6.1.0 and setup-node v7.1.0; CI also runs every Monday morning and by hand (CI-2); the PDF worker lowers itself to low integrity on Windows before reading anything (SEC-6), tested on the real worker.
 - Current state: committed and pushed.
 - Next step: the owner's decisions (section 10).
 

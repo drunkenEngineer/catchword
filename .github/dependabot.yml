@@ -1,0 +1,52 @@
+# Dependabot (threat T7): every Monday, a pull request for each group of
+# dependencies that has a newer version. Each one runs CI, cargo-deny
+# included, and the owner reviews it like any other change. Major versions
+# come one by one. A few dependencies move only by hand, with what they
+# are tied to: see the ignore lists.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      rust-libraries:
+        patterns: ["*"]
+        update-types: [minor, patch]
+    ignore:
+      # Moves with the ONNX Runtime library scripts/fetch-embedding.sh pins (ADR-18).
+      - dependency-name: ort
+      # Moves with the PDFium library scripts/fetch-pdfium.sh pins (ADR-14).
+      - dependency-name: pdfium-render
+      # Tauri's Rust crates and its npm packages must stay on the same
+      # version, which Dependabot cannot do across the two: new minor and
+      # major versions are updated together, by hand.
+      - dependency-name: "tauri*"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+
+  - package-ecosystem: npm
+    directory: /apps/desktop/ui
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      interface-packages:
+        patterns: ["*"]
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: "@tauri-apps/*"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+
+  # The CI actions, pinned to commit hashes: Dependabot moves the hash and
+  # the version in the comment together.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      ci-actions:
+        patterns: ["*"]
