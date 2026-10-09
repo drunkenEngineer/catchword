@@ -4,6 +4,12 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Every Monday morning too (CI-2): new security advisories appear, and
+  # GitHub's machines change, even when the code does not.
+  schedule:
+    - cron: "0 6 * * 1"
+  # And by hand, from the Actions page.
+  workflow_dispatch:
 
 permissions:
   contents: read
