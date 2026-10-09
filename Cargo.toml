@@ -19,7 +19,7 @@ encoding_rs = "0.8"
 ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "load-dynamic"] }
 # PDFium binding. The image feature is off: only text is extracted.
 pdfium-render = { version = "0.9.4", default-features = false, features = ["pdfium_latest"] }
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
 serde_json = "1"
 sha2 = "0.10"
 # Vector search inside SQLite (ADR-4). Compiled into the store.
