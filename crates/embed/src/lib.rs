@@ -6,8 +6,6 @@
 //! checksums are checked every time it is loaded (ADR-18).
 
 use std::fmt;
-use std::fs::File;
-use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
@@ -15,7 +13,6 @@ use catchword_engine::Tokenizer;
 use ort::environment::ThreadManager;
 use ort::session::Session;
 use ort::value::Tensor;
-use sha2::{Digest, Sha256};
 
 /// How the runtime may use the processor.
 #[derive(Debug, Clone, Copy)]
@@ -401,14 +398,8 @@ fn unit_length(vector: &[f32]) -> Vec<f32> {
 
 /// Refuse a file whose SHA-256 is not `expected`.
 fn verify(path: &Path, expected: &str) -> Result<(), EmbedError> {
-    let mut file = File::open(path).map_err(|_| EmbedError::Missing(path.to_path_buf()))?;
-    let mut hasher = Sha256::new();
-    io::copy(&mut file, &mut hasher).map_err(|_| EmbedError::Missing(path.to_path_buf()))?;
-    let actual: String = hasher
-        .finalize()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect();
+    let actual =
+        catchword_engine::hash_file(path).map_err(|_| EmbedError::Missing(path.to_path_buf()))?;
     if actual == expected {
         Ok(())
     } else {
@@ -437,6 +428,7 @@ fn start_runtime(library: &Path) -> Result<(), EmbedError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sha2::{Digest, Sha256};
 
     #[test]
     fn a_file_with_the_wrong_checksum_is_refused() {

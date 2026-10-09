@@ -181,8 +181,18 @@ pub fn content_hash(bytes: &[u8]) -> String {
 /// Like `content_hash`, but reads the file in pieces, so a large file is
 /// never held in memory whole.
 pub fn hash_file(path: &Path) -> io::Result<String> {
+    let mut file = fs::File::open(path)?;
     let mut hasher = Sha256::new();
-    io::copy(&mut fs::File::open(path)?, &mut hasher)?;
+    // A piece at a time, so a large file is never held in memory whole.
+    let mut piece = vec![0u8; 1 << 16];
+    loop {
+        match file.read(&mut piece) {
+            Ok(0) => break,
+            Ok(read) => hasher.update(&piece[..read]),
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error),
+        }
+    }
     Ok(to_hex(&hasher.finalize()))
 }
 
