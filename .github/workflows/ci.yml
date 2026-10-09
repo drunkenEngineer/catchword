@@ -93,6 +93,15 @@ jobs:
           npm ci --no-fund --no-audit
           npm run typecheck
           npm test
+      # The interface's packages pass the same policy (MNT-3): licences from
+      # deny.toml's list, and npm's own check for known security problems.
+      - name: Interface package policy
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          node --test scripts/check-npm-licences.test.mjs
+          node scripts/check-npm-licences.mjs
+          cd apps/desktop/ui && npm audit
       # The GitHub build carries the updater (ADR-24): lint and test it too.
       - name: The GitHub build, with the updater
         run: |

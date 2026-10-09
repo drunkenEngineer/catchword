@@ -29,8 +29,9 @@ To set the app's version:
   - `cargo clippy --workspace --all-targets -- -D warnings`;
   - `cargo test --workspace`;
   - `sh scripts/check-no-network.sh` and `sh scripts/check-pinned-actions.sh`;
-  - `cargo deny check`: no known security problem in any dependency;
-  - in `apps/desktop/ui`: `npm run typecheck` and `npm test`.
+  - `cargo deny check`: no known security problem in any Rust dependency, and every licence allowed;
+  - `node scripts/check-npm-licences.mjs`: every interface package's licence allowed;
+  - in `apps/desktop/ui`: `npm audit` (no known security problem), `npm run typecheck` and `npm test`.
 
   CI runs the same checks on Windows, Linux and macOS.
 - [ ] The evaluation passes: `cargo run -p catchword-eval -- check`.

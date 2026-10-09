@@ -1,6 +1,7 @@
 # Dependabot (threat T7): every Monday, a pull request for each group of
-# dependencies that has a newer version. Each one runs CI, cargo-deny
-# included, and the owner reviews it like any other change. Major versions
+# dependencies that has a newer version. Each one runs CI, the licence and
+# security checks included (cargo-deny, check-npm-licences.mjs, npm audit),
+# and the owner reviews it like any other change. Major versions
 # come one by one. A few dependencies move only by hand, with what they
 # are tied to: see the ignore lists.
 version: 2

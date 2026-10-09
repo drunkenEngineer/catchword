@@ -27,7 +27,7 @@ Last updated: 2026-10-09.
 
 ## 2. Current Status
 
-Overall health: **good**. On 2026-10-09, on Windows 11, after the dependency updates: 269 Rust tests and 74 interface tests pass, and the updater build's lint and tests; format, lint, type check, the privacy check, the pinned-actions check and cargo-deny are clean. CI is green on Windows, Linux and macOS. The retrieval evaluation met all 11 thresholds when last run (with SQLite 3.53.2, unchanged scores).
+Overall health: **good**. On 2026-10-09, on Windows 11, after the dependency updates: 269 Rust tests and 74 interface tests pass, and the updater build's lint and tests; format, lint, type check, the privacy check, the pinned-actions check, cargo-deny and the interface packages' licence and security checks are clean. CI is green on Windows, Linux and macOS. The retrieval evaluation met all 11 thresholds when last run (with SQLite 3.53.2, unchanged scores).
 
 | Area | Status |
 | --- | --- |
@@ -65,7 +65,7 @@ Overall health: **good**. On 2026-10-09, on Windows 11, after the dependency upd
 | CI on Windows, Linux, macOS | `[DONE]`: green on all three since `edef380` (8 October 2026), with the updater build, the signing test and cargo-deny; the repository is public, so CI minutes are free |
 | Updater in the GitHub build (APP-2, APP-1's update choice; ADR-24) | `[DONE]`, not yet tried against a real release; a beta channel (REL-3) `[TODO]` |
 | Weekly dependency update pull requests (Dependabot) | `[DONE]`, approved by the owner on 9 October 2026: Rust, npm and CI actions, grouped; `ort`, `pdfium-render` and Tauri's minor and major versions move by hand (`.github/dependabot.yml`). PDFium and ONNX Runtime themselves are pinned in the fetch scripts, which Dependabot cannot watch. Its first four pull requests (rusqlite 0.40, sha2 0.11, chardetng 1.0, two interface packages) were fixed where needed and merged on 9 October 2026, each once CI passed on all three systems; how to handle them is in section 17 |
-| Dependency licence and advisory checks (MNT-3) | `[DONE]`: cargo-deny (approved by the owner, 8 October 2026), `deny.toml`, in CI and the local checks; two unmaintained compile-time macros excepted, with reasons |
+| Dependency licence and advisory checks (MNT-3) | `[DONE]`: Rust by cargo-deny (approved by the owner, 8 October 2026), `deny.toml`, two unmaintained compile-time macros excepted, with reasons; the interface's npm packages since 9 October 2026, their licences against the same list (`scripts/check-npm-licences.mjs`, with `node:test` tests) and known security problems by `npm audit`. All in CI (Linux) and the local checks. Two licences are allowed for build and test packages only, never shipped: BlueOak-1.0.0 (`lru-cache`) and MIT-0 (two `@csstools` packages), both permissive (`BUILD_AND_TEST_ONLY`); the owner may want to confirm that |
 | Store registration, name reservation, Store identity in the manifest | `[BLOCKED]`: owner's steps |
 | Screen-reader check by hand with Narrator and NVDA (A11Y-2) | `[TODO]` |
 | Measurements on a reference laptop (4 cores, about 2020, 8 GB) | `[TODO]` |
@@ -427,7 +427,8 @@ All from the repository root unless said otherwise.
 | Format | `cargo fmt --all` |
 | A fresh clone to a working build | `sh scripts/setup.sh` (tools only: `--check`) |
 | Privacy check | `sh scripts/check-no-network.sh` |
-| Dependency policy | `cargo deny check` (rules in `deny.toml`) |
+| Dependency policy | `cargo deny check` (rules in `deny.toml`); the interface's packages: `node scripts/check-npm-licences.mjs` and `cd apps/desktop/ui && npm audit` |
+| Tests of the npm licence check | `node --test scripts/check-npm-licences.test.mjs` |
 | CI actions pinned to commit hashes | `sh scripts/check-pinned-actions.sh` |
 | Interface checks | `cd apps/desktop/ui && npm run typecheck && npm test` |
 | Interface with a made-up engine | `cd apps/desktop/ui && npm run dev:mock`, then http://127.0.0.1:1420 (`?first-launch` for the first-launch steps) |
@@ -456,6 +457,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
   - desktop tests in `apps/desktop/src-tauri/src/*` (`AppState` flows on temporary folders).
 - Some tests need `vendor/` (PDFium, the model) and the worker built by `cargo test --workspace`.
 - Interface tests: `apps/desktop/ui/src/*.test.tsx` with the mock engine. `safety.test.ts` fails if any source writes HTML from strings or calls Tauri outside `engine.ts`.
+- Script tests: `scripts/test-sign-update.sh` (signing an update), and `scripts/check-npm-licences.test.mjs` (7 tests, Node's built-in runner, no package: licence expressions, GPL and AGPL caught, the build-and-test-only licences, and the real lock file).
 - Important scenarios covered:
   - privacy of logs (no query, text or path);
   - interrupted and paused runs keep nothing half-done;
@@ -642,6 +644,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 - Changes: Dependabot, approved by the owner (weekly grouped pull requests; `ort`, `pdfium-render` and Tauri's minor and major versions by hand); the CI actions moved to checkout v7.0.1, cache v6.1.0 and setup-node v7.1.0; CI also runs every Monday morning and by hand (CI-2); the PDF worker lowers itself to low integrity on Windows before reading anything (SEC-6), tested on the real worker.
 - Then: Dependabot's first four pull requests, fixed and merged at the owner's request once CI was green: rusqlite 0.40 with SQLite 3.53.2 (#3), sha2 0.11 (#4), chardetng 1.0 (#2), `@vitejs/plugin-react` 6.1.2 and jsdom 30.1.2 (#1); what each needed is in section 17. The pause test failed one pull request on a busy CI machine (9 s against 3 s): it now checks first that nothing of the half-read file was kept, and allows 30 s (`e6d4cee`).
 - Problems encountered: after the merges, the local checks failed on `main` because the drive was full (0.5 GB left; `target\debug` had reached 49 GB). Deleting `target\debug` freed 43 GB; see section 11.
+- Then, looking for anything left undone: MNT-3 ("every dependency passes automated licence and advisory checks") was marked done but covered only Rust. The interface's npm packages are now checked too, in CI and the local checks: licences against `deny.toml`'s list by `scripts/check-npm-licences.mjs` (no new package: it reads `package-lock.json`), and known security problems by `npm audit` (none today; all 151 packages under allowed licences). The threat model's T7 row, its check date, `CLAUDE.md`, `CONTRIBUTING.md`, the release checklist and `HANDOFF.md`'s stale "waiting for the owner" line were brought up to date. The CHANGELOG gained the updater, the low-integrity worker and PRIV-5, which were missing.
 - Current state: committed and pushed.
 - Next step: the owner's decisions (section 10).
 

@@ -50,6 +50,7 @@ allow = [
 confidence-threshold = 0.9
 exceptions = []
 # The list matches about.toml (a test checks it), so some on it may be unused.
+# scripts/check-npm-licences.mjs reads it too, for the interface's packages.
 unused-allowed-license = "allow"
 
 [bans]
