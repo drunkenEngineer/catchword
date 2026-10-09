@@ -4,7 +4,7 @@ Persistent handover for whoever, person or LLM, continues Catchword. Read it com
 
 Related files: `HANDOFF.md` holds the original task queue (items 1 to 23) with a dated note per item; `CLAUDE.md` holds the working rules; `docs/specification.md` is the full plan (26 sections). If this file and the code disagree, the code wins: correct this file.
 
-Last updated: 2026-10-04.
+Last updated: 2026-10-09.
 
 ---
 
@@ -27,7 +27,7 @@ Last updated: 2026-10-04.
 
 ## 2. Current Status
 
-Overall health: **good**. On 2026-10-06, on Windows 11: 260 Rust tests and 69 interface tests pass; format, lint, type check and the privacy check are clean; the retrieval evaluation meets all 11 thresholds. CI has never been seen to run (see section 8).
+Overall health: **good**. On 2026-10-09, on Windows 11, after the dependency updates: 269 Rust tests and 74 interface tests pass, and the updater build's lint and tests; format, lint, type check, the privacy check, the pinned-actions check and cargo-deny are clean. CI is green on Windows, Linux and macOS. The retrieval evaluation met all 11 thresholds when last run (with SQLite 3.53.2, unchanged scores).
 
 | Area | Status |
 | --- | --- |
@@ -64,7 +64,7 @@ Overall health: **good**. On 2026-10-06, on Windows 11: 260 Rust tests and 69 in
 | Speed and memory against section 14 | `[DONE]` measured on the owner's laptop; two targets missed (section 8) |
 | CI on Windows, Linux, macOS | `[DONE]`: green on all three since `edef380` (8 October 2026), with the updater build, the signing test and cargo-deny; the repository is public, so CI minutes are free |
 | Updater in the GitHub build (APP-2, APP-1's update choice; ADR-24) | `[DONE]`, not yet tried against a real release; a beta channel (REL-3) `[TODO]` |
-| Weekly dependency update pull requests (Dependabot) | `[DONE]`, approved by the owner on 9 October 2026: Rust, npm and CI actions, grouped; `ort`, `pdfium-render` and Tauri's minor and major versions move by hand (`.github/dependabot.yml`). PDFium and ONNX Runtime themselves are pinned in the fetch scripts, which Dependabot cannot watch |
+| Weekly dependency update pull requests (Dependabot) | `[DONE]`, approved by the owner on 9 October 2026: Rust, npm and CI actions, grouped; `ort`, `pdfium-render` and Tauri's minor and major versions move by hand (`.github/dependabot.yml`). PDFium and ONNX Runtime themselves are pinned in the fetch scripts, which Dependabot cannot watch. Its first four pull requests (rusqlite 0.40, sha2 0.11, chardetng 1.0, two interface packages) were fixed where needed and merged on 9 October 2026, each once CI passed on all three systems; how to handle them is in section 17 |
 | Dependency licence and advisory checks (MNT-3) | `[DONE]`: cargo-deny (approved by the owner, 8 October 2026), `deny.toml`, in CI and the local checks; two unmaintained compile-time macros excepted, with reasons |
 | Store registration, name reservation, Store identity in the manifest | `[BLOCKED]`: owner's steps |
 | Screen-reader check by hand with Narrator and NVDA (A11Y-2) | `[TODO]` |
@@ -133,21 +133,22 @@ fuse, extract ───► catchword-worker (separate process, PDFium), under a 
 | --- | --- |
 | Rust | 1.99.0, pinned in `rust-toolchain.toml` (with rustfmt, clippy) |
 | Tauri | 2.12.1 (`tauri-build` 2.7.1); plugins: dialog 2.8.1, opener 2.7.0, single-instance 2.5.2, window-state 2.5.0 |
-| SQLite | `rusqlite` 0.31, bundled; FTS5; `sqlite-vec` 0.1.9 |
+| SQLite | 3.53.2, bundled through `rusqlite` 0.40.2 (`libsqlite3-sys` 0.38.2); FTS5; `sqlite-vec` 0.1.9 |
 | ONNX Runtime | 1.28.3 (win-x64), loaded at run time by full path through `ort` 2.0.0-rc.13 (`load-dynamic`) |
 | Tokenizer | `tokenizers` 0.23.2 (no download feature, Oniguruma) |
 | Embedding model | granite-embedding-97m-multilingual-r2, 8-bit (`model_quint8_avx2.onnx`), 384 dimensions, CLS pooling; baseline multilingual-e5-small for the benchmark |
 | PDF | PDFium build 156.0.8076, through `pdfium-render` 0.9.4, in `catchword-worker` |
-| Text encodings | `encoding_rs` 0.8.42, `chardetng` 0.1.17 |
-| Other Rust | `walkdir` 2, `dunce` 1, `sha2` 0.10, `anyhow` 1, `serde_json` 1, `ts-rs` 12.0.1, `windows-sys` 0.61 |
-| Interface | React 19.3, TypeScript 7.0.2, Vite 8.3.2 |
-| Interface tests | Vitest 5.0.3, jsdom 30.1.1, Testing Library (react 16.3.3, dom 10.4.1) |
+| Text encodings | `encoding_rs` 0.8.42, `chardetng` 1.0.0 |
+| Other Rust | `walkdir` 2, `dunce` 1, `sha2` 0.11 (0.10 remains in `Cargo.lock` only through Tauri's compile-time code generator), `anyhow` 1, `serde_json` 1, `ts-rs` 12.0.1, `windows-sys` 0.61 |
+| Updater (GitHub build only) | `tauri-plugin-updater` 2.13.2, behind the `updater` feature (ADR-24) |
+| Interface | React 19.3, TypeScript 7.0.2, Vite 8.3.2, `@vitejs/plugin-react` 6.1.2 |
+| Interface tests | Vitest 5.0.3, jsdom 30.1.2, Testing Library (react 16.3.3, dom 10.4.1) |
 | Package managers | cargo; npm (`apps/desktop/ui/package-lock.json`) |
 | Node.js | 22 (this PC has 22.20.0; jsdom asks for 22.22.2 or later, see section 8) |
 | Build tools | MSVC C++ build tools and Windows SDK 10.0.26100 (`makeappx.exe`); Git Bash for the `.sh` scripts |
 | Packaging | Tauri bundler with NSIS 3.11 (downloaded by Tauri); `makeappx` for MSIX |
 | Notices | `cargo-about` 0.9.2 (`cargo install cargo-about --locked --features cli`) |
-| Hosting | none (desktop app); repository at https://github.com/drunkenEngineer/catchword (private) |
+| Hosting | none (desktop app); repository at https://github.com/drunkenEngineer/catchword (public since 8 October 2026) |
 | CI | GitHub Actions, `.github/workflows/ci.yml` (Ubuntu, Windows, macOS) |
 
 ## 5. Repository Structure
@@ -361,6 +362,7 @@ The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23
   - PowerShell `Remove-Item` on paths under `C:\D folder\` is blocked by the tool's safety check: use `rm` on relative paths in Bash.
   - The desktop app's "Run" button does not accept `/c/...` paths: open a `cmd.exe` window for interactive commands.
   - Driving the real app window with computer-use did not work: check the interface with `npm run dev:mock` in the built-in browser, and the real app through its log.
+  - A local check failing with "There is not enough space on the disk" (os error 112), `LNK1180` or `LNK1318` is a full drive, not the code: see "Disk space" in section 11.
 
 ## 10. TODO / Roadmap
 
@@ -409,8 +411,9 @@ The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23
   - `eval/thresholds.txt`: evaluation minimums;
   - `rust-toolchain.toml`;
   - `.gitattributes`.
-- Repository: `origin` is https://github.com/drunkenEngineer/catchword (private), branch `main`. Before making it public, see `docs/README.md`. The commits so far are authored with the owner's own email address; the owner may want a GitHub noreply address first, which would mean rewriting history.
-- Future: the updater's signing key will be required. Never store it in the repository.
+- Repository: `origin` is https://github.com/drunkenEngineer/catchword, public since 8 October 2026, branch `main`. The commits are authored with the owner's own email address, now visible to anyone; a GitHub noreply address in the git settings would cover new commits only, and changing old ones means rewriting history (the owner's call).
+- The updater's signing key exists (made by the owner on 8 October 2026): its public half is in `tauri.conf.json`; the private half stays on the owner's computer and is used only by `scripts/sign-update.sh`. Never read it, store it in the repository or give it to CI (ADR-24).
+- Disk space: `target\debug` grows with every feature set and dependency version built (49 GB by 9 October 2026, when the drive filled up and builds failed). Deleting `target\debug` is safe: it is rebuilt. `target\try-app` and `target\package` hold an unpacked app and the Store package; keep them unless rebuilding those too.
 
 ## 12. Development Commands
 
@@ -439,12 +442,13 @@ All from the repository root unless said otherwise.
 | Start-up and memory | `powershell -ExecutionPolicy Bypass -File scripts/measure-app.ps1 [-App <path to Catchword.exe>]` |
 | Scanning measurement | `cargo test --release -p catchword-service --test measure -- --ignored --nocapture` |
 | Embedding measurement | `cargo test --release -p catchword-desktop measure_embedding -- --ignored --nocapture` |
+| Deletion measurement (bulk purge against secure-delete, ADR-22) | `cargo test --release -p catchword-store measure_deleting -- --ignored --nocapture` |
 
 There are no migrations to run by hand: the index upgrades itself on opening (section 14). There is no seed data.
 
 ## 13. Testing
 
-- Coverage on 2026-10-06: 260 Rust tests and 69 interface tests pass. There are four ignored tests: the packaged-files test and three measurements.
+- Coverage on 2026-10-09: 269 Rust tests and 74 interface tests pass. There are four ignored tests: the packaged-files test and three measurements (scanning, deleting, embedding).
 - The evaluation meets all 11 thresholds; combined recall@10 is 92.5%.
 - Rust tests:
   - unit tests in each crate;
@@ -500,7 +504,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
   - the Granite and e5 models from Hugging Face at pinned revisions;
   - XQuAD for the evaluation.
 - **Packaging:** Tauri downloads NSIS 3.11, its `nsis_tauri_utils` plugin and Microsoft's WebView2 bootstrapper, checking their hashes. The installer embeds the bootstrapper; Windows 11 already has WebView2.
-- **GitHub:** private repository and Actions CI. Free CI minutes are limited for private repositories (macOS counts ten times). The actions CI uses are pinned to commit hashes, with the version in a comment: actions/checkout v7.0.1, Swatinem/rust-cache v2.9.2, actions/cache v6.1.0, actions/setup-node v7.1.0 (moved up from v4 on 2026-10-09, once CI results could be seen), EmbarkStudios/cargo-deny-action v2.1.1. `scripts/check-pinned-actions.sh` fails on any action not pinned this way; CI runs it.
+- **GitHub:** public repository (since 8 October 2026) and Actions CI, whose minutes are free for public repositories; while it was private, they ran out (section 8). Dependabot opens update pull requests every Monday (section 2). The actions CI uses are pinned to commit hashes, with the version in a comment: actions/checkout v7.0.1, Swatinem/rust-cache v2.9.2, actions/cache v6.1.0, actions/setup-node v7.1.0 (moved up from v4 on 2026-10-09, once CI results could be seen), EmbarkStudios/cargo-deny-action v2.1.1. `scripts/check-pinned-actions.sh` fails on any action not pinned this way; CI runs it.
 - **Future:** the updater's static manifest host (GitHub releases), to a fixed host list; the Microsoft Store.
 
 ## 16. Product / UX Context
@@ -564,6 +568,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 - On the owner's PC:
   - the installed app (`%LOCALAPPDATA%\Catchword`) and `target\try-app\` share one data folder;
   - the owner's settings have `paused: true`, so nothing is indexed until Resume.
+- **Dependabot pull requests** (every Monday): check out each branch, run the local checks, and fix what breaks on that branch, with a test for any changed behaviour. Merge (squash) only when CI is green on all three systems, then run the checks on `main`, since pull requests that each pass alone can still clash. The first round (9 October 2026) needed: sha2 0.11 no longer hashes from a reader, so `hash_file` in `crates/engine/src/lib.rs` reads 64 KB pieces and the model check in `crates/embed` uses it; chardetng 1.0 asks whether ISO-2022-JP may be guessed and names the UTF-8 choice that was a boolean, so `encoding.rs` passes `Iso2022JpDetection::Allow` and `Utf8Detection::Deny` to keep the same detection; rusqlite 0.40 changed one C pointer type in the extension hook in `crates/store/src/lib.rs`. The deletion measurement looked twice as slow afterwards, but `main` measured the same back to back: machine load, not SQLite.
 - `HANDOFF.md` is the older queue document. Keep its history, but put new status here.
 
 ## 18. Session Log
@@ -635,6 +640,8 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 **2026-10-09**
 - Task: what needs no decision from the owner.
 - Changes: Dependabot, approved by the owner (weekly grouped pull requests; `ort`, `pdfium-render` and Tauri's minor and major versions by hand); the CI actions moved to checkout v7.0.1, cache v6.1.0 and setup-node v7.1.0; CI also runs every Monday morning and by hand (CI-2); the PDF worker lowers itself to low integrity on Windows before reading anything (SEC-6), tested on the real worker.
+- Then: Dependabot's first four pull requests, fixed and merged at the owner's request once CI was green: rusqlite 0.40 with SQLite 3.53.2 (#3), sha2 0.11 (#4), chardetng 1.0 (#2), `@vitejs/plugin-react` 6.1.2 and jsdom 30.1.2 (#1); what each needed is in section 17. The pause test failed one pull request on a busy CI machine (9 s against 3 s): it now checks first that nothing of the half-read file was kept, and allows 30 s (`e6d4cee`).
+- Problems encountered: after the merges, the local checks failed on `main` because the drive was full (0.5 GB left; `target\debug` had reached 49 GB). Deleting `target\debug` freed 43 GB; see section 11.
 - Current state: committed and pushed.
 - Next step: the owner's decisions (section 10).
 
