@@ -373,7 +373,6 @@ The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23
 
 **Medium**
 - Quantised vector search with rescoring if combined search misses 500 ms on the reference laptop (spec section 14, scale tiers).
-- Move the CI actions to their newer major versions (checkout v7, cache v6, setup-node v7 exist on 2026-10-04; the workflow uses v4 of each). Only once CI results can be seen, since a major version can change behaviour.
 
 - Coverage-guided fuzzing of the worker protocol and the text path (cargo-fuzz needs a nightly toolchain and a new tool: the owner's call).
 
@@ -499,7 +498,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
   - the Granite and e5 models from Hugging Face at pinned revisions;
   - XQuAD for the evaluation.
 - **Packaging:** Tauri downloads NSIS 3.11, its `nsis_tauri_utils` plugin and Microsoft's WebView2 bootstrapper, checking their hashes. The installer embeds the bootstrapper; Windows 11 already has WebView2.
-- **GitHub:** private repository and Actions CI. Free CI minutes are limited for private repositories (macOS counts ten times). The four actions CI uses are pinned to commit hashes, with the version in a comment: actions/checkout v4.4.0, Swatinem/rust-cache v2.9.2, actions/cache v4.3.0, actions/setup-node v4.4.0. These are the commits their v4 and v2 tags pointed to on 2026-10-04, so CI runs the same code as before. `scripts/check-pinned-actions.sh` fails on any action not pinned this way; CI runs it.
+- **GitHub:** private repository and Actions CI. Free CI minutes are limited for private repositories (macOS counts ten times). The actions CI uses are pinned to commit hashes, with the version in a comment: actions/checkout v7.0.1, Swatinem/rust-cache v2.9.2, actions/cache v6.1.0, actions/setup-node v7.1.0 (moved up from v4 on 2026-10-09, once CI results could be seen), EmbarkStudios/cargo-deny-action v2.1.1. `scripts/check-pinned-actions.sh` fails on any action not pinned this way; CI runs it.
 - **Future:** the updater's static manifest host (GitHub releases), to a fixed host list; the Microsoft Store.
 
 ## 16. Product / UX Context
@@ -628,7 +627,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 - Current state: committed and pushed; CI runs on all three systems.
 - Then: cargo-deny (MNT-3, approved by the owner): `deny.toml` checks advisories, licences (the same list as `about.toml`, kept equal by a test) and sources for all three systems, with the updater; all our crates marked `publish = false`; two unmaintained compile-time macros excepted (`paste` through tokenizers, `proc-macro-error` through Tauri's Linux GTK libraries).
 - CI: green on all three systems from `edef380` on, including the updater and cargo-deny.
-- Next step: the owner's remaining decisions (section 10); moving the CI actions to their newer major versions, now that results can be seen.
+- Next step: the owner's remaining decisions (section 10).
 
 ---
 
