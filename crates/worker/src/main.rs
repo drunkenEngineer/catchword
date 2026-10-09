@@ -13,8 +13,14 @@ use catchword_engine::extract::protocol::{self, Refusal, Request, Response};
 use pdfium_render::prelude::{Pdfium, PdfiumError, PdfiumInternalError};
 
 fn main() -> ExitCode {
-    // Nothing happens before the request arrives: by then the engine has put
-    // this process under its limits.
+    // First, before anything untrusted is read: give up the right to write
+    // to the user's files, settings and other programs (SEC-6). Windows
+    // lets a process lower its integrity level, never raise it.
+    #[cfg(windows)]
+    catchword_engine::extract::integrity::lower_this_process();
+
+    // Nothing else happens before the request arrives: by then the engine
+    // has put this process under its limits.
     let request = match protocol::read_request(&mut io::stdin().lock()) {
         Ok(request) => request,
         Err(_) => return ExitCode::from(2),

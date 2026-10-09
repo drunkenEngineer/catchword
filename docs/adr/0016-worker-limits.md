@@ -2,6 +2,8 @@
 
 Status: accepted, 3 October 2026. Backlog item CORE-2; requirement SEC-1; threats T1, T2 and T4.
 
+Update, 9 October 2026 (SEC-6): on Windows the worker also lowers itself to low integrity, first thing, before it reads the request. Windows lets a process lower its integrity level, never raise it. At low integrity the worker can still read the document, but cannot write to the user's files, settings or other programs. That adds to the job object's limits: a parser taken over by a hostile file can no longer change what the user owns. See `crates/engine/src/extract/integrity.rs`; `crates/worker/tests/integrity.rs` checks it on the real worker.
+
 ## Context
 
 A malicious or broken file can make a parser hang, eat memory or run attacker code. The worker process contains that, but only if the operating system enforces limits on it, and the engine must survive whatever the worker does.

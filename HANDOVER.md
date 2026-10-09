@@ -39,6 +39,7 @@ Overall health: **good**. On 2026-10-06, on Windows 11: 260 Rust tests and 69 in
 | Offline folders, cloud-only files, unreadable sub-folders | `[DONE]` |
 | Pause/resume, resource modes, low-disk pause | `[DONE]` |
 | Pause on battery, resume when plugged in (IDX-9, a 0.2 SHOULD, done early) | `[DONE]` |
+| The worker runs at low integrity on Windows (SEC-6, a 0.2 SHOULD, done early) | `[DONE]`: it cannot write to the user's files; see ADR-16's update |
 | Moving the index to a folder the user chooses (APP-7, 0.2, done early) | `[DONE]`, with a warning that uninstalling will not remove it there (ADR-23) |
 | Rebuild on demand, quick check at start, damaged-index recovery, newer-index refusal | `[DONE]` |
 | Safe mode after two unclean ends in a row (spec section 19) | `[DONE]` |
@@ -628,6 +629,13 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 - Then: cargo-deny (MNT-3, approved by the owner): `deny.toml` checks advisories, licences (the same list as `about.toml`, kept equal by a test) and sources for all three systems, with the updater; all our crates marked `publish = false`; two unmaintained compile-time macros excepted (`paste` through tokenizers, `proc-macro-error` through Tauri's Linux GTK libraries).
 - CI: green on all three systems from `edef380` on, including the updater and cargo-deny.
 - Next step: the owner's remaining decisions (section 10).
+
+
+**2026-10-09**
+- Task: what needs no decision from the owner.
+- Changes: the CI actions moved to checkout v7.0.1, cache v6.1.0 and setup-node v7.1.0; CI also runs every Monday morning and by hand (CI-2); the PDF worker lowers itself to low integrity on Windows before reading anything (SEC-6), tested on the real worker.
+- Current state: committed and pushed.
+- Next step: the owner's decisions (section 10).
 
 ---
 

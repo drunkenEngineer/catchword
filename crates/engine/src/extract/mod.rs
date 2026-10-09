@@ -11,6 +11,8 @@
 pub mod protocol;
 
 #[cfg(windows)]
+pub mod integrity;
+#[cfg(windows)]
 mod job_windows;
 
 use std::fs;
