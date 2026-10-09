@@ -765,15 +765,16 @@ mod tests {
         let paused = Instant::now();
         indexer.pause(PauseReason::You);
         wait_until_idle(&indexer);
-        // Seconds, not the whole file: generous, as other programs may be
-        // busy; the proof is below.
+        // The proof: stopped part way through the file, so nothing of it is
+        // kept. Had the pause waited for the file to end, it would be.
+        assert_eq!(Store::open(&store).unwrap().counts().unwrap().files, 0);
+        // And not stuck. About a second here; a busy CI machine took 9 s, so
+        // the limit is generous: timing alone makes a flaky test.
         assert!(
-            paused.elapsed() < Duration::from_secs(3),
+            paused.elapsed() < Duration::from_secs(30),
             "{:?}",
             paused.elapsed()
         );
-        // Stopped part way: nothing of the file is kept.
-        assert_eq!(Store::open(&store).unwrap().counts().unwrap().files, 0);
     }
 
     #[test]
