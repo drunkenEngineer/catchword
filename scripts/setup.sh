@@ -30,6 +30,7 @@ need rustup "Install Rust from https://rustup.rs: it brings rustup."
 need node "Install Node.js 22 (22.22.2 or later) from https://nodejs.org."
 need npm "It comes with Node.js."
 need curl "The downloads use it. Git for Windows includes it."
+need unzip "ONNX Runtime arrives as a NuGet package, a zip archive. Git for Windows includes it; on Linux, install the unzip package."
 if ! command -v sha256sum >/dev/null 2>&1 && ! command -v shasum >/dev/null 2>&1; then
   echo "Missing: sha256sum or shasum. The downloads are checked with one of them." >&2
   missing=1

@@ -134,7 +134,7 @@ fuse, extract ───► catchword-worker (separate process, PDFium), under a 
 | Rust | 1.99.0, pinned in `rust-toolchain.toml` (with rustfmt, clippy) |
 | Tauri | 2.12.1 (`tauri-build` 2.7.1); plugins: dialog 2.8.1, opener 2.7.0, single-instance 2.5.2, window-state 2.5.0 |
 | SQLite | 3.54.1, bundled through `rusqlite` 0.43.0 (`libsqlite3-sys` 0.40.0); FTS5; `sqlite-vec` 0.1.9 |
-| ONNX Runtime | 1.28.3 (win-x64), loaded at run time by full path through `ort` 2.0.0-rc.13 (`load-dynamic`) |
+| ONNX Runtime | 1.31.1 (since 25 November 2026; 1.28.3 before), from Microsoft's NuGet package `Microsoft.ML.OnnxRuntime`, loaded at run time by full path through `ort` 2.0.0-rc.13 (`load-dynamic`, C API level 17 or later) |
 | Tokenizer | `tokenizers` 0.23.2 (no download feature, Oniguruma) |
 | Embedding model | granite-embedding-97m-multilingual-r2, 8-bit (`model_quint8_avx2.onnx`), 384 dimensions, CLS pooling; baseline multilingual-e5-small for the benchmark |
 | PDF | PDFium build 156.0.8076, through `pdfium-render` 0.9.4, in `catchword-worker` |
@@ -305,8 +305,8 @@ The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23
 - Attempts already made: none. The packaging scripts run `tauri build` just before copying the app, so they package the right program.
 - Recommended next investigation: rename the command-line tool's program (for example `catchword-cli`), which changes how it is run: ask the owner.
 
-**ONNX Runtime 1.28.3 can no longer be downloaded**
-- Status: `[DECISION NEEDED]`
+**ONNX Runtime 1.28.3 can no longer be downloaded: resolved 25 November 2026**
+- Status: `[DONE]`: the owner chose 1.31.1 from Microsoft's NuGet package, signature checked and checksum pinned. Quality and speed measured back to back against 1.28.3 are the same within 0.002 and run-to-run variation; details in ADR-18's update. The verified 1.28.3 Windows library is kept in `vendor/onnxruntime-1.28.3-backup/` on the owner's PC.
 - Symptoms: `scripts/fetch-embedding.sh` fails with HTTP 404 on all three systems. CI fails at "Fetch ONNX Runtime and the embedding model" on every run since 25 November 2026 (`2a17026`), and a fresh clone cannot be set up. Copies already in `vendor/` keep working: local builds, tests and packaging on the owner's PC are unaffected, and so is the installed app.
 - Cause: Microsoft's `microsoft/onnxruntime` repository disappeared from GitHub around 17 to 18 November 2026, with its release downloads and no redirect; Microsoft had given no reason by 25 November. CI had hidden this while its cache held the downloads; the cache (10 GB limit, 9.6 GB used) then dropped them for newer Rust build caches.
 - Facts for the decision: 1.28.3 was published only on GitHub. NuGet (`Microsoft.ML.OnnxRuntime`, with the native libraries for Windows, Linux and macOS) and PyPI have 1.28.0 (25 July 2026), 1.29.0, 1.30.0, 1.31.0, 1.31.1 (28 October 2026) and 1.32.0 (13 November 2026). `ort` 2.0.0-rc.13 as we build it needs API level 17, so any of them loads; a newer one only logs a note. The Windows DLL in `vendor/onnxruntime/` (SHA-256 `4d2774a5…92a6e2`) came from the pinned 1.28.3 archive in October. `dotnet` is installed, so a NuGet package's Microsoft signature can be checked as well as its checksum.
@@ -410,6 +410,7 @@ The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23
   - Visual Studio C++ build tools with the Windows SDK;
   - Node.js 22.22 or later with npm;
   - Git Bash for the `.sh` scripts;
+  - `unzip` (Git for Windows has it; ONNX Runtime arrives as a NuGet package, a zip archive);
   - Python is not needed by the project.
 - Downloads, once, checked against pinned checksums:
   - `sh scripts/fetch-pdfium.sh`: PDFium, into `vendor/pdfium`;
@@ -515,7 +516,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 - **At run time:** none. The app makes no network requests. `scripts/check-no-network.sh` fails if the engine, store, worker, embedding runtime or service depend on a network library (it checks `cargo tree` for reqwest, hyper, tokio, rustls and others); CI runs it.
 - **At build time, downloaded by scripts, each checked against pinned checksums:**
   - PDFium binaries (ADR-14);
-  - ONNX Runtime 1.28.3 from Microsoft's releases (ADR-18);
+  - ONNX Runtime 1.31.1 from Microsoft's NuGet package, 160 MB for all systems (ADR-18; its GitHub releases disappeared in November 2026);
   - the Granite and e5 models from Hugging Face at pinned revisions;
   - XQuAD for the evaluation.
 - **Packaging:** Tauri downloads NSIS 3.11, its `nsis_tauri_utils` plugin and Microsoft's WebView2 bootstrapper, checking their hashes. The installer embeds the bootstrapper; Windows 11 already has WebView2.
@@ -669,8 +670,9 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 - Found: no commits since 9 October; CI red on `main` every week since 19 October, and on all three open Dependabot pull requests (#11 Rust, #12 npm, #13 CI actions), only in cargo-deny on Linux: new advisories against libraries in use (section 8). `npm audit` found two high advisories in build and test packages.
 - Changes: rusqlite 0.43.0, bundling SQLite 3.54.1 (CVE-2026-119375 fixed in 3.54.0; rusqlite 0.41 to 0.43 also fixes several use-after-free bugs and now rejects empty SQL); `tauri-plugin-updater` 2.14.1 (`zip` 9; `minisign-verify` 0.3, which rejects non-canonical signatures; the download is checked again just before installing); patch updates of `rustls`, `rustls-webpki`, `url`, `cookie`, `async-executor`, `zvariant`; `npm audit fix` (`vite` 8.3.8, `undici` 8.13.1); four unmaintained libraries excepted in `deny.toml` with the owner's OK (`chrono`, `zbus_names`, `zvariant`, `zvariant_derive`).
 - Then: CI on `7742c19` was green on all three systems, the evaluation included. Dependabot replaced #11 and #12 with #14 (six interface packages) and #15 (nine Rust libraries, all patch releases), which passed CI and were merged; all local checks pass on the result (`76af80b`).
-- Problem found: ONNX Runtime can no longer be downloaded (section 8). CI on `main` fails at the download since `2a17026`, and #13 (CI actions: rust-cache 2.9.3, cargo-deny-action 2.1.3, hashes checked against their tags) cannot be tested until that is fixed. Waiting for the owner's choice of version and source.
-- Current state: everything committed and pushed; CI red at the ONNX Runtime download only.
+- Problem found: ONNX Runtime can no longer be downloaded (section 8). CI on `main` failed at the download from `2a17026`, and #13 (CI actions: rust-cache 2.9.3, cargo-deny-action 2.1.3, hashes checked against their tags) could not be tested.
+- Then: the owner chose ONNX Runtime 1.31.1 from Microsoft's NuGet package. Its Microsoft signature checked (`dotnet nuget verify --all`), its checksum pinned in `scripts/fetch-embedding.sh`, which now takes the library out of the package with `unzip` (added to `scripts/setup.sh`'s checks). Licence unchanged; the notices add Mbed TLS (used under Apache-2.0); the Windows library has no network imports, as before. The evaluation and the embedding measurement, back to back against 1.28.3, are the same (ADR-18's update). ADR-6, ADR-18 and the threat model (T8) updated.
+- Current state: committed and pushed; CI's result is on GitHub; #13 to be merged once CI is green.
 - Next step: the owner's decisions (section 10).
 
 ---

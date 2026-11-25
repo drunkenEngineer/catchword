@@ -30,7 +30,7 @@ A clearly better permissive model appears. A change means re-embedding everythin
 
 ## Since then
 
-- ONNX Runtime 1.28.3 and the Granite model are pinned and checked by checksum when they are fetched and every time the model loads (ADR-18).
+- ONNX Runtime (1.28.3, then 1.31.1 from 25 November 2026) and the Granite model are pinned and checked by checksum when they are fetched and every time the model loads (ADR-18).
 - The Phase 0 benchmark and the specification's own rule disagreed, and the owner kept Granite (ADR-20, 3 October 2026).
 - The index records the model and the size of its vectors. Opening an index with another model drops its vectors, and they are made again.
 - On 4 October 2026 the app embeds 16.7 passages a second in its default mode, short of the target of 20 (`docs/benchmarks/2026-10-04-app.md`). Whether to change the model or the target is the owner's decision.
