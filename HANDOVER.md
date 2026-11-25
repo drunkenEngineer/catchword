@@ -305,6 +305,13 @@ The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23
 - Attempts already made: none. The packaging scripts run `tauri build` just before copying the app, so they package the right program.
 - Recommended next investigation: rename the command-line tool's program (for example `catchword-cli`), which changes how it is run: ask the owner.
 
+**ONNX Runtime 1.28.3 can no longer be downloaded**
+- Status: `[DECISION NEEDED]`
+- Symptoms: `scripts/fetch-embedding.sh` fails with HTTP 404 on all three systems. CI fails at "Fetch ONNX Runtime and the embedding model" on every run since 25 November 2026 (`2a17026`), and a fresh clone cannot be set up. Copies already in `vendor/` keep working: local builds, tests and packaging on the owner's PC are unaffected, and so is the installed app.
+- Cause: Microsoft's `microsoft/onnxruntime` repository disappeared from GitHub around 17 to 18 November 2026, with its release downloads and no redirect; Microsoft had given no reason by 25 November. CI had hidden this while its cache held the downloads; the cache (10 GB limit, 9.6 GB used) then dropped them for newer Rust build caches.
+- Facts for the decision: 1.28.3 was published only on GitHub. NuGet (`Microsoft.ML.OnnxRuntime`, with the native libraries for Windows, Linux and macOS) and PyPI have 1.28.0 (25 July 2026), 1.29.0, 1.30.0, 1.31.0, 1.31.1 (28 October 2026) and 1.32.0 (13 November 2026). `ort` 2.0.0-rc.13 as we build it needs API level 17, so any of them loads; a newer one only logs a note. The Windows DLL in `vendor/onnxruntime/` (SHA-256 `4d2774a5…92a6e2`) came from the pinned 1.28.3 archive in October. `dotnet` is installed, so a NuGet package's Microsoft signature can be checked as well as its checksum.
+- Model files on Hugging Face still download (checked 25 November 2026).
+
 **CI red from 19 October to 25 November 2026: resolved**
 - Status: `[DONE]`
 - What it was: every weekly run on `main`, and every Dependabot pull request, failed on Linux in "Dependency policy" (cargo-deny), with no change to the code. New advisories had been published against libraries already in use: 15 vulnerabilities (bundled SQLite before 3.54.0, CVE-2026-119375; five in `rustls`; `rustls-webpki`; `url`; `cookie`; six in `zip`, through the updater), a yanked `async-executor`, and four unmaintained libraries. Because that step comes early, every later Linux step (the npm checks, the evaluation) was skipped meanwhile. `npm audit` also found two high advisories, in `vite` and `undici` (build and test only).
@@ -661,8 +668,9 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 - Task: the owner asked where things stood, then for all of it to be fixed.
 - Found: no commits since 9 October; CI red on `main` every week since 19 October, and on all three open Dependabot pull requests (#11 Rust, #12 npm, #13 CI actions), only in cargo-deny on Linux: new advisories against libraries in use (section 8). `npm audit` found two high advisories in build and test packages.
 - Changes: rusqlite 0.43.0, bundling SQLite 3.54.1 (CVE-2026-119375 fixed in 3.54.0; rusqlite 0.41 to 0.43 also fixes several use-after-free bugs and now rejects empty SQL); `tauri-plugin-updater` 2.14.1 (`zip` 9; `minisign-verify` 0.3, which rejects non-canonical signatures; the download is checked again just before installing); patch updates of `rustls`, `rustls-webpki`, `url`, `cookie`, `async-executor`, `zvariant`; `npm audit fix` (`vite` 8.3.8, `undici` 8.13.1); four unmaintained libraries excepted in `deny.toml` with the owner's OK (`chrono`, `zbus_names`, `zvariant`, `zvariant_derive`).
-- To do next: rebase the three Dependabot pull requests onto the fixed `main`, and merge each once CI is green.
-- Current state: the security updates committed and pushed.
+- Then: CI on `7742c19` was green on all three systems, the evaluation included. Dependabot replaced #11 and #12 with #14 (six interface packages) and #15 (nine Rust libraries, all patch releases), which passed CI and were merged; all local checks pass on the result (`76af80b`).
+- Problem found: ONNX Runtime can no longer be downloaded (section 8). CI on `main` fails at the download since `2a17026`, and #13 (CI actions: rust-cache 2.9.3, cargo-deny-action 2.1.3, hashes checked against their tags) cannot be tested until that is fixed. Waiting for the owner's choice of version and source.
+- Current state: everything committed and pushed; CI red at the ONNX Runtime download only.
 - Next step: the owner's decisions (section 10).
 
 ---
