@@ -391,17 +391,22 @@ impl AppState {
         let indexer = self.indexer.clone();
         let log = Arc::clone(&self.log);
         let load = self.load_model;
-        let threads = indexing::threads(self.resource_mode());
+        let mode = self.resource_mode();
+        let threads = indexing::threads(mode);
         move || {
             if indexer.is_released() {
+                indexer.set_copies(indexing::copies(mode));
                 indexer.set_model(load(threads));
                 log.info("model.reloaded", &[]);
             }
         }
     }
 
-    /// The model has loaded, or failed to.
+    /// The model has loaded, or failed to. Its copies for a long meaning
+    /// stage follow the current resource mode, as its threads do.
     pub fn set_model(&self, model: Model) {
+        self.indexer
+            .set_copies(indexing::copies(self.resource_mode()));
         match &model {
             Model::Ready(_) => self.log.info(
                 "model.ready",

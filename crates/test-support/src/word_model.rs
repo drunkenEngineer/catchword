@@ -3,7 +3,7 @@
 //! meaning and needs no model files; it is enough to test what is done with
 //! vectors, and it passes the same conformance suite as the real model.
 
-use catchword_embed::{Embed, EmbedError, ModelManifest, Pooling};
+use catchword_embed::{Copier, Embed, EmbedError, ModelManifest, Pooling, Threads};
 use catchword_engine::{Tokenizer, WordTokenizer};
 
 pub const WORD_MODEL: ModelManifest = ModelManifest {
@@ -61,5 +61,18 @@ impl Embed for WordModel {
 
     fn embed_query(&mut self, query: &str) -> Result<Vec<f32>, EmbedError> {
         Ok(Self::vector(query))
+    }
+
+    fn copier(&self) -> Option<Box<dyn Copier>> {
+        Some(Box::new(WordModelCopier))
+    }
+}
+
+/// Copies of the stand-in model: as quick to make as it is.
+pub struct WordModelCopier;
+
+impl Copier for WordModelCopier {
+    fn copy(&self, _: Threads) -> Result<Box<dyn Embed>, EmbedError> {
+        Ok(Box::new(WordModel))
     }
 }

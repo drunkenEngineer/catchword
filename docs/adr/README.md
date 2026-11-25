@@ -30,3 +30,4 @@ ADR-1 to ADR-13 are the founding decisions in section 23 of `docs/specification.
 | [0022](0022-deleted-content-leaves-the-index.md) | Deleted content leaves the index file |
 | [0023](0023-moving-the-index.md) | Moving the index to a folder the user chooses |
 | [0024](0024-the-updater.md) | The updater in the GitHub build |
+| [0025](0025-copies-of-the-model-for-embedding.md) | Copies of the model embed side by side in a long meaning stage |

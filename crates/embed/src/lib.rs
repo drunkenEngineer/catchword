@@ -220,11 +220,54 @@ pub trait Embed: Send {
 
     /// The vector of a query, of unit length, comparable with passages'.
     fn embed_query(&mut self, query: &str) -> Result<Vec<f32>, EmbedError>;
+
+    /// Makes copies of this model that give the same vectors, to embed
+    /// side by side (ADR-25); None if it cannot be copied. Taking one is
+    /// quick: the copies are made later, without this model.
+    fn copier(&self) -> Option<Box<dyn Copier>> {
+        None
+    }
+}
+
+/// Makes copies of a loaded model, for embedding side by side (ADR-25).
+pub trait Copier: Send {
+    /// Another copy of the model, running on `threads`. Its model file is
+    /// checked against its checksum again first (ADR-18).
+    fn copy(&self, threads: Threads) -> Result<Box<dyn Embed>, EmbedError>;
+}
+
+/// Copies of an [`Embedder`], sharing its tokenizer.
+pub struct EmbedderCopier {
+    paths: Paths,
+    manifest: ModelManifest,
+    tokenizer: ModelTokenizer,
+}
+
+impl Copier for EmbedderCopier {
+    fn copy(&self, threads: Threads) -> Result<Box<dyn Embed>, EmbedError> {
+        let model = self.paths.model.join("model.onnx");
+        let session = start_session(
+            &model,
+            self.manifest.model_sha256,
+            &self.paths.runtime,
+            threads,
+        )?;
+        Ok(Box::new(Embedder::from_parts(
+            session,
+            self.tokenizer.clone(),
+            self.manifest,
+            self.paths.clone(),
+        )))
+    }
 }
 
 impl Embed for Embedder {
     fn manifest(&self) -> &ModelManifest {
         Embedder::manifest(self)
+    }
+
+    fn copier(&self) -> Option<Box<dyn Copier>> {
+        Some(Box::new(Embedder::copier(self)))
     }
 
     fn tokenizer(&self) -> Box<dyn Tokenizer + Send + Sync> {
@@ -245,6 +288,8 @@ pub struct Embedder {
     session: Session,
     tokenizer: ModelTokenizer,
     manifest: ModelManifest,
+    /// Where it was loaded from, to make copies (ADR-25).
+    paths: Paths,
     /// BERT-style models also take a "segment" input, all zeros here.
     needs_token_types: bool,
 }
@@ -272,18 +317,41 @@ impl Embedder {
                 .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
             (session, tokenizer)
         });
-        let session = session?;
-        let tokenizer = tokenizer?;
+        Ok(Self::from_parts(
+            session?,
+            tokenizer?,
+            *manifest,
+            paths.clone(),
+        ))
+    }
+
+    fn from_parts(
+        session: Session,
+        tokenizer: ModelTokenizer,
+        manifest: ModelManifest,
+        paths: Paths,
+    ) -> Self {
         let needs_token_types = session
             .inputs()
             .iter()
             .any(|input| input.name() == "token_type_ids");
-        Ok(Self {
+        Self {
             session,
             tokenizer,
-            manifest: *manifest,
+            manifest,
+            paths,
             needs_token_types,
-        })
+        }
+    }
+
+    /// Makes copies of this model that share its tokenizer: each holds
+    /// only its own runtime session, about 120 MB (ADR-25).
+    pub fn copier(&self) -> EmbedderCopier {
+        EmbedderCopier {
+            paths: self.paths.clone(),
+            manifest: self.manifest,
+            tokenizer: self.tokenizer.clone(),
+        }
     }
 
     pub fn manifest(&self) -> &ModelManifest {

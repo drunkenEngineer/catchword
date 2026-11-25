@@ -7,7 +7,7 @@
 
 use std::fs;
 
-use catchword_embed::Embed;
+use catchword_embed::{Embed, Threads};
 use catchword_engine::extract::{Extractor, Limits, Outcome, Reason};
 
 use crate::scratch_folder;
@@ -67,7 +67,8 @@ pub fn extractor(extractor: &dyn Extractor, extension: &str, make: &dyn Fn(&str)
 /// - give one vector per passage, of the manifest's size and unit length;
 /// - give the same vector for a passage alone as in a batch, and each time;
 /// - give a query a vector nearer the passage that answers it;
-/// - count tokens for any text, at its own word boundaries.
+/// - count tokens for any text, at its own word boundaries;
+/// - if it can be copied (ADR-25), give the same vectors from a copy.
 pub fn embedder(model: &mut dyn Embed) {
     let size = model.manifest().dimensions;
     let passages = [
@@ -102,6 +103,19 @@ pub fn embedder(model: &mut dyn Embed) {
     assert!(!ends.is_empty());
     assert!(ends.windows(2).all(|pair| pair[0] <= pair[1]));
     assert!(ends.iter().all(|&end| end <= text.len()));
+
+    if let Some(copier) = model.copier() {
+        let threads = Threads {
+            count: 2,
+            background: None,
+        };
+        let mut copy = copier.copy(threads).unwrap();
+        assert_eq!(copy.manifest().id(), model.manifest().id());
+        for (passage, original) in passages.iter().zip(&together) {
+            let copied = copy.embed_passages(&[passage]).unwrap().remove(0);
+            assert_close(&copied, original);
+        }
+    }
 }
 
 fn dot(a: &[f32], b: &[f32]) -> f32 {

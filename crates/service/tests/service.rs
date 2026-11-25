@@ -4,15 +4,16 @@
 use std::fs;
 use std::path::Path;
 
+use catchword_embed::{Copier, Embed, EmbedError};
 use catchword_engine::extract::{Limits, Reason};
 use catchword_engine::fuse::Found;
 use catchword_engine::Exclusions;
 use catchword_service::{
     embed_missing, group_by_file, index_folder, is_parked, search, search_within, search_words,
-    Cutter, Model, Note, Report, Unreachable, Worker,
+    Copies, Cutter, Model, Note, Report, Unreachable, Worker, COPIES_FROM,
 };
 use catchword_store::Store;
-use catchword_test_support::scratch_folder;
+use catchword_test_support::{scratch_folder, WordModel};
 
 /// Three text files; no PDF, so no worker program is needed.
 fn three_files(name: &str) -> std::path::PathBuf {
@@ -124,11 +125,11 @@ fn the_meaning_stage_can_stop_and_carry_on() {
     )
     .unwrap();
 
-    let stopped = embed_missing(&mut store, ready, |_, _| false).unwrap();
+    let stopped = embed_missing(&mut store, ready, Copies::NONE, |_, _| false).unwrap();
     assert!(stopped.stopped);
     assert_eq!(store.counts().unwrap().vectors, 0);
 
-    let finished = embed_missing(&mut store, ready, |_, _| true).unwrap();
+    let finished = embed_missing(&mut store, ready, Copies::NONE, |_, _| true).unwrap();
     assert!(!finished.stopped);
     let counts = store.counts().unwrap();
     assert_eq!(counts.vectors, counts.passages);
@@ -404,7 +405,10 @@ fn a_search_by_words_alone_needs_no_model_and_finds_no_meaning() {
         |_, _| true,
     )
     .unwrap();
-    embed_missing(&mut store, model.ready().unwrap(), |_, _| true).unwrap();
+    embed_missing(&mut store, model.ready().unwrap(), Copies::NONE, |_, _| {
+        true
+    })
+    .unwrap();
     let filter = catchword_store::Filter::default();
 
     // The full search finds the lease by meaning as well as by words.
@@ -446,11 +450,252 @@ fn the_meaning_stage_stops_after_the_passage_it_is_on() {
     // Asked before the batch, then after each passage: the third answer is
     // no, so two passages are embedded and kept.
     let mut asked = 0;
-    let report = embed_missing(&mut store, ready, |_, _| {
+    let report = embed_missing(&mut store, ready, Copies::NONE, |_, _| {
         asked += 1;
         asked < 3
     })
     .unwrap();
     assert!(report.stopped);
     assert_eq!(store.counts().unwrap().vectors, 2);
+}
+
+// Copies of the model for a long meaning stage (ADR-25), with the quick
+// stand-in model, whose copies behave as each test needs.
+
+/// `count` files of different short notes, one passage each, indexed into a
+/// new store with the stand-in model's cutter.
+fn many_notes(name: &str, count: usize) -> Store {
+    let folder = scratch_folder(name);
+    let words = [
+        "lease", "notice", "invoice", "refund", "tax", "court", "letter", "salary", "tenant",
+        "audit", "budget", "claim", "policy", "editor", "source", "deadline",
+    ];
+    for n in 0..count {
+        let text: Vec<&str> = (0..12)
+            .map(|i| words[(n * 7 + i * 5 + n / 16) % 16])
+            .collect();
+        fs::write(
+            folder.join(format!("note-{n}.txt")),
+            format!("note {n} {}", text.join(" ")),
+        )
+        .unwrap();
+    }
+    let mut store = Store::open_in_memory().unwrap();
+    index_folder(
+        &mut store,
+        &folder,
+        &Exclusions::default(),
+        &Cutter::for_model(&model(CopyAs::Same)),
+        &Worker::NextToProgram,
+        &Limits::default(),
+        |_, _| true,
+    )
+    .unwrap();
+    store
+}
+
+/// What copying the stand-in model does.
+#[derive(Clone, Copy, PartialEq)]
+enum CopyAs {
+    /// Makes a stand-in model.
+    Same,
+    /// Fails, as a damaged model file would.
+    Refused,
+    /// Must not happen: the test fails if a copy is made.
+    Never,
+    /// Makes a stand-in model that fails from its 50th passage on.
+    WearsOut,
+}
+
+/// The stand-in model, copied as `copy_as` says.
+struct Stand {
+    copy_as: CopyAs,
+    /// Passages embedded, and whether it fails from the 50th on.
+    used: usize,
+    wears_out: bool,
+}
+
+impl Embed for Stand {
+    fn manifest(&self) -> &catchword_embed::ModelManifest {
+        &catchword_test_support::WORD_MODEL
+    }
+
+    fn tokenizer(&self) -> Box<dyn catchword_engine::Tokenizer + Send + Sync> {
+        Box::new(catchword_engine::WordTokenizer)
+    }
+
+    fn embed_passages(&mut self, passages: &[&str]) -> Result<Vec<Vec<f32>>, EmbedError> {
+        self.used += 1;
+        if self.wears_out && self.used >= 50 {
+            return Err(EmbedError::Runtime("worn out".into()));
+        }
+        WordModel.embed_passages(passages)
+    }
+
+    fn embed_query(&mut self, query: &str) -> Result<Vec<f32>, EmbedError> {
+        WordModel.embed_query(query)
+    }
+
+    fn copier(&self) -> Option<Box<dyn Copier>> {
+        Some(Box::new(StandCopier(self.copy_as)))
+    }
+}
+
+struct StandCopier(CopyAs);
+
+impl Copier for StandCopier {
+    fn copy(&self, _: catchword_service::Threads) -> Result<Box<dyn Embed>, EmbedError> {
+        match self.0 {
+            CopyAs::Same | CopyAs::WearsOut => Ok(Box::new(Stand {
+                copy_as: self.0,
+                used: 0,
+                wears_out: self.0 == CopyAs::WearsOut,
+            })),
+            CopyAs::Refused => Err(EmbedError::Runtime("no copies here".into())),
+            CopyAs::Never => panic!("a copy was made for a short stage"),
+        }
+    }
+}
+
+fn model(copy_as: CopyAs) -> Model {
+    Model::Ready(std::sync::Mutex::new(Box::new(Stand {
+        copy_as,
+        used: 0,
+        wears_out: false,
+    })))
+}
+
+fn copies(count: usize) -> Copies {
+    Copies {
+        count,
+        threads: catchword_service::Threads::RUNTIME_DEFAULT,
+    }
+}
+
+/// The nearest passages to a few queries, by file name, text and score:
+/// the same vectors give the same.
+fn nearest(store: &Store) -> Vec<(String, String, i64)> {
+    ["lease notice", "tax refund court", "budget deadline editor"]
+        .iter()
+        .flat_map(|query| {
+            let vector = WordModel.embed_query(query).unwrap();
+            store.search_vector(&vector, 10).unwrap()
+        })
+        .map(|hit| {
+            let name = Path::new(&hit.path).file_name().unwrap();
+            let text = store.passage_text(hit.passage_id).unwrap().unwrap();
+            // Scores to six places: equal vectors, equal scores.
+            let score = (hit.score * 1e6).round() as i64;
+            (name.to_string_lossy().into_owned(), text, score)
+        })
+        .collect()
+}
+
+#[test]
+fn a_long_meaning_stage_uses_copies_and_gets_the_same_vectors() {
+    let notes = COPIES_FROM as usize + 44;
+    let shared = model(CopyAs::Same);
+
+    let mut alone = many_notes("service-copies-alone", notes);
+    let report = embed_missing(&mut alone, shared.ready().unwrap(), Copies::NONE, |_, _| {
+        true
+    })
+    .unwrap();
+    assert_eq!(report.copies, 0);
+
+    let mut side_by_side = many_notes("service-copies-three", notes);
+    let report = embed_missing(
+        &mut side_by_side,
+        shared.ready().unwrap(),
+        copies(3),
+        |_, _| true,
+    )
+    .unwrap();
+    assert_eq!(report.copies, 3);
+    let counts = side_by_side.counts().unwrap();
+    assert_eq!(counts.passages, notes as i64);
+    assert_eq!(counts.vectors, counts.passages);
+    let expected = nearest(&alone);
+    assert_eq!(expected.len(), 30);
+    assert_eq!(nearest(&side_by_side), expected);
+    // The copies embedded it all: the shared model stayed free for searches.
+    let mut shared = shared.ready().unwrap().lock().unwrap();
+    assert_eq!(shared.embed_passages(&["one more"]).unwrap().len(), 1);
+}
+
+#[test]
+fn a_short_meaning_stage_makes_no_copies() {
+    let mut store = many_notes("service-copies-short", 20);
+    let shared = model(CopyAs::Never);
+    let report =
+        embed_missing(&mut store, shared.ready().unwrap(), copies(3), |_, _| true).unwrap();
+    assert_eq!(report.copies, 0);
+    let counts = store.counts().unwrap();
+    assert_eq!(counts.vectors, counts.passages);
+}
+
+#[test]
+fn copies_that_cannot_be_made_leave_the_work_to_the_shared_model() {
+    let mut store = many_notes("service-copies-refused", COPIES_FROM as usize);
+    let shared = model(CopyAs::Refused);
+    let report =
+        embed_missing(&mut store, shared.ready().unwrap(), copies(3), |_, _| true).unwrap();
+    assert_eq!(report.copies, 0);
+    let counts = store.counts().unwrap();
+    assert_eq!(counts.vectors, counts.passages);
+}
+
+#[test]
+fn a_pause_while_copies_are_made_stops_before_the_next_one() {
+    let mut store = many_notes("service-copies-pause-early", COPIES_FROM as usize);
+    let shared = model(CopyAs::Same);
+    // Asked before each of the four copies: the second answer is no.
+    let mut asked = 0;
+    let report = embed_missing(&mut store, shared.ready().unwrap(), copies(4), |_, _| {
+        asked += 1;
+        asked < 2
+    })
+    .unwrap();
+    assert!(report.stopped);
+    assert_eq!(asked, 2);
+    assert_eq!(store.counts().unwrap().vectors, 0);
+}
+
+#[test]
+fn a_pause_with_copies_keeps_what_they_embedded_and_the_next_run_carries_on() {
+    let mut store = many_notes("service-copies-pause", COPIES_FROM as usize + 100);
+    let shared = model(CopyAs::Same);
+    // Asked before each of the four copies, before the first batch, then
+    // after each passage: the 45th answer is no, after 40 passages. What
+    // the copies finished meanwhile is kept too (the stand-in is quick, so
+    // that can be many), but nothing past the batch of 4 x 32 passages.
+    let mut asked = 0;
+    let report = embed_missing(&mut store, shared.ready().unwrap(), copies(4), |_, _| {
+        asked += 1;
+        asked < 45
+    })
+    .unwrap();
+    assert!(report.stopped);
+    assert_eq!(report.copies, 4);
+    let kept = store.counts().unwrap().vectors;
+    assert!((40..=128).contains(&kept), "{kept}");
+
+    let report =
+        embed_missing(&mut store, shared.ready().unwrap(), copies(4), |_, _| true).unwrap();
+    assert!(!report.stopped);
+    let counts = store.counts().unwrap();
+    assert_eq!(counts.vectors, counts.passages);
+}
+
+#[test]
+fn a_copy_that_fails_ends_the_stage_with_its_error() {
+    let mut store = many_notes("service-copies-failing", COPIES_FROM as usize + 300);
+    let shared = model(CopyAs::WearsOut);
+    let error =
+        embed_missing(&mut store, shared.ready().unwrap(), copies(2), |_, _| true).unwrap_err();
+    assert!(format!("{error:#}").contains("worn out"), "{error:#}");
+    // As with the shared model alone: the batch that failed is not saved,
+    // and the next run embeds it.
+    let counts = store.counts().unwrap();
+    assert!(counts.vectors < counts.passages);
 }

@@ -2,7 +2,8 @@
 
 use std::fmt;
 use std::path::{Path, PathBuf, MAIN_SEPARATOR};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{mpsc, Mutex};
 
 use anyhow::{bail, Context, Result};
 use catchword_embed::Embed;
@@ -14,7 +15,7 @@ use catchword_engine::{
 };
 use catchword_store::{Problem, Store};
 
-use crate::{lock, Model};
+use crate::{lock, Copies, Model};
 
 /// Without a model, passages are sized in words.
 const MAX_WORDS: usize = 200;
@@ -377,56 +378,180 @@ pub struct EmbedReport {
     /// passage was embedded again.
     pub model_changed: bool,
     pub stopped: bool,
+    /// Copies of the model that embedded side by side (0: the shared model
+    /// alone).
+    pub copies: usize,
 }
+
+/// Passages left to embed from which copies of the model are loaded:
+/// loading them takes a second or two, worth it only for a long stage.
+pub const COPIES_FROM: i64 = 256;
 
 /// The meaning stage: embed every passage that has no vector yet, saving
 /// every few dozen, so a stopped run carries on where it stopped.
 ///
-/// The model is locked for one passage at a time, so a search never waits
-/// for more than one. `progress(done, total)` is called after each save;
-/// returning false stops the run.
+/// With few passages to embed, the shared model does it, locked for one
+/// passage at a time, so a search never waits for more than one. With
+/// [`COPIES_FROM`] or more, `copies` of the model embed side by side
+/// instead (ADR-25), and searches do not wait for them at all.
+/// `progress(done, total)` is called before each batch and after each
+/// passage; returning false stops the run.
 pub fn embed_missing(
     store: &mut Store,
     model: &Mutex<Box<dyn Embed>>,
+    copies: Copies,
     mut progress: impl FnMut(i64, i64) -> bool,
 ) -> Result<EmbedReport> {
     let manifest = *lock(model).manifest();
     let mut report = EmbedReport {
         model_changed: store.use_model(&manifest.id(), manifest.dimensions)?,
-        stopped: false,
+        ..EmbedReport::default()
     };
     let counts = store.counts()?;
     let mut done = counts.vectors;
+    let mut side_by_side = Vec::new();
+    if copies.count >= 2 && counts.passages - done >= COPIES_FROM {
+        // Taken in a moment: searches do not wait while copies are made.
+        let copier = lock(model).copier();
+        if let Some(copier) = copier {
+            // One after another, asking before each: a pause waits for one
+            // copy at most, and only one is being made at a time, which is
+            // when a copy needs the most memory.
+            for _ in 0..copies.count {
+                if !progress(done, counts.passages) {
+                    report.stopped = true;
+                    return Ok(report);
+                }
+                if let Ok(copy) = copier.copy(copies.threads) {
+                    side_by_side.push(copy);
+                }
+            }
+        }
+        // A copy that could not be made is left out; fewer than two are
+        // not worth it.
+        if side_by_side.len() < 2 {
+            side_by_side.clear();
+        }
+    }
+    report.copies = side_by_side.len();
     loop {
         if !progress(done, counts.passages) {
             report.stopped = true;
             break;
         }
-        let batch = store.passages_without_vectors(EMBED_BATCH)?;
+        let batch = store.passages_without_vectors(EMBED_BATCH * side_by_side.len().max(1))?;
         if batch.is_empty() {
             break;
         }
-        let mut vectors = Vec::with_capacity(batch.len());
-        for (id, text) in &batch {
-            let vector = lock(model)
-                .embed_passages(&[text.as_str()])
-                .context("cannot embed passages")?
-                .remove(0);
-            vectors.push((*id, vector));
-            // Asked after every passage, so a pause takes effect at once;
-            // what is done so far is saved below.
-            if !progress(done + vectors.len() as i64, counts.passages) {
-                report.stopped = true;
-                break;
-            }
-        }
+        let total = counts.passages;
+        let (vectors, stopped) = if side_by_side.is_empty() {
+            embed_in_turn(&batch, model, |n| progress(done + n, total))?
+        } else {
+            let start = copies.threads.background;
+            embed_side_by_side(&batch, &mut side_by_side, start, |n| {
+                progress(done + n, total)
+            })?
+        };
         store.put_vectors(&vectors)?;
         done += vectors.len() as i64;
-        if report.stopped {
+        if stopped {
+            report.stopped = true;
             break;
         }
     }
     Ok(report)
+}
+
+/// A batch's vectors by passage, and whether the run was stopped.
+type Embedded = (Vec<(i64, Vec<f32>)>, bool);
+
+/// Embed a batch with the shared model, one passage at a time.
+/// `progress(n)` is asked after each, with the number done so far, so a
+/// pause takes effect at once. Returns the vectors and whether it stopped.
+fn embed_in_turn(
+    batch: &[(i64, String)],
+    model: &Mutex<Box<dyn Embed>>,
+    mut progress: impl FnMut(i64) -> bool,
+) -> Result<Embedded> {
+    let mut vectors = Vec::with_capacity(batch.len());
+    for (id, text) in batch {
+        let vector = lock(model)
+            .embed_passages(&[text.as_str()])
+            .context("cannot embed passages")?
+            .remove(0);
+        vectors.push((*id, vector));
+        if !progress(vectors.len() as i64) {
+            return Ok((vectors, true));
+        }
+    }
+    Ok((vectors, false))
+}
+
+/// Embed a batch with the copies, each on its own thread, taking the next
+/// passage as it finishes one. Each passage is still embedded alone, so
+/// its vector is the same as the shared model's. `progress(n)` is asked on
+/// this thread after each passage. After a no, no copy starts another
+/// passage; what they had finished by then is kept. `start` is called
+/// first on each thread. Returns the vectors and whether it stopped.
+fn embed_side_by_side(
+    batch: &[(i64, String)],
+    copies: &mut [Box<dyn Embed>],
+    start: Option<fn()>,
+    mut progress: impl FnMut(i64) -> bool,
+) -> Result<Embedded> {
+    let next = AtomicUsize::new(0);
+    let halt = AtomicBool::new(false);
+    let (send, receive) = mpsc::channel();
+    let mut vectors = Vec::with_capacity(batch.len());
+    let mut stopped = false;
+    let mut failed = None;
+    std::thread::scope(|scope| {
+        for copy in copies.iter_mut() {
+            let send = send.clone();
+            let (next, halt) = (&next, &halt);
+            scope.spawn(move || {
+                if let Some(start) = start {
+                    start();
+                }
+                while !halt.load(Ordering::SeqCst) {
+                    let Some((id, text)) = batch.get(next.fetch_add(1, Ordering::SeqCst)) else {
+                        break;
+                    };
+                    let vector = copy
+                        .embed_passages(&[text.as_str()])
+                        .map(|mut vectors| vectors.remove(0));
+                    if send.send((*id, vector)).is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+        // Each copy holds a sender: the loop ends when all of them are done.
+        drop(send);
+        for (id, vector) in receive {
+            match vector {
+                Ok(vector) => {
+                    vectors.push((id, vector));
+                    if !stopped && !progress(vectors.len() as i64) {
+                        stopped = true;
+                        halt.store(true, Ordering::SeqCst);
+                    }
+                }
+                Err(error) => {
+                    halt.store(true, Ordering::SeqCst);
+                    failed.get_or_insert(error);
+                }
+            }
+        }
+    });
+    if let Some(error) = failed {
+        return Err(error).context("cannot embed passages");
+    }
+    // In passage order, as the shared model saves them: the vector index
+    // keeps them in the order saved, and results with equal scores come out
+    // in that order, so the index is the same either way.
+    vectors.sort_unstable_by_key(|(id, _)| *id);
+    Ok((vectors, stopped))
 }
 
 #[cfg(test)]

@@ -87,7 +87,7 @@ flowchart TD
     cut["4. Cut into passages<br/>(350 tokens, 50 shared)"]
     save["5. Save the file, its passages<br/>and keyword entries: one transaction"]
     purge["6. Purge what is gone"]
-    embed["7. Embed passages without vectors,<br/>one at a time, saving every 32"]
+    embed["7. Embed passages without vectors,<br/>each alone, saving every few dozen"]
     scan --> same
     same -- yes --> scan
     same -- no --> hash --> known
@@ -96,7 +96,7 @@ flowchart TD
     save --> purge --> embed
 ```
 
-- **Two stages.** A file is searchable by its words as soon as step 5 commits. Meaning follows in step 7, which is the slow part: about 17 passages a second on the owner's laptop.
+- **Two stages.** A file is searchable by its words as soon as step 5 commits. Meaning follows in step 7, which is the slow part: about 16 passages a second on the owner's laptop, or about 20 when 256 or more wait, as copies of the model then work side by side (ADR-25).
 - **Nothing half-done.** Each file is one transaction. A stopped run, by pause, crash or power cut, carries on where it stopped (rule 3).
 - **Files not indexed** are recorded with a reason, such as a scan with no text, a password or a timeout. They are listed in Library, and not read again until they change.
 - **Deleting is thorough.** Purged text leaves nothing readable in the file (ADR-22).

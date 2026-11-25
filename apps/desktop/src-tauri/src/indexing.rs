@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 use catchword_engine::extract::Limits;
 use catchword_engine::Exclusions;
 use catchword_service::{
-    embed_missing, index_folder, Cutter, Model, Report, Threads, Unreachable, Worker,
+    embed_missing, index_folder, Copies, Cutter, Model, Report, Threads, Unreachable, Worker,
 };
 use catchword_store::Store;
 
@@ -120,6 +120,8 @@ struct Shared {
     /// The model was released while idle; it is loaded again when needed.
     released: AtomicBool,
     model_ready: Condvar,
+    /// Copies of the model for a long meaning stage, set with the model.
+    copies: Mutex<Copies>,
     control: Mutex<Control>,
     finished: Condvar,
     /// Stop the current run, for a moment (stop_and_wait).
@@ -151,6 +153,7 @@ impl Indexer {
                 model: Mutex::new(None),
                 released: AtomicBool::new(false),
                 model_ready: Condvar::new(),
+                copies: Mutex::new(Copies::NONE),
                 control: Mutex::new(Control::default()),
                 finished: Condvar::new(),
                 stop: AtomicBool::new(false),
@@ -173,6 +176,12 @@ impl Indexer {
         *lock(&self.shared.model) = Some(Arc::new(model));
         self.shared.released.store(false, Ordering::SeqCst);
         self.shared.model_ready.notify_all();
+    }
+
+    /// How many copies of the model a long meaning stage may load, and how
+    /// (ADR-25). Takes effect from the next meaning stage.
+    pub fn set_copies(&self, copies: Copies) {
+        *lock(&self.shared.copies) = copies;
     }
 
     /// Let go of a loaded model to give its memory back, unless a run is
@@ -330,16 +339,52 @@ fn low_disk(shared: &Shared) -> bool {
 /// priority (RSC-2). The default mode uses at most half the logical cores
 /// (section 14).
 pub fn threads(mode: ResourceMode) -> Threads {
-    let logical = thread::available_parallelism().map_or(2, |n| n.get());
-    let count = match mode {
+    Threads {
+        count: budget(mode, logical_cores()),
+        background: Some(lower_priority),
+    }
+}
+
+/// Copies of the model for a long meaning stage (ADR-25): they share the
+/// same threads as the shared model would use, so the mode's limit holds.
+pub fn copies(mode: ResourceMode) -> Copies {
+    let (count, each) = copies_for(mode, logical_cores());
+    Copies {
+        count,
+        threads: Threads {
+            count: each,
+            background: Some(lower_priority),
+        },
+    }
+}
+
+/// Copies at most, each holding about 120 MB while the stage runs.
+const MAX_COPIES: usize = 4;
+
+fn logical_cores() -> usize {
+    thread::available_parallelism().map_or(2, |n| n.get())
+}
+
+/// The threads embedding may use in a mode, on `logical` cores.
+fn budget(mode: ResourceMode, logical: usize) -> usize {
+    match mode {
         ResourceMode::Light => 1,
         ResourceMode::Balanced => (logical / 2).max(1),
         ResourceMode::Fast => logical.saturating_sub(1).max(1),
-    };
-    Threads {
-        count,
-        background: Some(lower_priority),
     }
+}
+
+/// How many copies, and how many threads each: two threads or more per
+/// copy, all within the mode's budget. On 16 cores, Balanced gives four
+/// copies on two threads each, measured 30% faster than one model on all
+/// eight (25 November 2026). (0, 0) when fewer than two copies fit.
+fn copies_for(mode: ResourceMode, logical: usize) -> (usize, usize) {
+    let budget = budget(mode, logical);
+    let count = (budget / 2).min(MAX_COPIES);
+    if count < 2 {
+        return (0, 0);
+    }
+    (count, budget / count)
 }
 
 /// One run over all folders: words first, then meaning.
@@ -480,7 +525,8 @@ fn run(
     if let Some(ready) = model.ready() {
         let started = Instant::now();
         let before = store.counts().map_or(0, |counts| counts.vectors);
-        let result = embed_missing(&mut store, ready, |done, total| {
+        let copies = *lock(&shared.copies);
+        let result = embed_missing(&mut store, ready, copies, |done, total| {
             set_work(Stage::Meaning, done.max(0) as u64, total.max(0) as u64);
             report(false);
             keep_going()
@@ -498,6 +544,7 @@ fn run(
                         ("millis", Value::Number(millis(started))),
                         ("model_changed", Value::Flag(done.model_changed)),
                         ("stopped", Value::Flag(done.stopped)),
+                        ("copies", Value::Number(done.copies as u64)),
                     ],
                 );
             }
@@ -826,6 +873,134 @@ mod tests {
         assert!(threads(ResourceMode::Fast).count >= balanced);
         assert!(threads(ResourceMode::Fast).count < logical.max(2));
         assert!(threads(ResourceMode::Balanced).background.is_some());
+    }
+
+    #[test]
+    fn a_long_meaning_stage_embeds_with_copies_and_logs_how_many() {
+        let (indexer, store) = indexer("copies");
+        indexer.set_model(Model::Ready(Mutex::new(Box::new(
+            catchword_test_support::WordModel,
+        ))));
+        indexer.set_copies(Copies {
+            count: 2,
+            threads: Threads {
+                count: 1,
+                background: Some(lower_priority),
+            },
+        });
+        let files = catchword_service::COPIES_FROM as usize + 20;
+        indexer.start(
+            vec![folder_with("copies", files)],
+            Exclusions::default(),
+            Arc::new(|| {}),
+        );
+        wait_until_idle(&indexer);
+        let counts = Store::open(&store).unwrap().counts().unwrap();
+        assert_eq!(counts.passages, files as i64);
+        assert_eq!(counts.vectors, counts.passages);
+        let log =
+            std::fs::read_to_string(store.with_extension("logs").join("catchword.log")).unwrap();
+        let finished = log
+            .lines()
+            .find(|line| line.contains("embed.finished"))
+            .unwrap();
+        assert!(finished.contains("\"copies\":2"), "{finished}");
+    }
+
+    #[test]
+    fn copies_of_the_model_stay_within_each_modes_threads() {
+        // The owner's laptop, 16 logical cores: four copies on two threads.
+        assert_eq!(copies_for(ResourceMode::Balanced, 16), (4, 2));
+        assert_eq!(copies_for(ResourceMode::Fast, 16), (4, 3));
+        // The reference laptop, 8.
+        assert_eq!(copies_for(ResourceMode::Balanced, 8), (2, 2));
+        assert_eq!(copies_for(ResourceMode::Fast, 8), (3, 2));
+        // Room for fewer than two copies, or Light: none.
+        assert_eq!(copies_for(ResourceMode::Balanced, 4), (0, 0));
+        assert_eq!(copies_for(ResourceMode::Light, 64), (0, 0));
+        for logical in 1..=128 {
+            for mode in [
+                ResourceMode::Light,
+                ResourceMode::Balanced,
+                ResourceMode::Fast,
+            ] {
+                let (count, each) = copies_for(mode, logical);
+                assert!(count * each <= budget(mode, logical), "{mode:?} {logical}");
+                assert!(count <= MAX_COPIES);
+                assert!(
+                    count == 0 || (count >= 2 && each >= 2),
+                    "{mode:?} {logical}"
+                );
+            }
+        }
+        assert!(copies(ResourceMode::Balanced).threads.background.is_some());
+    }
+
+    /// A measurement, not a check: run it in a release build.
+    /// `cargo test --release -p catchword-desktop measure_copies -- --ignored --nocapture`
+    #[test]
+    #[ignore = "a measurement, with the real model"]
+    fn measure_copies_against_one_model() {
+        use catchword_embed::{Embedder, Paths, DEFAULT_MODEL};
+        fn load(threads: Threads) -> Model {
+            let vendor = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../vendor");
+            let paths = Paths {
+                runtime: vendor.join("onnxruntime/onnxruntime.dll"),
+                model: vendor.join("models").join(DEFAULT_MODEL.name),
+            };
+            let model = Embedder::load(&paths, &DEFAULT_MODEL, threads).unwrap();
+            Model::Ready(Mutex::new(Box::new(model)))
+        }
+        // 400 different notes of about 250 words, as people write them.
+        let folder = std::env::temp_dir().join("catchword-measure-copies");
+        let _ = std::fs::remove_dir_all(&folder);
+        std::fs::create_dir_all(&folder).unwrap();
+        let words = [
+            "lease", "notice", "period", "invoice", "payment", "contract", "tenant", "landlord",
+            "months", "refund", "tax", "letter", "bank", "account", "the", "of", "and", "within",
+            "days", "after", "court", "salary", "audit", "budget",
+        ];
+        for n in 0..400 {
+            let text: Vec<&str> = (0..250)
+                .map(|w| words[(n * 7 + w * 13 + w / 9) % words.len()])
+                .collect();
+            std::fs::write(
+                folder.join(format!("note-{n}.txt")),
+                format!("{n} {}", text.join(" ")),
+            )
+            .unwrap();
+        }
+        let model = load(threads(ResourceMode::Balanced));
+        let cutter = Cutter::for_model(&model);
+        for (name, copies) in [
+            ("one model", Copies::NONE),
+            ("copies", copies(ResourceMode::Balanced)),
+        ] {
+            let mut store = Store::open_in_memory().unwrap();
+            index_folder(
+                &mut store,
+                &folder,
+                &Exclusions::default(),
+                &cutter,
+                &Worker::NextToProgram,
+                &Limits::default(),
+                |_, _| true,
+            )
+            .unwrap();
+            let passages = store.counts().unwrap().passages;
+            let started = Instant::now();
+            let report =
+                embed_missing(&mut store, model.ready().unwrap(), copies, |_, _| true).unwrap();
+            let seconds = started.elapsed().as_secs_f64();
+            println!(
+                "Balanced, {name} ({} copies of {} threads): {passages} passages in {seconds:.1} s, \
+                 {:.1} a second, loading included",
+                report.copies,
+                copies.threads.count,
+                passages as f64 / seconds
+            );
+        }
+        std::fs::remove_dir_all(&folder).unwrap();
     }
 
     #[test]

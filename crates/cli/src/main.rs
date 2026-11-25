@@ -15,7 +15,9 @@ use anyhow::{bail, Context, Result};
 use catchword_engine::extract::Limits;
 use catchword_engine::fuse::Found;
 use catchword_engine::{without_controls, Exclusions};
-use catchword_service::{embed_missing, index_folder, search, Cutter, Model, Threads, Worker};
+use catchword_service::{
+    embed_missing, index_folder, search, Copies, Cutter, Model, Threads, Worker,
+};
 use catchword_store::Store;
 
 const DEFAULT_INDEX: &str = "catchword-index.db";
@@ -140,7 +142,7 @@ fn index(index_file: &Path, folder: &Path, retry: bool) -> Result<()> {
     // Keyword search works from here on. Meaning search follows.
     if let Some(model) = model.ready() {
         let mut shown = false;
-        let embedded = embed_missing(&mut store, model, |done, total| {
+        let embedded = embed_missing(&mut store, model, Copies::NONE, |done, total| {
             if done < total {
                 eprint!("\rEmbedding: {done} of {total} passages");
                 let _ = std::io::stderr().flush();

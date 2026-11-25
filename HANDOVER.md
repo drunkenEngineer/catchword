@@ -27,7 +27,7 @@ Last updated: 2026-11-25.
 
 ## 2. Current Status
 
-Overall health: **good**. On 2026-11-25, on Windows 11, after the security updates: every Rust and interface test passes (270 and 74: the suites of 9 October plus one test of the model's checksums at load), and the updater build's lint and tests; format, lint, type check, the privacy check, the pinned-actions check, cargo-deny and the interface packages' licence and security checks are clean. CI is green on Windows, Linux and macOS again (`abc29ea`), after being red from 19 October to 25 November 2026: new advisories, then ONNX Runtime's downloads disappearing (section 8). The retrieval evaluation passes in CI with SQLite 3.54.1 and ONNX Runtime 1.31.1.
+Overall health: **good**. On 2026-11-25, on Windows 11, after the security updates: every Rust and interface test passes (278 and 74: the suites of 9 October plus nine tests of the faster model load and of copies of the model, ADR-25), and the updater build's lint and tests; format, lint, type check, the privacy check, the pinned-actions check, cargo-deny and the interface packages' licence and security checks are clean. CI is green on Windows, Linux and macOS again (`abc29ea`), after being red from 19 October to 25 November 2026: new advisories, then ONNX Runtime's downloads disappearing (section 8). The retrieval evaluation passes in CI with SQLite 3.54.1 and ONNX Runtime 1.31.1.
 
 | Area | Status |
 | --- | --- |
@@ -70,7 +70,7 @@ Overall health: **good**. On 2026-11-25, on Windows 11, after the security updat
 | Screen-reader check by hand with Narrator and NVDA (A11Y-2) | `[TODO]` |
 | Measurements on a reference laptop (4 cores, about 2020, 8 GB) | `[TODO]` |
 | Meaning search ready within 1.5 s of start | `[DONE]` on the owner's laptop since 25 November 2026: 1.14 to 1.28 s (the model and its tokenizer load at the same time); the reference laptop still to measure |
-| Embedding at 20 passages a second | `[DECISION NEEDED]` (section 8): a measured option, about 30% faster, awaits the owner |
+| Embedding at 20 passages a second | `[DONE]` on the owner's laptop for long stages since 25 November 2026: 20.3 a second with four copies of the model side by side (ADR-25); 15.8 with one model, used below 256 passages; the reference laptop still to measure |
 | OCR, Office formats, question answering | `[TODO]`, later versions by the spec (0.2 to 0.4) |
 
 Currently being worked on: nothing half-done. The last session ended with everything committed and tested.
@@ -191,13 +191,19 @@ CLAUDE.md          # Rules and commands for the coding assistant
 
 ## 6. Important Decisions
 
-The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23 (Tauri shell and Rust engine; worker process model; one rebuildable SQLite index; exact vector search first; hybrid retrieval with rank fusion; content addressing; network policy; PDFium; OCR open; answers open; Apache-2.0; Store first then GitHub). Each also has a file in `docs/adr/` (0001 to 0013) with what has happened since; the specification stays the source. Later decisions are only files: ADR-14 to ADR-24. Do not reopen them without the owner. Further decisions made in sessions:
+The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23 (Tauri shell and Rust engine; worker process model; one rebuildable SQLite index; exact vector search first; hybrid retrieval with rank fusion; content addressing; network policy; PDFium; OCR open; answers open; Apache-2.0; Store first then GitHub). Each also has a file in `docs/adr/` (0001 to 0013) with what has happened since; the specification stays the source. Later decisions are only files: ADR-14 to ADR-25. Do not reopen them without the owner. Further decisions made in sessions:
 
 **Decision: Keep Granite as the model (ADR-20)**
 - Decision: granite-embedding-97m-multilingual-r2, 350-token passages with 50 overlapping, fusion K = 60 with 50 candidates.
 - Reason: best quality in the Phase 0 benchmark; the owner chose it.
 - Alternatives considered: multilingual-e5-small, about twice as fast.
-- Consequences: embedding stays under the spec's 20 passages a second (section 8).
+- Consequences: one model alone stays under the spec's 20 passages a second; copies of it reach 20 (ADR-25, below).
+
+**Decision: Copies of the model embed side by side in a long meaning stage (ADR-25)**
+- Decision: approved by the owner on 25 November 2026. From 256 waiting passages, up to four copies of the model embed side by side, at least two threads each, within the resource mode's thread budget. They are made one at a time from the loaded model, sharing its tokenizer, each model file checked (ADR-18), and dropped when the stage ends. The shared model stays free for searches.
+- Reason: one passage at a time cannot use eight threads; batching gave nothing; a faster model was declined (ADR-20).
+- Alternatives considered: accepting the miss; a faster model; four full copies loaded at once (peaked at 1,565 MB).
+- Consequences: 20.3 passages a second against 15.8 on the owner's laptop; about 540 MB more while a long stage runs; vectors unchanged; the command-line tool does not use copies.
 
 **Decision: Text files are read in the engine (ADR-17)**
 - Decision: plain text and Markdown are decoded in-process, with encoding detection (`encoding_rs`, `chardetng`), not in the worker.
@@ -290,12 +296,13 @@ The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23
 - Fix: `Embedder::load` (`crates/embed/src/lib.rs`) checks and loads the model and the tokenizer on two threads at once. Each file is still checked before anything reads it, every time (ADR-18 unchanged); a test loads with a wrong checksum for each and for both.
 - Result: 1.14 to 1.28 s on warm starts, 1.59 s on the first start after the program was replaced; memory unchanged (`docs/benchmarks/2026-10-04-app.md`, update of 25 November).
 
-**Embedding below 20 passages a second**
-- Status: `[DECISION NEEDED]`
-- Symptoms: 16.7 a second in the default mode on an idle owner's laptop (i7-13620H) in October; 14.1 to 14.8 in the 25 November test; about half that with other programs busy.
+**Embedding was below 20 passages a second: resolved for long stages, 25 November 2026**
+- Status: `[DONE]` on the owner's laptop; measure again on a reference laptop.
+- Symptoms: 16.7 a second in the default mode in October; 14.1 to 15.8 in the tests of 25 November.
 - Cause: one passage at a time cannot use eight threads well: 15 threads gave only 7% more than 8. Batching gives nothing (section 9).
-- Measured option, 25 November 2026: several models embedding different passages at once, sharing the same eight threads. Two on 4 threads each gave 17.0 to 17.1 a second; four on 2 each, 19.0 to 19.3, about 30% faster than one model (14.1 to 14.8 in the same runs). Vectors are unchanged (each passage still embedded alone, so no re-embedding); the processor share is the same. Cost: about 140 MB per extra model while indexing (four models: about 420 MB more, within the 1.5 GB peak target; the extra ones can be dropped when indexing ends, so idle memory is unchanged), and more code in the indexing loop. Still just under 20 here, and unmeasured on a reference laptop.
-- Other options: a faster model, which ADR-20 weighed and declined; or accepting the miss. Owner's call.
+- Fix, approved by the owner (ADR-25): when 256 or more passages wait, copies of the model embed side by side, sharing the mode's threads (four copies on 2 threads each on 16 cores; two on 2 on 8 cores). The copies share the model's tokenizer, are made one at a time (each model file checked, ADR-18), and are dropped when the stage ends. The shared model stays free for searches. Code: `Copier` in `crates/embed/src/lib.rs`, `embed_missing` in `crates/service/src/index.rs`, `copies_for` in `apps/desktop/src-tauri/src/indexing.rs`.
+- Result: 20.3 a second against 15.8 for one model, making the copies included. Peak memory of the test process 744 MB against 201 MB; about 1.05 GB for the app at the indexing peak, under the 1.5 GB limit. Below 256 passages, nothing changes. `embed.finished` logs how many copies helped.
+- A first version loaded four full copies at once and peaked at 1,565 MB: the tokenizer needs about 155 MB more while it is read. Hence the shared tokenizer and making copies one at a time.
 
 **The app and the command-line tool share a file name on Windows**
 - Status: `[TODO]`, low risk
@@ -357,6 +364,8 @@ The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23
 ## 9. Failed Approaches
 
 - **Batching embeddings** (several passages per ONNX call): measured 1, 2, 4, 8, 16 per call; all within a few percent. Do not build it expecting speed (`docs/benchmarks/2026-10-04-app.md`). Several models each embedding their own passage at once is different, and did help (section 8).
+- **Saving vectors in the order the copies finish them** (ADR-25): the vector index keeps rows in the order saved, and results with equal scores come out in that order, so the index differed from one made by a single model. `embed_side_by_side` sorts them by passage first. Found by repeating a test, which passed the first two times.
+- **Bounding a pause by "the passages in progress":** with copies, finished vectors wait in a queue until this thread reads them, so after a "no" there can be many more than the number of copies. They are valid and kept; the firm bound is the batch.
 - **Guessing where start-up time goes:** for seven weeks this file blamed the model's checksums for the 1.7 s wait, and proposed weakening ADR-18 to fix it. Timing each step showed the checksums take 0.1 s and the tokenizer 1.3 s. Time each step before proposing a fix.
 - **Tokenizing a whole long text in one call:** the tokenizer stops counting at 32,768 tokens, so long texts became a few giant passages (a 20 MB file gave 110 passages instead of about 11,000). Count tokens in blocks (`BLOCK_WORDS` = 2,000 in `crates/engine/src/lib.rs`).
 - **Asking about a pause only between blocks:** splitting a long text into words came first and took long enough to make a pause late. Ask during splitting too.
@@ -379,13 +388,10 @@ The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23
 
 ## 10. TODO / Roadmap
 
-**Critical**
-- Get the owner's decision on the embedding-speed target (section 8): several models at once (measured, about 30% faster), a faster model, or accept the miss. The start-up target was met on 25 November 2026 without a decision (ADR-18 unchanged).
-
 **High**
 - Try the updater end to end with two real releases (0.1.0, then 0.1.1): `scripts/sign-update.sh`, attach the files, promote, and check the offer and the install. A beta channel (REL-3) after that.
 - Screen-reader pass with Narrator and NVDA (A11Y-2): result counts and progress must be read out.
-- Measure on a reference laptop: `scripts/measure-app.ps1`, then the two release-build measurement tests (section 12).
+- Measure on a reference laptop: `scripts/measure-app.ps1`, then the release-build measurement tests (section 12), including `measure_copies` (ADR-25: two copies in the default mode there).
 - MSIX install test and Store registration: owner steps in `docs/packaging.md`; then put the Store identity in `apps/desktop/msix/AppxManifest.xml`.
 
 **Medium**
@@ -457,13 +463,14 @@ All from the repository root unless said otherwise.
 | Start-up and memory | `powershell -ExecutionPolicy Bypass -File scripts/measure-app.ps1 [-App <path to Catchword.exe>]` |
 | Scanning measurement | `cargo test --release -p catchword-service --test measure -- --ignored --nocapture` |
 | Embedding measurement | `cargo test --release -p catchword-desktop measure_embedding -- --ignored --nocapture` |
+| Embedding with copies against one model (ADR-25) | `cargo test --release -p catchword-desktop measure_copies -- --ignored --nocapture` |
 | Deletion measurement (bulk purge against secure-delete, ADR-22) | `cargo test --release -p catchword-store measure_deleting -- --ignored --nocapture` |
 
 There are no migrations to run by hand: the index upgrades itself on opening (section 14). There is no seed data.
 
 ## 13. Testing
 
-- Coverage on 2026-11-25: 270 Rust tests and 74 interface tests pass. There are four ignored tests: the packaged-files test and three measurements (scanning, deleting, embedding).
+- Coverage on 2026-11-25: 278 Rust tests and 74 interface tests pass. There are four ignored tests: the packaged-files test and three measurements (scanning, deleting, embedding).
 - The evaluation meets all 11 thresholds; combined recall@10 is 92.5%.
 - Rust tests:
   - unit tests in each crate;
@@ -675,8 +682,9 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 - Then: #13 rebased onto that `main` (Dependabot had not answered its rebase request, so GitHub's "update branch" did it), passed CI and was merged.
 - Then: the app rebuilt and installed for the owner (`29ce228`). It started cleanly (interface 1.0 s, model 2.2 s), opened the existing index with SQLite 3.54.1, and indexed the folder's changes, embedding 32 passages with ONNX Runtime 1.31.1.
 - Then, asked to continue with the next step (section 10's first item, the two missed speed targets): timed each step of loading the model and found the handover's cause wrong (section 8). The model and its tokenizer now load at the same time; meaning search is ready 1.14 to 1.28 s after start instead of 1.75 to 1.80 s, measured with `scripts/measure-app.ps1` on a refreshed `target\try-app` against the installed build. For embedding speed, several models at once were measured (four on 2 threads each: about 30% faster, still just under 20 a second) and left for the owner to decide. The installed app is still `29ce228`, without this change.
+- Then: the owner approved copies of the model for embedding ("yes continue ur work"). Built as ADR-25: a `Copier` trait in `crates/embed` (copies share the tokenizer; each model file checked), copies made one at a time in `embed_missing` from 256 waiting passages, the mode's threads split between them in the desktop (`copies_for`), and `copies` in the `embed.finished` log. 20.3 passages a second against 15.8, peak 744 MB for the test process. New tests: the conformance suite checks a copy's vectors; six service tests (same vectors, none for a short stage, refused copies, a pause while making copies, a pause while embedding, a failing copy); two desktop tests (the thread split, a long stage in the indexer logging its copies). Running the new tests repeatedly found two faults, fixed before committing: vectors from copies were saved in the order they finished, which changed the order of equal-score results (now sorted by passage), and the pause test's bound was too tight (section 9).
 - Current state: everything committed and pushed; no pull requests open; all local checks pass.
-- Next step: the owner's decision on embedding speed (section 8), then the rest of section 10.
+- Next step: the rest of section 10; the installed app has neither of today's speed changes until it is rebuilt.
 
 ---
 

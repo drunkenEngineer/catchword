@@ -13,7 +13,7 @@ use catchword_embed::{Embed, Embedder, DEFAULT_MODEL};
 
 pub use index::{
     embed_missing, index_folder, is_parked, Cutter, EmbedReport, Report, Unreachable, Worker,
-    ATTEMPTS_BEFORE_PARKING,
+    ATTEMPTS_BEFORE_PARKING, COPIES_FROM,
 };
 pub use search::{group_by_file, search, search_within, search_words, Answer, FileResults, Note};
 
@@ -49,6 +49,29 @@ impl Model {
             Model::Unavailable(_) => None,
         }
     }
+}
+
+/// Copies of the model for a long meaning stage (ADR-25). Each embeds its
+/// own passages at the same time as the others, on its own share of the
+/// threads, while the shared model stays free for searches. They are made
+/// from the shared model when the stage starts, share its tokenizer, and
+/// are dropped when the stage ends.
+#[derive(Debug, Clone, Copy)]
+pub struct Copies {
+    /// How many to make. Fewer than two are not worth it: the shared model
+    /// alone is as fast.
+    pub count: usize,
+    /// The threads each copy runs on. Their `background` function is also
+    /// called first on each thread that embeds with a copy.
+    pub threads: Threads,
+}
+
+impl Copies {
+    /// No copies: the shared model embeds alone.
+    pub const NONE: Copies = Copies {
+        count: 0,
+        threads: Threads::RUNTIME_DEFAULT,
+    };
 }
 
 /// Lock the model. A panic while it was locked cannot leave it half
