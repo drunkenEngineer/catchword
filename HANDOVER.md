@@ -27,7 +27,7 @@ Last updated: 2026-11-25.
 
 ## 2. Current Status
 
-Overall health: **good**. On 2026-11-25, on Windows 11, after the security updates: every Rust and interface test passes (the suites of 9 October: 269 and 74; none changed since), and the updater build's lint and tests; format, lint, type check, the privacy check, the pinned-actions check, cargo-deny and the interface packages' licence and security checks are clean. CI was red from 19 October to 25 November 2026 because of new advisories (section 8). The retrieval evaluation runs in CI on Linux; it had last passed on 12 October, with SQLite 3.53.2, until the run after the move to 3.54.1.
+Overall health: **good**. On 2026-11-25, on Windows 11, after the security updates: every Rust and interface test passes (the suites of 9 October: 269 and 74; none changed since), and the updater build's lint and tests; format, lint, type check, the privacy check, the pinned-actions check, cargo-deny and the interface packages' licence and security checks are clean. CI is green on Windows, Linux and macOS again (`abc29ea`), after being red from 19 October to 25 November 2026: new advisories, then ONNX Runtime's downloads disappearing (section 8). The retrieval evaluation passes in CI with SQLite 3.54.1 and ONNX Runtime 1.31.1.
 
 | Area | Status |
 | --- | --- |
@@ -520,7 +520,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
   - the Granite and e5 models from Hugging Face at pinned revisions;
   - XQuAD for the evaluation.
 - **Packaging:** Tauri downloads NSIS 3.11, its `nsis_tauri_utils` plugin and Microsoft's WebView2 bootstrapper, checking their hashes. The installer embeds the bootstrapper; Windows 11 already has WebView2.
-- **GitHub:** public repository (since 8 October 2026) and Actions CI, whose minutes are free for public repositories; while it was private, they ran out (section 8). Dependabot opens update pull requests every Monday (section 2). The actions CI uses are pinned to commit hashes, with the version in a comment: actions/checkout v7.0.1, Swatinem/rust-cache v2.9.2, actions/cache v6.1.0, actions/setup-node v7.1.0 (moved up from v4 on 2026-10-09, once CI results could be seen), EmbarkStudios/cargo-deny-action v2.1.1. `scripts/check-pinned-actions.sh` fails on any action not pinned this way; CI runs it.
+- **GitHub:** public repository (since 8 October 2026) and Actions CI, whose minutes are free for public repositories; while it was private, they ran out (section 8). Dependabot opens update pull requests every Monday (section 2). The actions CI uses are pinned to commit hashes, with the version in a comment: actions/checkout v7.0.1, Swatinem/rust-cache v2.9.3, actions/cache v6.1.0, actions/setup-node v7.1.0 (moved up from v4 on 2026-10-09, once CI results could be seen), EmbarkStudios/cargo-deny-action v2.1.3 (both moved up on 2026-11-25, #13). `scripts/check-pinned-actions.sh` fails on any action not pinned this way; CI runs it.
 - **Future:** the updater's static manifest host (GitHub releases), to a fixed host list; the Microsoft Store.
 
 ## 16. Product / UX Context
@@ -672,7 +672,8 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 - Then: CI on `7742c19` was green on all three systems, the evaluation included. Dependabot replaced #11 and #12 with #14 (six interface packages) and #15 (nine Rust libraries, all patch releases), which passed CI and were merged; all local checks pass on the result (`76af80b`).
 - Problem found: ONNX Runtime can no longer be downloaded (section 8). CI on `main` failed at the download from `2a17026`, and #13 (CI actions: rust-cache 2.9.3, cargo-deny-action 2.1.3, hashes checked against their tags) could not be tested.
 - Then: the owner chose ONNX Runtime 1.31.1 from Microsoft's NuGet package. Its Microsoft signature checked (`dotnet nuget verify --all`), its checksum pinned in `scripts/fetch-embedding.sh`, which now takes the library out of the package with `unzip` (added to `scripts/setup.sh`'s checks). Licence unchanged; the notices add Mbed TLS (used under Apache-2.0); the Windows library has no network imports, as before. The evaluation and the embedding measurement, back to back against 1.28.3, are the same (ADR-18's update). ADR-6, ADR-18 and the threat model (T8) updated.
-- Current state: committed and pushed; CI's result is on GitHub; #13 to be merged once CI is green.
+- Then: #13 rebased onto that `main` (Dependabot had not answered its rebase request, so GitHub's "update branch" did it), passed CI and was merged.
+- Current state: everything committed and pushed; no pull requests open; CI green on all three systems (`abc29ea`), downloading ONNX Runtime from NuGet; all local checks pass.
 - Next step: the owner's decisions (section 10).
 
 ---
