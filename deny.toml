@@ -27,6 +27,12 @@ ignore = [
     # their code is in the built program. Neither is a vulnerability.
     { id = "RUSTSEC-2024-0436", reason = "paste, unmaintained: a compile-time macro used by tokenizers (Hugging Face). Drop when tokenizers replaces it." },
     { id = "RUSTSEC-2024-0370", reason = "proc-macro-error, unmaintained: a compile-time macro of the GTK libraries under Tauri's menus, in the Linux build only, which is not shipped. Drop when Tauri moves to newer GTK bindings." },
+    # Accepted by the owner on 25 November 2026. Unmaintained, with no known
+    # vulnerability and no maintained version to move to yet.
+    { id = "RUSTSEC-2026-0543", reason = "chrono, unmaintained: reaches us only through pdfium-render, in the PDF worker, which runs at low integrity under a job object; Catchword never asks it for dates. Drop when pdfium-render replaces it." },
+    { id = "RUSTSEC-2026-0371", reason = "zbus_names, unmaintained (merged into zbus 6): part of zbus 5, which tauri-plugin-opener and tauri-plugin-single-instance use in the Linux build only, which is not shipped. Drop when they move to zbus 6." },
+    { id = "RUSTSEC-2026-0370", reason = "zvariant, unmaintained (merged into zbus 6): part of zbus 5, in the Linux build only, as for zbus_names. Drop with it." },
+    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive, unmaintained (merged into zbus 6): a compile-time macro of zbus 5, in the Linux build only, as for zbus_names. Drop with it." },
 ]
 
 [licenses]

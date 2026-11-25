@@ -4,7 +4,7 @@ Persistent handover for whoever, person or LLM, continues Catchword. Read it com
 
 Related files: `HANDOFF.md` holds the original task queue (items 1 to 23) with a dated note per item; `CLAUDE.md` holds the working rules; `docs/specification.md` is the full plan (26 sections). If this file and the code disagree, the code wins: correct this file.
 
-Last updated: 2026-10-09.
+Last updated: 2026-11-25.
 
 ---
 
@@ -27,7 +27,7 @@ Last updated: 2026-10-09.
 
 ## 2. Current Status
 
-Overall health: **good**. On 2026-10-09, on Windows 11, after the dependency updates: 269 Rust tests and 74 interface tests pass, and the updater build's lint and tests; format, lint, type check, the privacy check, the pinned-actions check, cargo-deny and the interface packages' licence and security checks are clean. CI is green on Windows, Linux and macOS. The retrieval evaluation met all 11 thresholds when last run (with SQLite 3.53.2, unchanged scores).
+Overall health: **good**. On 2026-11-25, on Windows 11, after the security updates: every Rust and interface test passes (the suites of 9 October: 269 and 74; none changed since), and the updater build's lint and tests; format, lint, type check, the privacy check, the pinned-actions check, cargo-deny and the interface packages' licence and security checks are clean. CI was red from 19 October to 25 November 2026 because of new advisories (section 8). The retrieval evaluation runs in CI on Linux; it had last passed on 12 October, with SQLite 3.53.2, until the run after the move to 3.54.1.
 
 | Area | Status |
 | --- | --- |
@@ -65,7 +65,7 @@ Overall health: **good**. On 2026-10-09, on Windows 11, after the dependency upd
 | CI on Windows, Linux, macOS | `[DONE]`: green on all three since `edef380` (8 October 2026), with the updater build, the signing test and cargo-deny; the repository is public, so CI minutes are free |
 | Updater in the GitHub build (APP-2, APP-1's update choice; ADR-24) | `[DONE]`, not yet tried against a real release; a beta channel (REL-3) `[TODO]` |
 | Weekly dependency update pull requests (Dependabot) | `[DONE]`, approved by the owner on 9 October 2026: Rust, npm and CI actions, grouped; `ort`, `pdfium-render` and Tauri's minor and major versions move by hand (`.github/dependabot.yml`). PDFium and ONNX Runtime themselves are pinned in the fetch scripts, which Dependabot cannot watch. Its first four pull requests (rusqlite 0.40, sha2 0.11, chardetng 1.0, two interface packages) were fixed where needed and merged on 9 October 2026, each once CI passed on all three systems; how to handle them is in section 17 |
-| Dependency licence and advisory checks (MNT-3) | `[DONE]`: Rust by cargo-deny (approved by the owner, 8 October 2026), `deny.toml`, two unmaintained compile-time macros excepted, with reasons; the interface's npm packages since 9 October 2026, their licences against the same list (`scripts/check-npm-licences.mjs`, with `node:test` tests) and known security problems by `npm audit`. All in CI (Linux) and the local checks. Two licences are allowed for build and test packages only, never shipped: BlueOak-1.0.0 (`lru-cache`) and MIT-0 (two `@csstools` packages), both permissive (`BUILD_AND_TEST_ONLY`); the owner may want to confirm that |
+| Dependency licence and advisory checks (MNT-3) | `[DONE]`: Rust by cargo-deny (approved by the owner, 8 October 2026), `deny.toml`, six unmaintained libraries excepted, each with its reason: two compile-time macros, `chrono` (through `pdfium-render`, in the PDF worker) and three parts of `zbus` 5 (Linux build only), the last four accepted by the owner on 25 November 2026; the interface's npm packages since 9 October 2026, their licences against the same list (`scripts/check-npm-licences.mjs`, with `node:test` tests) and known security problems by `npm audit`. All in CI (Linux) and the local checks. Two licences are allowed for build and test packages only, never shipped: BlueOak-1.0.0 (`lru-cache`) and MIT-0 (two `@csstools` packages), both permissive (`BUILD_AND_TEST_ONLY`); the owner may want to confirm that |
 | Store registration, name reservation, Store identity in the manifest | `[BLOCKED]`: owner's steps |
 | Screen-reader check by hand with Narrator and NVDA (A11Y-2) | `[TODO]` |
 | Measurements on a reference laptop (4 cores, about 2020, 8 GB) | `[TODO]` |
@@ -133,14 +133,14 @@ fuse, extract ───► catchword-worker (separate process, PDFium), under a 
 | --- | --- |
 | Rust | 1.99.0, pinned in `rust-toolchain.toml` (with rustfmt, clippy) |
 | Tauri | 2.12.1 (`tauri-build` 2.7.1); plugins: dialog 2.8.1, opener 2.7.0, single-instance 2.5.2, window-state 2.5.0 |
-| SQLite | 3.53.2, bundled through `rusqlite` 0.40.2 (`libsqlite3-sys` 0.38.2); FTS5; `sqlite-vec` 0.1.9 |
+| SQLite | 3.54.1, bundled through `rusqlite` 0.43.0 (`libsqlite3-sys` 0.40.0); FTS5; `sqlite-vec` 0.1.9 |
 | ONNX Runtime | 1.28.3 (win-x64), loaded at run time by full path through `ort` 2.0.0-rc.13 (`load-dynamic`) |
 | Tokenizer | `tokenizers` 0.23.2 (no download feature, Oniguruma) |
 | Embedding model | granite-embedding-97m-multilingual-r2, 8-bit (`model_quint8_avx2.onnx`), 384 dimensions, CLS pooling; baseline multilingual-e5-small for the benchmark |
 | PDF | PDFium build 156.0.8076, through `pdfium-render` 0.9.4, in `catchword-worker` |
 | Text encodings | `encoding_rs` 0.8.42, `chardetng` 1.0.0 |
 | Other Rust | `walkdir` 2, `dunce` 1, `sha2` 0.11 (0.10 remains in `Cargo.lock` only through Tauri's compile-time code generator), `anyhow` 1, `serde_json` 1, `ts-rs` 12.0.1, `windows-sys` 0.61 |
-| Updater (GitHub build only) | `tauri-plugin-updater` 2.13.2, behind the `updater` feature (ADR-24) |
+| Updater (GitHub build only) | `tauri-plugin-updater` 2.14.1 (signatures checked by `minisign-verify` 0.3), behind the `updater` feature (ADR-24) |
 | Interface | React 19.3, TypeScript 7.0.2, Vite 8.3.2, `@vitejs/plugin-react` 6.1.2 |
 | Interface tests | Vitest 5.0.3, jsdom 30.1.2, Testing Library (react 16.3.3, dom 10.4.1) |
 | Package managers | cargo; npm (`apps/desktop/ui/package-lock.json`) |
@@ -305,11 +305,17 @@ The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23
 - Attempts already made: none. The packaging scripts run `tauri build` just before copying the app, so they package the right program.
 - Recommended next investigation: rename the command-line tool's program (for example `catchword-cli`), which changes how it is run: ask the owner.
 
+**CI red from 19 October to 25 November 2026: resolved**
+- Status: `[DONE]`
+- What it was: every weekly run on `main`, and every Dependabot pull request, failed on Linux in "Dependency policy" (cargo-deny), with no change to the code. New advisories had been published against libraries already in use: 15 vulnerabilities (bundled SQLite before 3.54.0, CVE-2026-119375; five in `rustls`; `rustls-webpki`; `url`; `cookie`; six in `zip`, through the updater), a yanked `async-executor`, and four unmaintained libraries. Because that step comes early, every later Linux step (the npm checks, the evaluation) was skipped meanwhile. `npm audit` also found two high advisories, in `vite` and `undici` (build and test only).
+- Fix: rusqlite 0.43 (SQLite 3.54.1); `tauri-plugin-updater` 2.14.1, which brings `zip` 9 and a stricter signature check; patch updates for the rest; `npm audit fix`; the four unmaintained libraries excepted with reasons, as the owner accepted.
+- Lesson: when every pull request fails the same check, look at `main`'s weekly run first (section 17).
+
 **CI: resolved 8 October 2026**
 - Status: `[DONE]`
 - What it was: every run had failed. The private repository's free CI minutes had run out, so GitHub refused to start the jobs ("recent account payments have failed or your spending limit needs to be increased"). The few early runs that did start found a Windows timing test too strict, already loosened, and three desktop tests that wrote paths with backslashes, which fail on Linux and macOS.
 - Fix: the owner made the repository public (free minutes); the three tests now write paths as each system does (`edef380`); CI runs every test even after a failure (`--no-fail-fast`).
-- Watch for: `ubuntu-latest` moves to Ubuntu 26 from 19 October 2026 (a GitHub notice in the logs).
+- `ubuntu-latest` moved to Ubuntu 26.04 on 19 October 2026; the Linux job builds and all its tests pass there (checked on the run of 23 November 2026).
 
 **Node.js older than jsdom wants**
 - Status: `[TODO]`
@@ -571,7 +577,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
   - the installed app (`%LOCALAPPDATA%\Catchword`) and `target\try-app\` share one data folder;
   - the installed app is the GitHub build of 9 October 2026 (`6b9849d`, with the updater), installed over the 5 October one with `/S`, which kept the data. Until a first release is published, its "Check now" can only fail: there is no `latest.json` to find yet;
   - the owner's settings have `paused: true`, so nothing is indexed until Resume.
-- **Dependabot pull requests** (every Monday): check out each branch, run the local checks, and fix what breaks on that branch, with a test for any changed behaviour. Merge (squash) only when CI is green on all three systems, then run the checks on `main`, since pull requests that each pass alone can still clash. The first round (9 October 2026) needed: sha2 0.11 no longer hashes from a reader, so `hash_file` in `crates/engine/src/lib.rs` reads 64 KB pieces and the model check in `crates/embed` uses it; chardetng 1.0 asks whether ISO-2022-JP may be guessed and names the UTF-8 choice that was a boolean, so `encoding.rs` passes `Iso2022JpDetection::Allow` and `Utf8Detection::Deny` to keep the same detection; rusqlite 0.40 changed one C pointer type in the extension hook in `crates/store/src/lib.rs`. The deletion measurement looked twice as slow afterwards, but `main` measured the same back to back: machine load, not SQLite.
+- **Dependabot pull requests** (every Monday): check out each branch, run the local checks, and fix what breaks on that branch, with a test for any changed behaviour. Merge (squash) only when CI is green on all three systems, then run the checks on `main`, since pull requests that each pass alone can still clash. The first round (9 October 2026) needed: sha2 0.11 no longer hashes from a reader, so `hash_file` in `crates/engine/src/lib.rs` reads 64 KB pieces and the model check in `crates/embed` uses it; chardetng 1.0 asks whether ISO-2022-JP may be guessed and names the UTF-8 choice that was a boolean, so `encoding.rs` passes `Iso2022JpDetection::Allow` and `Utf8Detection::Deny` to keep the same detection; rusqlite 0.40 changed one C pointer type in the extension hook in `crates/store/src/lib.rs`. The deletion measurement looked twice as slow afterwards, but `main` measured the same back to back: machine load, not SQLite. If every pull request fails the same check, look at `main`'s weekly run first: an advisory published against a library already in use fails `main` too, and blocks every pull request until it is fixed on `main` (this happened from 19 October to 25 November 2026, section 8). Then have Dependabot rebase its pull requests (a `@dependabot rebase` comment).
 - `HANDOFF.md` is the older queue document. Keep its history, but put new status here.
 
 ## 18. Session Log
@@ -648,6 +654,15 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 - Then, looking for anything left undone: MNT-3 ("every dependency passes automated licence and advisory checks") was marked done but covered only Rust. The interface's npm packages are now checked too, in CI and the local checks: licences against `deny.toml`'s list by `scripts/check-npm-licences.mjs` (no new package: it reads `package-lock.json`), and known security problems by `npm audit` (none today; all 151 packages under allowed licences). The threat model's T7 row, its check date, `CLAUDE.md`, `CONTRIBUTING.md`, the release checklist and `HANDOFF.md`'s stale "waiting for the owner" line were brought up to date. The CHANGELOG gained the updater, the low-integrity worker and PRIV-5, which were missing.
 - Then: the app rebuilt (`sh scripts/package-nsis.sh`) and installed for the owner over the old copy; it started cleanly (interface 1.1 s, model 3.0 s on the first start after installing).
 - Current state: committed and pushed.
+- Next step: the owner's decisions (section 10).
+
+
+**2026-11-25**
+- Task: the owner asked where things stood, then for all of it to be fixed.
+- Found: no commits since 9 October; CI red on `main` every week since 19 October, and on all three open Dependabot pull requests (#11 Rust, #12 npm, #13 CI actions), only in cargo-deny on Linux: new advisories against libraries in use (section 8). `npm audit` found two high advisories in build and test packages.
+- Changes: rusqlite 0.43.0, bundling SQLite 3.54.1 (CVE-2026-119375 fixed in 3.54.0; rusqlite 0.41 to 0.43 also fixes several use-after-free bugs and now rejects empty SQL); `tauri-plugin-updater` 2.14.1 (`zip` 9; `minisign-verify` 0.3, which rejects non-canonical signatures; the download is checked again just before installing); patch updates of `rustls`, `rustls-webpki`, `url`, `cookie`, `async-executor`, `zvariant`; `npm audit fix` (`vite` 8.3.8, `undici` 8.13.1); four unmaintained libraries excepted in `deny.toml` with the owner's OK (`chrono`, `zbus_names`, `zvariant`, `zvariant_derive`).
+- To do next: rebase the three Dependabot pull requests onto the fixed `main`, and merge each once CI is green.
+- Current state: the security updates committed and pushed.
 - Next step: the owner's decisions (section 10).
 
 ---
