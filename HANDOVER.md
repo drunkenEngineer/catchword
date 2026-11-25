@@ -27,7 +27,7 @@ Last updated: 2026-11-25.
 
 ## 2. Current Status
 
-Overall health: **good**. On 2026-11-25, on Windows 11, after the security updates: every Rust and interface test passes (the suites of 9 October: 269 and 74; none changed since), and the updater build's lint and tests; format, lint, type check, the privacy check, the pinned-actions check, cargo-deny and the interface packages' licence and security checks are clean. CI is green on Windows, Linux and macOS again (`abc29ea`), after being red from 19 October to 25 November 2026: new advisories, then ONNX Runtime's downloads disappearing (section 8). The retrieval evaluation passes in CI with SQLite 3.54.1 and ONNX Runtime 1.31.1.
+Overall health: **good**. On 2026-11-25, on Windows 11, after the security updates: every Rust and interface test passes (270 and 74: the suites of 9 October plus one test of the model's checksums at load), and the updater build's lint and tests; format, lint, type check, the privacy check, the pinned-actions check, cargo-deny and the interface packages' licence and security checks are clean. CI is green on Windows, Linux and macOS again (`abc29ea`), after being red from 19 October to 25 November 2026: new advisories, then ONNX Runtime's downloads disappearing (section 8). The retrieval evaluation passes in CI with SQLite 3.54.1 and ONNX Runtime 1.31.1.
 
 | Area | Status |
 | --- | --- |
@@ -54,7 +54,7 @@ Overall health: **good**. On 2026-11-25, on Windows 11, after the security updat
 | Threat model published with its status per threat and the guarded-area checklist (SEC-3) | `[DONE]`: `docs/threat-model.md` |
 | Release checklist, rollback steps and rollback drill (REL-5, written part) | `[DONE]`: `docs/contributing/release-process.md`; the drill itself `[TODO]`, by hand before 0.1 |
 | One version number everywhere (spec section 18) | `[DONE]`: `apps/desktop/src-tauri/tests/version.rs` |
-| Developer setup script (INF-3) | `[DONE]`: `scripts/setup.sh`, run in full on this PC; `--check` runs in CI (results not yet seen) |
+| Developer setup script (INF-3) | `[DONE]`: `scripts/setup.sh`, run in full on this PC; `--check` passes in CI on all three systems (seen on 25 November 2026) |
 | "Add a file format" guide (DOC-3) | `[DONE]`: `docs/contributing/adding-a-file-format.md`; its acceptance test (an outside contributor follows it) needs a contributor |
 | Architecture overview for new contributors (DOC-1) | `[DONE]`: `docs/architecture/overview.md`; its acceptance test (a new reader can name the three guarded areas) needs a reader |
 | Draft user guide, network statement and Store privacy policy (DOC-2, a Phase 2 deliverable) | `[IN PROGRESS]`: drafts in `docs/user/`; needs a review by a non-technical tester, a firewall check run by hand, and the owner's contact address |
@@ -69,8 +69,8 @@ Overall health: **good**. On 2026-11-25, on Windows 11, after the security updat
 | Store registration, name reservation, Store identity in the manifest | `[BLOCKED]`: owner's steps |
 | Screen-reader check by hand with Narrator and NVDA (A11Y-2) | `[TODO]` |
 | Measurements on a reference laptop (4 cores, about 2020, 8 GB) | `[TODO]` |
-| Meaning search ready within 1.5 s of start | `[DECISION NEEDED]` (section 8) |
-| Embedding at 20 passages a second | `[DECISION NEEDED]` (section 8) |
+| Meaning search ready within 1.5 s of start | `[DONE]` on the owner's laptop since 25 November 2026: 1.14 to 1.28 s (the model and its tokenizer load at the same time); the reference laptop still to measure |
+| Embedding at 20 passages a second | `[DECISION NEEDED]` (section 8): a measured option, about 30% faster, awaits the owner |
 | OCR, Office formats, question answering | `[TODO]`, later versions by the spec (0.2 to 0.4) |
 
 Currently being worked on: nothing half-done. The last session ended with everything committed and tested.
@@ -283,20 +283,19 @@ The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23
 
 ## 8. Known Issues / Bugs
 
-**Meaning search is ready 1.7 s after start (target 1.5 s)**
-- Status: `[DECISION NEEDED]`
-- Symptoms: searches by words work at once; meaning joins about 1.7 s after start (2.4 s cold, 3.9 s right after an install with the PC busy).
-- Cause: verifying the model's SHA-256 checksums on every load (123 MB) and parsing its 25 MB tokenizer.
-- Files/components involved: `crates/embed/src/lib.rs` (`Embedder::load`, `verify`).
-- Attempts already made: none.
-- Current workaround: none needed for use.
-- Recommended next investigation: remembering a passed check by file size and date would meet the target, but relaxes ADR-18 ("checked every time it is loaded"): ask the owner.
+**Meaning search was ready 1.7 s after start (target 1.5 s): resolved 25 November 2026**
+- Status: `[DONE]` on the owner's laptop; measure again on a reference laptop.
+- Symptoms: searches by words work at once; meaning joined 1.75 to 1.80 s after start (2.45 s on a first start).
+- Cause, measured on 25 November 2026: reading the 25 MB tokenizer (1.0 to 1.4 s) and starting ONNX Runtime and the model (0.6 to 1.0 s), one after the other. The checksums take only about 0.1 s. The old note here blamed them, and so recommended remembering a passed check (relaxing ADR-18), which would have saved only that 0.1 s.
+- Fix: `Embedder::load` (`crates/embed/src/lib.rs`) checks and loads the model and the tokenizer on two threads at once. Each file is still checked before anything reads it, every time (ADR-18 unchanged); a test loads with a wrong checksum for each and for both.
+- Result: 1.14 to 1.28 s on warm starts, 1.59 s on the first start after the program was replaced; memory unchanged (`docs/benchmarks/2026-10-04-app.md`, update of 25 November).
 
 **Embedding below 20 passages a second**
 - Status: `[DECISION NEEDED]`
-- Symptoms: 16.7 a second in the default mode on an idle owner's laptop (i7-13620H); about half that with other programs busy.
-- Cause: the model is limited by computation (batching gives nothing, section 9).
-- Recommended next investigation: only a faster model remains, which ADR-20 weighed and declined. Owner's call.
+- Symptoms: 16.7 a second in the default mode on an idle owner's laptop (i7-13620H) in October; 14.1 to 14.8 in the 25 November test; about half that with other programs busy.
+- Cause: one passage at a time cannot use eight threads well: 15 threads gave only 7% more than 8. Batching gives nothing (section 9).
+- Measured option, 25 November 2026: several models embedding different passages at once, sharing the same eight threads. Two on 4 threads each gave 17.0 to 17.1 a second; four on 2 each, 19.0 to 19.3, about 30% faster than one model (14.1 to 14.8 in the same runs). Vectors are unchanged (each passage still embedded alone, so no re-embedding); the processor share is the same. Cost: about 140 MB per extra model while indexing (four models: about 420 MB more, within the 1.5 GB peak target; the extra ones can be dropped when indexing ends, so idle memory is unchanged), and more code in the indexing loop. Still just under 20 here, and unmeasured on a reference laptop.
+- Other options: a faster model, which ADR-20 weighed and declined; or accepting the miss. Owner's call.
 
 **The app and the command-line tool share a file name on Windows**
 - Status: `[TODO]`, low risk
@@ -357,7 +356,8 @@ The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23
 
 ## 9. Failed Approaches
 
-- **Batching embeddings** (several passages per ONNX call): measured 1, 2, 4, 8, 16 per call; all within a few percent. Do not build it expecting speed (`docs/benchmarks/2026-10-04-app.md`).
+- **Batching embeddings** (several passages per ONNX call): measured 1, 2, 4, 8, 16 per call; all within a few percent. Do not build it expecting speed (`docs/benchmarks/2026-10-04-app.md`). Several models each embedding their own passage at once is different, and did help (section 8).
+- **Guessing where start-up time goes:** for seven weeks this file blamed the model's checksums for the 1.7 s wait, and proposed weakening ADR-18 to fix it. Timing each step showed the checksums take 0.1 s and the tokenizer 1.3 s. Time each step before proposing a fix.
 - **Tokenizing a whole long text in one call:** the tokenizer stops counting at 32,768 tokens, so long texts became a few giant passages (a 20 MB file gave 110 passages instead of about 11,000). Count tokens in blocks (`BLOCK_WORDS` = 2,000 in `crates/engine/src/lib.rs`).
 - **Asking about a pause only between blocks:** splitting a long text into words came first and took long enough to make a pause late. Ask during splitting too.
 - **Passing a query with control characters to FTS5:** it reads its query as C text, so a NUL ends it early and leaves a quote open ("unterminated string"), and the search fails. Found by the hostile-query test; queries now have control characters turned into spaces (`without_controls` in `crates/store/src/lib.rs`).
@@ -380,7 +380,7 @@ The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23
 ## 10. TODO / Roadmap
 
 **Critical**
-- Get the owner's decisions on the two missed targets (section 8).
+- Get the owner's decision on the embedding-speed target (section 8): several models at once (measured, about 30% faster), a faster model, or accept the miss. The start-up target was met on 25 November 2026 without a decision (ADR-18 unchanged).
 
 **High**
 - Try the updater end to end with two real releases (0.1.0, then 0.1.1): `scripts/sign-update.sh`, attach the files, promote, and check the offer and the install. A beta channel (REL-3) after that.
@@ -463,7 +463,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 
 ## 13. Testing
 
-- Coverage on 2026-10-09: 269 Rust tests and 74 interface tests pass. There are four ignored tests: the packaged-files test and three measurements (scanning, deleting, embedding).
+- Coverage on 2026-11-25: 270 Rust tests and 74 interface tests pass. There are four ignored tests: the packaged-files test and three measurements (scanning, deleting, embedding).
 - The evaluation meets all 11 thresholds; combined recall@10 is 92.5%.
 - Rust tests:
   - unit tests in each crate;
@@ -582,7 +582,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
   - The Indexer's locks (`indexing.rs`): the order is control, then snapshot. In `commands.rs`, take one `AppState` lock per statement: a guard lives to the end of its statement, so two in one expression would deadlock (caught in review, never shipped).
   - The index file cannot be deleted while a connection is open. `delete_all_data` and `rebuild_index` first swap the reader for an in-memory store.
 - On the owner's PC:
-  - the installed app (`%LOCALAPPDATA%\Catchword`) and `target\try-app\` share one data folder;
+  - the installed app (`%LOCALAPPDATA%\Catchword`) and `target\try-app\` share one data folder. `target\try-app\` is an unpacked app laid out as the packages install it, refreshed by hand (copy `Catchword.exe`, `catchword-worker.exe` from `target\release\` after `sh scripts/package-nsis.sh`, and `onnxruntime.dll` from `vendor\onnxruntime\`); it last held the build with the parallel model load (25 November 2026);
   - the installed app is the GitHub build of 25 November 2026 (`29ce228`: SQLite 3.54.1, ONNX Runtime 1.31.1, the updater), installed over the 9 October one with `/S`, which kept the data; its existing index opened without a rebuild. Until a first release is published, its "Check now" can only fail: there is no `latest.json` to find yet;
   - indexing is no longer paused: on 25 November 2026 the app indexed at start (one folder, about 125 files).
 - **Dependabot pull requests** (every Monday): check out each branch, run the local checks, and fix what breaks on that branch, with a test for any changed behaviour. Merge (squash) only when CI is green on all three systems, then run the checks on `main`, since pull requests that each pass alone can still clash. The first round (9 October 2026) needed: sha2 0.11 no longer hashes from a reader, so `hash_file` in `crates/engine/src/lib.rs` reads 64 KB pieces and the model check in `crates/embed` uses it; chardetng 1.0 asks whether ISO-2022-JP may be guessed and names the UTF-8 choice that was a boolean, so `encoding.rs` passes `Iso2022JpDetection::Allow` and `Utf8Detection::Deny` to keep the same detection; rusqlite 0.40 changed one C pointer type in the extension hook in `crates/store/src/lib.rs`. The deletion measurement looked twice as slow afterwards, but `main` measured the same back to back: machine load, not SQLite. If every pull request fails the same check, look at `main`'s weekly run first: an advisory published against a library already in use fails `main` too, and blocks every pull request until it is fixed on `main` (this happened from 19 October to 25 November 2026, section 8). Then have Dependabot rebase its pull requests (a `@dependabot rebase` comment).
@@ -674,8 +674,9 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 - Then: the owner chose ONNX Runtime 1.31.1 from Microsoft's NuGet package. Its Microsoft signature checked (`dotnet nuget verify --all`), its checksum pinned in `scripts/fetch-embedding.sh`, which now takes the library out of the package with `unzip` (added to `scripts/setup.sh`'s checks). Licence unchanged; the notices add Mbed TLS (used under Apache-2.0); the Windows library has no network imports, as before. The evaluation and the embedding measurement, back to back against 1.28.3, are the same (ADR-18's update). ADR-6, ADR-18 and the threat model (T8) updated.
 - Then: #13 rebased onto that `main` (Dependabot had not answered its rebase request, so GitHub's "update branch" did it), passed CI and was merged.
 - Then: the app rebuilt and installed for the owner (`29ce228`). It started cleanly (interface 1.0 s, model 2.2 s), opened the existing index with SQLite 3.54.1, and indexed the folder's changes, embedding 32 passages with ONNX Runtime 1.31.1.
-- Current state: everything committed and pushed; no pull requests open; CI green on all three systems (`abc29ea`), downloading ONNX Runtime from NuGet; all local checks pass.
-- Next step: the owner's decisions (section 10).
+- Then, asked to continue with the next step (section 10's first item, the two missed speed targets): timed each step of loading the model and found the handover's cause wrong (section 8). The model and its tokenizer now load at the same time; meaning search is ready 1.14 to 1.28 s after start instead of 1.75 to 1.80 s, measured with `scripts/measure-app.ps1` on a refreshed `target\try-app` against the installed build. For embedding speed, several models at once were measured (four on 2 threads each: about 30% faster, still just under 20 a second) and left for the owner to decide. The installed app is still `29ce228`, without this change.
+- Current state: everything committed and pushed; no pull requests open; all local checks pass.
+- Next step: the owner's decision on embedding speed (section 8), then the rest of section 10.
 
 ---
 

@@ -251,6 +251,12 @@ pub struct Embedder {
 
 impl Embedder {
     /// Check the model files against their pinned checksums, then load them.
+    ///
+    /// The model and its tokenizer load at the same time, each on its own
+    /// thread: neither needs the other, and reading the tokenizer takes
+    /// about as long as starting the model (1.3 s and 0.7 s on the owner's
+    /// laptop, 25 November 2026). Each file is still checked before
+    /// anything reads it. If both fail, the model's error is the one given.
     pub fn load(
         paths: &Paths,
         manifest: &ModelManifest,
@@ -258,19 +264,16 @@ impl Embedder {
     ) -> Result<Self, EmbedError> {
         let model = paths.model.join("model.onnx");
         let tokenizer = paths.model.join("tokenizer.json");
-        verify(&model, manifest.model_sha256)?;
-        verify(&tokenizer, manifest.tokenizer_sha256)?;
-        start_runtime(&paths.runtime)?;
-        let mut builder = Session::builder()?.with_intra_threads(threads.count)?;
-        if let Some(first) = threads.background {
-            builder = builder
-                .with_intra_op_spinning(false)?
-                .with_thread_manager(BackgroundThreads(first))?;
-        }
-        let session = builder.commit_from_file(&model)?;
-        let tokenizer = tokenizers::Tokenizer::from_file(&tokenizer)
-            .map_err(|error| EmbedError::Tokenizer(error.to_string()))?;
-        let tokenizer = ModelTokenizer(Arc::new(tokenizer));
+        let (session, tokenizer) = std::thread::scope(|scope| {
+            let reading = scope.spawn(|| load_tokenizer(&tokenizer, manifest.tokenizer_sha256));
+            let session = start_session(&model, manifest.model_sha256, &paths.runtime, threads);
+            let tokenizer = reading
+                .join()
+                .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+            (session, tokenizer)
+        });
+        let session = session?;
+        let tokenizer = tokenizer?;
         let needs_token_types = session
             .inputs()
             .iter()
@@ -394,6 +397,32 @@ fn unit_length(vector: &[f32]) -> Vec<f32> {
         return vector.to_vec();
     }
     vector.iter().map(|x| x / length).collect()
+}
+
+/// Check the model file, then start a runtime session from it.
+fn start_session(
+    model: &Path,
+    expected: &str,
+    runtime: &Path,
+    threads: Threads,
+) -> Result<Session, EmbedError> {
+    verify(model, expected)?;
+    start_runtime(runtime)?;
+    let mut builder = Session::builder()?.with_intra_threads(threads.count)?;
+    if let Some(first) = threads.background {
+        builder = builder
+            .with_intra_op_spinning(false)?
+            .with_thread_manager(BackgroundThreads(first))?;
+    }
+    Ok(builder.commit_from_file(model)?)
+}
+
+/// Check the tokenizer file, then read it.
+fn load_tokenizer(path: &Path, expected: &str) -> Result<ModelTokenizer, EmbedError> {
+    verify(path, expected)?;
+    let tokenizer = tokenizers::Tokenizer::from_file(path)
+        .map_err(|error| EmbedError::Tokenizer(error.to_string()))?;
+    Ok(ModelTokenizer(Arc::new(tokenizer)))
 }
 
 /// Refuse a file whose SHA-256 is not `expected`.

@@ -16,6 +16,7 @@ Nothing has been released yet. This is what the first release, 0.1, will hold so
 - PDFs are read in a separate process with time and memory limits. On Windows it runs at low integrity, so it cannot change your files, your settings or other programs. Damaged and hostile files end as a reason, never as a crash of the app.
 - When a file is deleted or changed, or its folder removed, nothing of its old content can be read back from the index file.
 - After 10 minutes without use, the meaning model is unloaded to give back memory; the next search loads it again.
+- Search by meaning is ready within about 1.3 seconds of start: the model and its word list load at the same time, each still checked first.
 - A damaged index is rebuilt by itself; after two unexpected closes in a row, indexing waits (safe mode).
 - Full keyboard use, screen-reader announcements, WCAG AA colour contrast, and support for Windows contrast themes and reduced motion.
 - A per-user installer for GitHub, and a package for the Microsoft Store, neither published yet.

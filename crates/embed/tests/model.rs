@@ -5,7 +5,7 @@ use std::sync::{Mutex, OnceLock};
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use catchword_embed::{find, Embedder, ModelManifest, Threads, E5_SMALL, GRANITE_97M};
+use catchword_embed::{find, EmbedError, Embedder, ModelManifest, Threads, E5_SMALL, GRANITE_97M};
 use catchword_engine::{chunk, Tokenizer};
 
 /// The model takes a second or two to load, so the tests share one.
@@ -56,6 +56,38 @@ fn background_threads_are_ours_and_give_the_same_vectors() {
     let mut model = Embedder::load(&paths, &GRANITE_97M, single).unwrap();
     model.embed_passages(&[text]).unwrap();
     assert_eq!(STARTED.load(Ordering::SeqCst), 1);
+}
+
+/// The model and its tokenizer load at the same time (ADR-18 still holds):
+/// each is refused when it is not the pinned file, and with both wrong the
+/// model's error is the one given.
+#[test]
+fn a_model_or_tokenizer_that_is_not_the_pinned_file_is_refused() {
+    const WRONG: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+    let paths = find(&GRANITE_97M).expect("no model; run sh scripts/fetch-embedding.sh");
+    let refused =
+        |manifest: ModelManifest| match Embedder::load(&paths, &manifest, Threads::RUNTIME_DEFAULT)
+        {
+            Err(EmbedError::Checksum(path)) => path,
+            Err(other) => panic!("refused for another reason: {other}"),
+            Ok(_) => panic!("a file that is not the pinned one was loaded"),
+        };
+    let wrong_model = ModelManifest {
+        model_sha256: WRONG,
+        ..GRANITE_97M
+    };
+    let wrong_tokenizer = ModelManifest {
+        tokenizer_sha256: WRONG,
+        ..GRANITE_97M
+    };
+    let both_wrong = ModelManifest {
+        model_sha256: WRONG,
+        tokenizer_sha256: WRONG,
+        ..GRANITE_97M
+    };
+    assert!(refused(wrong_model).ends_with("model.onnx"));
+    assert!(refused(wrong_tokenizer).ends_with("tokenizer.json"));
+    assert!(refused(both_wrong).ends_with("model.onnx"));
 }
 
 fn passages(texts: &[&str]) -> Vec<Vec<f32>> {
