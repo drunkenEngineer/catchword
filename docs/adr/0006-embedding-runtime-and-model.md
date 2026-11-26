@@ -34,3 +34,4 @@ A clearly better permissive model appears. A change means re-embedding everythin
 - The Phase 0 benchmark and the specification's own rule disagreed, and the owner kept Granite (ADR-20, 3 October 2026).
 - The index records the model and the size of its vectors. Opening an index with another model drops its vectors, and they are made again.
 - On 4 October 2026 the app embeds 16.7 passages a second in its default mode, short of the target of 20 (`docs/benchmarks/2026-10-04-app.md`). Whether to change the model or the target is the owner's decision.
+- From 25 November 2026, copies of the model meet the target on the owner's laptop for long stages (ADR-25). On a stand-in for the reference laptop (its four efficiency cores, 26 November 2026), the default mode embeds 6.0 passages a second, or 7.0 with two copies: about a third of the target (`docs/benchmarks/2026-11-26-stand-in.md`).

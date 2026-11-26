@@ -9,16 +9,26 @@
 # for the status (the window is up) and when the model was ready, waits for
 # things to settle, then adds up the memory of the app and its WebView2
 # processes, and closes it.
+#
+# -Affinity keeps the app, and the processes it starts, on some logical
+# processors only: a mask in hexadecimal, F000 for processors 12 to 15. On
+# a processor with efficiency cores, running on those alone stands in for a
+# slower laptop (docs/benchmarks/2026-11-26-stand-in.md).
 param(
     [string]$App = (Join-Path $env:LOCALAPPDATA "Catchword\Catchword.exe"),
     [int]$Runs = 3,
-    [int]$SettleSeconds = 15
+    [int]$SettleSeconds = 15,
+    [string]$Affinity = ""
 )
 $ErrorActionPreference = "Stop"
 $log = Join-Path $env:LOCALAPPDATA "org.catchword.desktop\logs\catchword.log"
 
 function Get-ProcessTree([int]$Root) {
-    $all = @(Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId)
+    $all = @(Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId, CreationDate)
+    # Windows reuses process ids: an older process can name as its parent
+    # an id the app has since been given. Only later processes are its own.
+    $started = ($all | Where-Object { $_.ProcessId -eq $Root }).CreationDate
+    $all = @($all | Where-Object { $_.CreationDate -ge $started })
     $ids = @($Root)
     $frontier = @($Root)
     while ($frontier.Count -gt 0) {
@@ -56,6 +66,7 @@ $results = @()
 for ($run = 1; $run -le $Runs; $run++) {
     $skip = if (Test-Path $log) { @(Get-Content $log).Count } else { 0 }
     $process = Start-Process -FilePath $App -PassThru
+    if ($Affinity) { $process.ProcessorAffinity = [IntPtr][Convert]::ToInt64($Affinity, 16) }
     $window = Wait-LogEvent $skip "interface.ready" 30
     $model = Wait-LogEvent $skip "model.ready" 60
     Start-Sleep -Seconds $SettleSeconds

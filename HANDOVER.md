@@ -68,7 +68,7 @@ Overall health: **good**. On 2026-11-25, on Windows 11, after the security updat
 | Dependency licence and advisory checks (MNT-3) | `[DONE]`: Rust by cargo-deny (approved by the owner, 8 October 2026), `deny.toml`, six unmaintained libraries excepted, each with its reason: two compile-time macros, `chrono` (through `pdfium-render`, in the PDF worker) and three parts of `zbus` 5 (Linux build only), the last four accepted by the owner on 25 November 2026; the interface's npm packages since 9 October 2026, their licences against the same list (`scripts/check-npm-licences.mjs`, with `node:test` tests) and known security problems by `npm audit`. All in CI (Linux) and the local checks. Two licences are allowed for build and test packages only, never shipped: BlueOak-1.0.0 (`lru-cache`) and MIT-0 (two `@csstools` packages), both permissive (`BUILD_AND_TEST_ONLY`); the owner may want to confirm that |
 | Store registration, name reservation, Store identity in the manifest | `[BLOCKED]`: owner's steps |
 | Screen-reader check by hand with Narrator and NVDA (A11Y-2) | `[TODO]` |
-| Measurements on a reference laptop (4 cores, about 2020, 8 GB) | `[TODO]` |
+| Measurements on a reference laptop (4 cores, about 2020, 8 GB) | `[TODO]`; a stand-in (the owner's laptop held to its four efficiency cores, 26 November 2026) suggests four targets would be missed there: first query, keyword and combined search, embedding (section 8) |
 | Meaning search ready within 1.5 s of start | `[DONE]` on the owner's laptop since 25 November 2026: 1.14 to 1.28 s (the model and its tokenizer load at the same time); the reference laptop still to measure |
 | Embedding at 20 passages a second | `[DONE]` on the owner's laptop for long stages since 25 November 2026: 20.3 a second with four copies of the model side by side (ADR-25); 15.8 with one model, used below 256 passages; the reference laptop still to measure |
 | OCR, Office formats, question answering | `[TODO]`, later versions by the spec (0.2 to 0.4) |
@@ -175,7 +175,7 @@ scripts/           # fetch-pdfium.sh, fetch-embedding.sh, fetch-eval.sh, check-n
 docs/
 ├── specification.md   # The plan; ADR-1..13 are in its section 23
 ├── adr/               # ADR-14..21
-├── benchmarks/        # 2026-10-03 Phase 0 benchmark; 2026-10-04 app measurements
+├── benchmarks/        # 2026-10-03 Phase 0 benchmark; 2026-10-04 app measurements; 2026-11-26 reference-laptop stand-in
 ├── packaging.md       # Installer, MSIX, notices, owner's install-test steps
 ├── threat-model.md    # Spec section 13 by threat: what is in place, where; guarded-area checklist
 ├── user/              # guide.md, network.md (what leaves the computer, how to check), privacy-policy.md (Store)
@@ -357,9 +357,22 @@ The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23
 - Status: `UNKNOWN` impact
 - Symptoms: Windows lists a window titled `org.catchword.desktop-siw` (from `tauri-plugin-single-instance`) as visible next to the real "Catchword" window; nobody has seen it on screen.
 
-**Not yet measured on a reference laptop**
-- Status: `[TODO]`
-- Notes: every figure in `docs/benchmarks/` is from the owner's laptop, faster than the spec's reference. On a slower one, combined search may miss 500 ms (the vector scan dominates). The spec's answer is quantised vectors with rescoring.
+**Not yet measured on a reference laptop; a stand-in misses four targets**
+- Status: `[TODO]` (a real reference laptop) and `[DECISION NEEDED]` (what to do about the stand-in's results)
+- Notes: every figure in `docs/benchmarks/` is from the owner's laptop, faster than the spec's reference.
+- The stand-in (26 November 2026, `docs/benchmarks/2026-11-26-stand-in.md`): the owner's laptop held to its four efficiency cores (logical processors 12 to 15), which are about as fast per clock as a 2020 four-core laptop's. A forecast, accurate to about a third either way.
+  - Met: the window 0.79 to 1.15 s; scans 0.5 s; 10,000 notes searchable by words in 56 s; idle memory 315 to 366 MB.
+  - Missed:
+    - meaning ready 1.86 to 2.54 s after start (target 1.5 s);
+    - keyword search 166 ms at the 95th percentile (100 ms);
+    - combined search 777 ms (500 ms), of which the exact vector scan is about 600 ms;
+    - embedding 6.0 a second with one model and 7.0 with two copies (20): about 10 hours for the reference corpus instead of 3.5.
+- Options for the owner, from the spec:
+  - combined search: quantised vectors with rescoring (section 14's next tier; sqlite-vec supports it; must pass the evaluation again);
+  - keyword search: not studied yet;
+  - embedding: a smaller model (set aside in ADR-20), a graphics processor or NPU later, or revising the target;
+  - or wait for a real reference laptop before changing anything (spec: quantisation "only when a measured target is missed").
+- Also found: the owner's laptop measured slower on 26 November than on 3 October (combined 449 to 483 ms on its performance cores against 330 ms). An evaluation tool built from before the SQLite 3.54.1 update gave the same 483 ms, so it is the machine that day, not the code.
 
 ## 9. Failed Approaches
 
@@ -371,6 +384,8 @@ The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23
 - **Asking about a pause only between blocks:** splitting a long text into words came first and took long enough to make a pause late. Ask during splitting too.
 - **Passing a query with control characters to FTS5:** it reads its query as C text, so a NUL ends it early and leaves a quote open ("unterminated string"), and the search fails. Found by the hostile-query test; queries now have control characters turned into spaces (`without_controls` in `crates/store/src/lib.rs`).
 - **FTS5 secure-delete for every deletion:** it removes deleted words at once (PRIV-5), but at about 4 ms a passage: purging 10,000 passages took 38 s instead of 1.8 s. Large purges now delete plainly and compact afterwards (ADR-22).
+- **Measuring speed without fixing the cores** (on this hybrid processor): run from a background shell, combined search took 616 ms at the 95th percentile, against 449 to 467 ms held to the performance cores, because Windows ran part of it on the efficiency cores. Hold measurements to a fixed set of cores (section 12). Rust's count of logical processors ignores that hold, so the measurements still see 16.
+- **Adding up a process tree by parent id alone:** Windows reuses process ids, so `measure-app.ps1` once counted older, unrelated programs as the app's (17 processes, 2,020 MB). It now counts only processes started after the app.
 - **Timing-only test assertions:** flaky when other programs load the machine. Assert the behaviour (for example "the half-read file is not in the index") and keep time bounds generous.
 - **Committing without gating on the checks' exit status:** one commit (48efc39) went in with a failing test, repaired by abca015. Commit only inside `if <checks pass>; then git commit; fi`.
 - **The opener plugin to open files:** it runs PowerShell (threat T15). Use ShellExecuteW (`open.rs`).
@@ -391,7 +406,8 @@ The founding decisions are ADR-1 to ADR-13 in `docs/specification.md` section 23
 **High**
 - Try the updater end to end with two real releases (0.1.0, then 0.1.1): `scripts/sign-update.sh`, attach the files, promote, and check the offer and the install. A beta channel (REL-3) after that.
 - Screen-reader pass with Narrator and NVDA (A11Y-2): result counts and progress must be read out.
-- Measure on a reference laptop: `scripts/measure-app.ps1`, then the release-build measurement tests (section 12), including `measure_copies` (ADR-25: two copies in the default mode there).
+- Measure on a reference laptop: `scripts/measure-app.ps1`, then the release-build measurement tests (section 12), including `measure_copies` (its "8 logical processors" lines are the reference laptop's split).
+- `[DECISION NEEDED]` The stand-in for the reference laptop misses four targets (section 8): build quantised vector search now or wait for a real reference laptop; whether to study keyword search at that speed; whether to keep, change or revise the embedding target.
 - MSIX install test and Store registration: owner steps in `docs/packaging.md`; then put the Store identity in `apps/desktop/msix/AppxManifest.xml`.
 
 **Medium**
@@ -460,10 +476,11 @@ All from the repository root unless said otherwise.
 | GitHub installer | `sh scripts/package-nsis.sh` → `target/release/bundle/nsis/Catchword_<version>_x64-setup.exe` |
 | Store package | `sh scripts/package-msix.sh` → `target/package/Catchword.msix` |
 | Packaged-files test | `cargo test -p catchword --test package -- --ignored` (after `package-msix.sh`) |
-| Start-up and memory | `powershell -ExecutionPolicy Bypass -File scripts/measure-app.ps1 [-App <path to Catchword.exe>]` |
+| Start-up and memory | `powershell -ExecutionPolicy Bypass -File scripts/measure-app.ps1 [-App <path to Catchword.exe>] [-Affinity F000]` |
+| Any measurement on the reference-laptop stand-in (this PC's efficiency cores, logical processors 12 to 15) | in PowerShell: `cmd /c 'start "" /affinity F000 /wait /b <program> <arguments>'`, for example `target\release\catchword-eval.exe scale`, or `cargo test --release ...`, whose test programs inherit the hold; performance cores alone: `0FFF` |
 | Scanning measurement | `cargo test --release -p catchword-service --test measure -- --ignored --nocapture` |
 | Embedding measurement | `cargo test --release -p catchword-desktop measure_embedding -- --ignored --nocapture` |
-| Embedding with copies against one model (ADR-25) | `cargo test --release -p catchword-desktop measure_copies -- --ignored --nocapture` |
+| Embedding with copies against one model (ADR-25), as this PC splits the default mode and as the reference laptop would | `cargo test --release -p catchword-desktop measure_copies -- --ignored --nocapture` |
 | Deletion measurement (bulk purge against secure-delete, ADR-22) | `cargo test --release -p catchword-store measure_deleting -- --ignored --nocapture` |
 
 There are no migrations to run by hand: the index upgrades itself on opening (section 14). There is no seed data.
@@ -690,6 +707,10 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 - Task: the owner asked for the app to be rebuilt and installed, then the next step.
 - Then: the app rebuilt (`sh scripts/package-nsis.sh`) and installed for the owner (`dcc60f3`) with `/S`, and `target\try-app` refreshed. It started cleanly on its first start after installing: interface 0.77 s, model 1.39 s (2.2 s for the 25 November build's first start); the index was up to date, and `embed.finished` logged `copies`.
 - Also: section 2's speed row and section 13's count of ignored tests were stale, now corrected.
+- Then, the next step: every High item in section 10 needs the owner or a reference laptop, so a stand-in for that laptop was measured: this laptop held to its four efficiency cores (`docs/benchmarks/2026-11-26-stand-in.md`). Four targets would probably be missed there (section 8): meaning ready about 2.2 s after start, keyword search 166 ms, combined search 777 ms, embedding 7 a second. Window, scans, search by words in minutes and memory are met. `measure_copies` now also measures the reference laptop's split (8 logical processors), and `scripts/measure-app.ps1` takes `-Affinity`. ADR-4, ADR-6 and ADR-25 note the results.
+- Problems encountered: the laptop measured slower than on 3 October (combined 449 to 483 ms on its performance cores against 330 ms); a build from before the SQLite 3.54.1 update gave the same, so not the code. `measure-app.ps1` once counted unrelated processes (process ids are reused), now fixed. PowerShell swallows a bare `--` passed to a script: quote it (`'--'`).
+- Current state: committed and pushed; all local checks pass.
+- Next step: the owner's decisions in section 10, the stand-in's four missed targets first.
 
 ---
 

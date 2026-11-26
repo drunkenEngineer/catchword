@@ -56,7 +56,7 @@ With this, the test process peaked at 744 MB, against 201 MB with one model. Fou
 
 ## Consequences
 
-- **Faster:** about 30% on the owner's laptop, and the target is met there. On a reference laptop (8 cores), the default mode gets two copies; that is still to be measured.
+- **Faster:** about 30% on the owner's laptop, and the target is met there. On a reference laptop (8 cores), the default mode gets two copies. On a stand-in for it (the owner's laptop held to its four efficiency cores, 26 November 2026), two copies gave 7.0 a second against 6.0 for one model: about 17% faster, far short of the target there (`docs/benchmarks/2026-11-26-stand-in.md`). A real reference laptop is still to be measured.
 - **Memory while a long stage runs:** about 540 MB more for four copies. That puts the app's indexing peak at about 1.05 GB, under 1.5 GB.
 - **The log says how many copies helped.** `embed.finished` records `copies`.
 - **The command-line tool does not use copies.** It lets the runtime choose its threads, and has no resource modes.

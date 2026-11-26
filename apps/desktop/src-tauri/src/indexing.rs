@@ -938,9 +938,14 @@ mod tests {
 
     /// A measurement, not a check: run it in a release build.
     /// `cargo test --release -p catchword-desktop measure_copies -- --ignored --nocapture`
+    /// It measures the default mode as this PC splits it, then as the
+    /// spec's reference laptop would (four cores, eight logical
+    /// processors). For that laptop's speed, run it on efficiency cores
+    /// alone (docs/benchmarks/2026-11-26-stand-in.md).
     #[test]
     #[ignore = "a measurement, with the real model"]
     fn measure_copies_against_one_model() {
+        const REFERENCE_LOGICAL: usize = 8;
         use catchword_embed::{Embedder, Paths, DEFAULT_MODEL};
         fn load(threads: Threads) -> Model {
             let vendor = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../vendor");
@@ -970,35 +975,48 @@ mod tests {
             )
             .unwrap();
         }
-        let model = load(threads(ResourceMode::Balanced));
-        let cutter = Cutter::for_model(&model);
-        for (name, copies) in [
-            ("one model", Copies::NONE),
-            ("copies", copies(ResourceMode::Balanced)),
-        ] {
-            let mut store = Store::open_in_memory().unwrap();
-            index_folder(
-                &mut store,
-                &folder,
-                &Exclusions::default(),
-                &cutter,
-                &Worker::NextToProgram,
-                &Limits::default(),
-                |_, _| true,
-            )
-            .unwrap();
-            let passages = store.counts().unwrap().passages;
-            let started = Instant::now();
-            let report =
-                embed_missing(&mut store, model.ready().unwrap(), copies, |_, _| true).unwrap();
-            let seconds = started.elapsed().as_secs_f64();
-            println!(
-                "Balanced, {name} ({} copies of {} threads): {passages} passages in {seconds:.1} s, \
-                 {:.1} a second, loading included",
-                report.copies,
-                copies.threads.count,
-                passages as f64 / seconds
-            );
+        for logical in [logical_cores(), REFERENCE_LOGICAL] {
+            let background = Some(lower_priority as fn());
+            let shared = budget(ResourceMode::Balanced, logical);
+            let model = load(Threads {
+                count: shared,
+                background,
+            });
+            let cutter = Cutter::for_model(&model);
+            let (count, each) = copies_for(ResourceMode::Balanced, logical);
+            let split = Copies {
+                count,
+                threads: Threads {
+                    count: each,
+                    background,
+                },
+            };
+            for (name, copies) in [("one model", Copies::NONE), ("copies", split)] {
+                let mut store = Store::open_in_memory().unwrap();
+                index_folder(
+                    &mut store,
+                    &folder,
+                    &Exclusions::default(),
+                    &cutter,
+                    &Worker::NextToProgram,
+                    &Limits::default(),
+                    |_, _| true,
+                )
+                .unwrap();
+                let passages = store.counts().unwrap().passages;
+                let started = Instant::now();
+                let report =
+                    embed_missing(&mut store, model.ready().unwrap(), copies, |_, _| true).unwrap();
+                let seconds = started.elapsed().as_secs_f64();
+                println!(
+                    "{logical} logical processors, Balanced, {name} (one model on {shared} \
+                     threads, or {} copies of {} threads): {passages} passages in {seconds:.1} s, \
+                     {:.1} a second, loading included",
+                    report.copies,
+                    copies.threads.count,
+                    passages as f64 / seconds
+                );
+            }
         }
         std::fs::remove_dir_all(&folder).unwrap();
     }
