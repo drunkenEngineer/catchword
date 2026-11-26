@@ -84,9 +84,18 @@ fn word(number: usize) -> String {
     }
 }
 
+/// How the searching connection reads the index file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reads {
+    /// Through a memory map, as the app reads an index in its usual place.
+    Mapped,
+    /// With a call to the system for each page, as for a moved index.
+    Ordinary,
+}
+
 /// Build an index of `passages` synthetic passages in `folder`, time the
 /// three kinds of search, and report the timings and the index size.
-pub fn run(passages: usize, folder: &Path) -> Result<String> {
+pub fn run(passages: usize, reads: Reads, folder: &Path) -> Result<String> {
     fs::create_dir_all(folder)?;
     let path = folder.join("scale.db");
     for suffix in ["", "-wal", "-shm"] {
@@ -137,6 +146,13 @@ pub fn run(passages: usize, folder: &Path) -> Result<String> {
     }
     let vector_seconds = started.elapsed().as_secs_f64();
 
+    // Search on a connection of its own, as the app does (ADR-26).
+    drop(store);
+    let store = Store::open(&path)?;
+    if reads == Reads::Mapped {
+        store.map_reads()?;
+    }
+
     let mut by_words = Vec::new();
     let mut meaning = Vec::new();
     let mut combined = Vec::new();
@@ -162,7 +178,12 @@ pub fn run(passages: usize, folder: &Path) -> Result<String> {
     let mut out = String::new();
     let _ = writeln!(
         out,
-        "{total} synthetic passages of {WORDS_PER_PASSAGE} words, {DIMENSIONS}-number vectors.\n"
+        "{total} synthetic passages of {WORDS_PER_PASSAGE} words, {DIMENSIONS}-number vectors, \
+         {} reads.\n",
+        match reads {
+            Reads::Mapped => "mapped",
+            Reads::Ordinary => "ordinary",
+        }
     );
     let _ = writeln!(out, "| Measure | Result |");
     let _ = writeln!(out, "| --- | ---: |");
@@ -257,8 +278,9 @@ mod tests {
     #[test]
     fn a_small_index_reports_every_measure() {
         let folder = std::env::temp_dir().join("catchword-eval-test-scale");
-        let report = run(100, &folder).unwrap();
+        let report = run(100, Reads::Mapped, &folder).unwrap();
         assert!(report.contains("100 synthetic passages"), "{report}");
+        assert!(report.contains("mapped reads"), "{report}");
         assert!(
             report.contains("Combined search, 95th percentile"),
             "{report}"

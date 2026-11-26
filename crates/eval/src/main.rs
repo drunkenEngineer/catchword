@@ -32,6 +32,7 @@ Options:
   --overlap <n>        Overlap for run (default: the app's)
   --candidates <n>     Results each search adds before combining (default: the app's)
   --passages <n>       Size of the scale index (default: 250000)
+  --ordinary-reads     For scale: read without a memory map, as for a moved index
   --out <file>         Also write the report to a file
 
 Needs sh scripts/fetch-embedding.sh and sh scripts/fetch-eval.sh first.";
@@ -87,7 +88,16 @@ fn start() -> Result<ExitCode> {
         Some("check") => return check(&vendor),
         Some("scale") => {
             let passages = number("--passages", 250_000)?;
-            scale::run(passages, &std::env::temp_dir().join("catchword-scale"))?
+            let reads = if args.iter().any(|arg| arg == "--ordinary-reads") {
+                scale::Reads::Ordinary
+            } else {
+                scale::Reads::Mapped
+            };
+            scale::run(
+                passages,
+                reads,
+                &std::env::temp_dir().join("catchword-scale"),
+            )?
         }
         _ => {
             println!("{USAGE}");

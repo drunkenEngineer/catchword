@@ -24,6 +24,7 @@ cargo run -p catchword-eval -- check       # the app's settings against threshol
 cargo run -p catchword-eval -- run --model e5 --tokens 200
 cargo run -p catchword-eval -- benchmark --out report.md
 cargo run -p catchword-eval -- scale       # search speed on 250,000 synthetic passages
+cargo run -p catchword-eval -- scale --ordinary-reads   # as for a moved index (ADR-26)
 ```
 
 The scores are recall@10, MRR@10 and nDCG@10, each for words only, meaning only and both combined. They are broken down by kind of query, document language, script and source.

@@ -57,6 +57,11 @@ const KEYWORD_INDEXES: [&str; 2] = ["passages_fts", "names_fts"];
 /// place, against compacting at about 0.06 ms a passage left).
 const BULK_SHARE: f64 = 0.02;
 
+/// How much of the index file [`Store::map_reads`] lets SQLite read through
+/// a memory map. SQLite caps it at its own limit, just under 2 GB; a larger
+/// index reads the rest as before.
+const MAPPED_BYTES: i64 = 1 << 31;
+
 pub struct Store {
     conn: Connection,
     was_reset: bool,
@@ -273,6 +278,27 @@ impl Store {
                  USING fts5vocab(main, passages_fts, 'row');",
         )?;
         Ok(Self { conn, was_reset })
+    }
+
+    /// Read the index file through a memory map, rather than with one call
+    /// to the system for each 4 KB page (ADR-26). A search reads hundreds of
+    /// megabytes at the reference size, and this made it about three times
+    /// faster on a stand-in for the reference laptop.
+    ///
+    /// Only for an index on a drive that stays connected. If the drive goes
+    /// while the index is open, a read through the map stops the whole
+    /// program, where an ordinary read returns an error. Writing is
+    /// unchanged: SQLite still writes with ordinary calls.
+    pub fn map_reads(&self) -> rusqlite::Result<()> {
+        self.conn.pragma_update(None, "mmap_size", MAPPED_BYTES)
+    }
+
+    /// True when reads go through a memory map ([`Store::map_reads`]).
+    pub fn reads_mapped(&self) -> rusqlite::Result<bool> {
+        let bytes: i64 = self
+            .conn
+            .query_row("PRAGMA mmap_size", (), |row| row.get(0))?;
+        Ok(bytes > 0)
     }
 
     /// Record when a scan of every folder last finished, in seconds since
@@ -1009,6 +1035,10 @@ impl Store {
         };
         // highlight() marks each word the keyword index matched, between
         // two control characters that passage text never contains.
+        // Sorted by FTS5's rank, which is bm25 with its default weights: it
+        // sorts first, so only the passages read below get a snippet, a
+        // highlight and their file. ORDER BY bm25() worked those out for
+        // every match before sorting (ADR-26).
         let mut statement = self.conn.prepare(
             "SELECT p.id,
                     (SELECT MIN(path) FROM files f WHERE f.hash = p.hash),
@@ -1017,12 +1047,12 @@ impl Store {
                     p.start_line,
                     p.end_line,
                     snippet(passages_fts, 0, char(2), char(3), ' ... ', 24),
-                    bm25(passages_fts),
+                    rank,
                     highlight(passages_fts, 0, char(2), char(3))
              FROM passages_fts
              JOIN passages p ON p.id = passages_fts.rowid
              WHERE passages_fts MATCH ?1
-             ORDER BY bm25(passages_fts)
+             ORDER BY rank
              LIMIT ?2",
         )?;
         let rows = statement.query_map(params![fts_query, (limit * 5 + 20) as i64], |row| {
@@ -2374,6 +2404,42 @@ mod tests {
         assert!(store.passages_without_vectors(10).is_err());
         assert!(store.put_vectors(&[(1, toward(0))]).is_err());
         assert!(store.search_vector(&toward(0), 3).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_mapped_index_still_reads_what_another_connection_writes_later() {
+        let file = std::env::temp_dir().join("catchword-store-test-mapped.db");
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{suffix}", file.display()));
+        }
+        // As in the app: one connection indexes, another searches.
+        let mut writer = Store::open(&file).unwrap();
+        let reader = Store::open(&file).unwrap();
+        assert!(!reader.reads_mapped().unwrap());
+        reader.map_reads().unwrap();
+        assert!(reader.reads_mapped().unwrap());
+        assert!(reader.search_keyword("marker299", 10).unwrap().is_empty());
+
+        // Enough to grow the file far past what was mapped at first, all of
+        // it moved from the log into the file itself.
+        let filler = "lorem ipsum dolor sit amet ".repeat(160);
+        for n in 0..300 {
+            let text = format!("{filler} marker{n}");
+            let passages = chunk(&text, 50, 5, &WordTokenizer);
+            writer
+                .put_file(&format!("/{n}.txt"), 1, 1, &format!("h{n}"), &passages)
+                .unwrap();
+        }
+        checkpoint(&writer.conn).unwrap();
+        assert!(std::fs::metadata(&file).unwrap().len() > 1_000_000);
+
+        let hits = reader.search_keyword("marker299", 10).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].path, "/299.txt");
+        drop((writer, reader));
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{suffix}", file.display()));
+        }
     }
 
     #[test]

@@ -31,3 +31,4 @@ ADR-1 to ADR-13 are the founding decisions in section 23 of `docs/specification.
 | [0023](0023-moving-the-index.md) | Moving the index to a folder the user chooses |
 | [0024](0024-the-updater.md) | The updater in the GitHub build |
 | [0025](0025-copies-of-the-model-for-embedding.md) | Copies of the model embed side by side in a long meaning stage |
+| [0026](0026-mapped-reads-before-quantised-vectors.md) | Faster searches on a slower laptop: mapped reads, not yet quantised vectors |

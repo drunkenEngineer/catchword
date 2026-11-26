@@ -101,7 +101,7 @@ impl AppState {
         }
         let (reader, opened) = match &away {
             Some(_) => (Store::open_in_memory()?, Opened::Away),
-            None => open_index(&index, &log)?,
+            None => open_index(&index, &usual_index, &log)?,
         };
         let indexer = Indexer::new(index.clone(), worker, Arc::clone(&log));
         if settings.paused {
@@ -619,7 +619,8 @@ impl AppState {
             remove_own_folder(&index);
             self.set_index_path(self.usual_index.clone());
         }
-        *reader = Store::open(&self.usual_index).context("cannot create a new index")?;
+        *reader = open_reader(&self.usual_index, &self.usual_index)
+            .context("cannot create a new index")?;
         drop(reader);
         if matches!(
             self.indexer.paused(),
@@ -832,7 +833,7 @@ impl AppState {
         *reader = Store::open_in_memory()?;
         remove_index_files(&index)?;
         remove_if_there(&set_aside_path(&index))?;
-        *reader = Store::open(&index).context("cannot create a new index")?;
+        *reader = open_reader(&index, &self.usual_index).context("cannot create a new index")?;
         drop(reader);
         if self.indexer.paused() == Some(PauseReason::NewerIndex) {
             self.indexer.resume();
@@ -904,7 +905,8 @@ impl AppState {
         };
         if let Err(error) = copied {
             if !away {
-                *reader = Store::open(&from).context("cannot open the index again")?;
+                *reader =
+                    open_reader(&from, &self.usual_index).context("cannot open the index again")?;
             }
             drop(reader);
             self.start_indexing(notify);
@@ -916,7 +918,7 @@ impl AppState {
             settings.save(&self.config_dir)?;
         }
         self.set_index_path(to.clone());
-        let (store, opened) = open_index(&to, &self.log)?;
+        let (store, opened) = open_index(&to, &self.usual_index, &self.log)?;
         *reader = store;
         drop(reader);
         if !away {
@@ -951,7 +953,7 @@ impl AppState {
                 folder.display()
             ));
         }
-        let (store, opened) = open_index(&index, &self.log)?;
+        let (store, opened) = open_index(&index, &self.usual_index, &self.log)?;
         *lock(&self.reader) = store;
         self.log.info("index.back", &[]);
         if let Opened::Newer = opened {
@@ -1006,12 +1008,26 @@ enum Opened {
     Away,
 }
 
+/// Open the index for searching. In its usual place, on the computer's own
+/// drive, it is read through a memory map, which makes searching a large
+/// index about three times faster on a slower laptop (ADR-26). Moved
+/// elsewhere, perhaps to a drive that can be unplugged, it is read as
+/// before: a read from a drive that has gone must fail with an error, not
+/// stop the app.
+fn open_reader(index: &Path, usual: &Path) -> catchword_store::rusqlite::Result<Store> {
+    let store = Store::open(index)?;
+    if index == usual {
+        store.map_reads()?;
+    }
+    Ok(store)
+}
+
 /// Open the index, after a quick check (section 12, corruption recovery).
 /// A damaged one is set aside and a fresh one is made, which the scan at
 /// start fills; the damaged one is deleted on the next good start, as it
 /// holds private text. An index from a newer version is never written to.
-fn open_index(index: &Path, log: &Logger) -> Result<(Store, Opened)> {
-    match Store::open(index) {
+fn open_index(index: &Path, usual: &Path, log: &Logger) -> Result<(Store, Opened)> {
+    match open_reader(index, usual) {
         Ok(store) => {
             if store.quick_check().unwrap_or(false) {
                 remove_if_there(&set_aside_path(index))?;
@@ -1032,7 +1048,7 @@ fn open_index(index: &Path, log: &Logger) -> Result<(Store, Opened)> {
     remove_if_there(&aside)?;
     std::fs::rename(index, &aside).context("cannot set the damaged index aside")?;
     remove_index_files(index)?;
-    let store = Store::open(index).context("cannot create a new index")?;
+    let store = open_reader(index, usual).context("cannot create a new index")?;
     Ok((store, Opened::Rebuilt))
 }
 
@@ -1934,11 +1950,17 @@ mod tests {
         std::fs::create_dir_all(&chosen).unwrap();
         std::fs::write(chosen.join("mine.txt"), "the user's own file").unwrap();
 
+        // In its usual place, searching reads through a memory map; moved,
+        // perhaps to a drive that can be unplugged, it reads as before (ADR-26).
+        let mapped = |state: &AppState| lock(&state.reader).reads_mapped().unwrap();
+        assert!(mapped(&state));
+
         let choice = state.propose_index_folder(&chosen);
         assert!(choice.path.ends_with(INDEX_FOLDER));
         assert_eq!(choice.synced_by, None);
         move_to(&state, &chosen);
         assert!(chosen.join(INDEX_FOLDER).join("index.db").is_file());
+        assert!(!mapped(&state));
         // The old copy holds the documents' text: it is gone.
         assert!(!usual.exists());
         assert_eq!(state.search("notice period").unwrap().files.len(), 1);
@@ -1950,6 +1972,7 @@ mod tests {
         drop(state);
         let state = reopen(&data);
         assert_eq!(state.status().unwrap().files, 2);
+        assert!(!mapped(&state));
 
         // Back to the usual place: the folder of its own goes, nothing else.
         state.move_index(None, Arc::new(|| {})).unwrap();
@@ -1959,6 +1982,7 @@ mod tests {
         assert!(chosen.join("mine.txt").is_file());
         assert_eq!(state.status().unwrap().files, 2);
         assert!(!state.settings().unwrap().index_moved);
+        assert!(mapped(&state));
     }
 
     #[test]
