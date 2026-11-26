@@ -4,7 +4,7 @@ Persistent handover for whoever, person or LLM, continues Catchword. Read it com
 
 Related files: `HANDOFF.md` holds the original task queue (items 1 to 23) with a dated note per item; `CLAUDE.md` holds the working rules; `docs/specification.md` is the full plan (26 sections). If this file and the code disagree, the code wins: correct this file.
 
-Last updated: 2026-11-25.
+Last updated: 2026-11-26.
 
 ---
 
@@ -61,7 +61,7 @@ Overall health: **good**. On 2026-11-25, on Windows 11, after the security updat
 | Licence notices (cargo-about), shown in About and shipped | `[DONE]` |
 | NSIS per-user installer (GitHub build) | `[DONE]`, install/update-uninstall/uninstall tested by hand once |
 | MSIX package (Store build) | `[IN PROGRESS]`: builds and its files are tested; never installed |
-| Speed and memory against section 14 | `[DONE]` measured on the owner's laptop; two targets missed (section 8) |
+| Speed and memory against section 14 | `[DONE]` measured on the owner's laptop: every target met since 25 November 2026 (the two missed in October are fixed, section 8) |
 | CI on Windows, Linux, macOS | `[DONE]`: green on all three since `edef380` (8 October 2026), with the updater build, the signing test and cargo-deny; the repository is public, so CI minutes are free |
 | Updater in the GitHub build (APP-2, APP-1's update choice; ADR-24) | `[DONE]`, not yet tried against a real release; a beta channel (REL-3) `[TODO]` |
 | Weekly dependency update pull requests (Dependabot) | `[DONE]`, approved by the owner on 9 October 2026: Rust, npm and CI actions, grouped; `ort`, `pdfium-render` and Tauri's minor and major versions move by hand (`.github/dependabot.yml`). PDFium and ONNX Runtime themselves are pinned in the fetch scripts, which Dependabot cannot watch. Its first four pull requests (rusqlite 0.40, sha2 0.11, chardetng 1.0, two interface packages) were fixed where needed and merged on 9 October 2026, each once CI passed on all three systems; how to handle them is in section 17 |
@@ -470,7 +470,7 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 
 ## 13. Testing
 
-- Coverage on 2026-11-25: 278 Rust tests and 74 interface tests pass. There are four ignored tests: the packaged-files test and three measurements (scanning, deleting, embedding).
+- Coverage on 2026-11-25: 278 Rust tests and 74 interface tests pass. There are five ignored tests: the packaged-files test and four measurements (scanning, deleting, embedding, and copies of the model against one).
 - The evaluation meets all 11 thresholds; combined recall@10 is 92.5%.
 - Rust tests:
   - unit tests in each crate;
@@ -589,8 +589,8 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
   - The Indexer's locks (`indexing.rs`): the order is control, then snapshot. In `commands.rs`, take one `AppState` lock per statement: a guard lives to the end of its statement, so two in one expression would deadlock (caught in review, never shipped).
   - The index file cannot be deleted while a connection is open. `delete_all_data` and `rebuild_index` first swap the reader for an in-memory store.
 - On the owner's PC:
-  - the installed app (`%LOCALAPPDATA%\Catchword`) and `target\try-app\` share one data folder. `target\try-app\` is an unpacked app laid out as the packages install it, refreshed by hand (copy `Catchword.exe`, `catchword-worker.exe` from `target\release\` after `sh scripts/package-nsis.sh`, and `onnxruntime.dll` from `vendor\onnxruntime\`); it last held the build with the parallel model load (25 November 2026);
-  - the installed app is the GitHub build of 25 November 2026 (`29ce228`: SQLite 3.54.1, ONNX Runtime 1.31.1, the updater), installed over the 9 October one with `/S`, which kept the data; its existing index opened without a rebuild. Until a first release is published, its "Check now" can only fail: there is no `latest.json` to find yet;
+  - the installed app (`%LOCALAPPDATA%\Catchword`) and `target\try-app\` share one data folder. `target\try-app\` is an unpacked app laid out as the packages install it, refreshed by hand (copy `Catchword.exe`, `catchword-worker.exe` from `target\release\` after `sh scripts/package-nsis.sh`, and `onnxruntime.dll` from `vendor\onnxruntime\`); it holds the same build as the installed app (26 November 2026);
+  - the installed app is the GitHub build of 26 November 2026 (`dcc60f3`: the parallel model load and copies of the model, on SQLite 3.54.1, ONNX Runtime 1.31.1, with the updater), installed over the 25 November one with `/S`, which kept the data. Until a first release is published, its "Check now" can only fail: there is no `latest.json` to find yet;
   - indexing is no longer paused: on 25 November 2026 the app indexed at start (one folder, about 125 files).
 - **Dependabot pull requests** (every Monday): check out each branch, run the local checks, and fix what breaks on that branch, with a test for any changed behaviour. Merge (squash) only when CI is green on all three systems, then run the checks on `main`, since pull requests that each pass alone can still clash. The first round (9 October 2026) needed: sha2 0.11 no longer hashes from a reader, so `hash_file` in `crates/engine/src/lib.rs` reads 64 KB pieces and the model check in `crates/embed` uses it; chardetng 1.0 asks whether ISO-2022-JP may be guessed and names the UTF-8 choice that was a boolean, so `encoding.rs` passes `Iso2022JpDetection::Allow` and `Utf8Detection::Deny` to keep the same detection; rusqlite 0.40 changed one C pointer type in the extension hook in `crates/store/src/lib.rs`. The deletion measurement looked twice as slow afterwards, but `main` measured the same back to back: machine load, not SQLite. If every pull request fails the same check, look at `main`'s weekly run first: an advisory published against a library already in use fails `main` too, and blocks every pull request until it is fixed on `main` (this happened from 19 October to 25 November 2026, section 8). Then have Dependabot rebase its pull requests (a `@dependabot rebase` comment).
 - `HANDOFF.md` is the older queue document. Keep its history, but put new status here.
@@ -685,6 +685,11 @@ There are no migrations to run by hand: the index upgrades itself on opening (se
 - Then: the owner approved copies of the model for embedding ("yes continue ur work"). Built as ADR-25: a `Copier` trait in `crates/embed` (copies share the tokenizer; each model file checked), copies made one at a time in `embed_missing` from 256 waiting passages, the mode's threads split between them in the desktop (`copies_for`), and `copies` in the `embed.finished` log. 20.3 passages a second against 15.8, peak 744 MB for the test process. New tests: the conformance suite checks a copy's vectors; six service tests (same vectors, none for a short stage, refused copies, a pause while making copies, a pause while embedding, a failing copy); two desktop tests (the thread split, a long stage in the indexer logging its copies). Running the new tests repeatedly found two faults, fixed before committing: vectors from copies were saved in the order they finished, which changed the order of equal-score results (now sorted by passage), and the pause test's bound was too tight (section 9).
 - Current state: everything committed and pushed; no pull requests open; all local checks pass.
 - Next step: the rest of section 10; the installed app has neither of today's speed changes until it is rebuilt.
+
+**2026-11-26**
+- Task: the owner asked for the app to be rebuilt and installed, then the next step.
+- Then: the app rebuilt (`sh scripts/package-nsis.sh`) and installed for the owner (`dcc60f3`) with `/S`, and `target\try-app` refreshed. It started cleanly on its first start after installing: interface 0.77 s, model 1.39 s (2.2 s for the 25 November build's first start); the index was up to date, and `embed.finished` logged `copies`.
+- Also: section 2's speed row and section 13's count of ignored tests were stale, now corrected.
 
 ---
 
